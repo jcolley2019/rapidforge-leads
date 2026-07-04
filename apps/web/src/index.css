@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * RapidForge visual language (PRD 7.1): dark default with light toggle,
+ * electric cyan #00d9ff (hsl 189 100% 50%) for agent-active/primary,
+ * amber waiting, green complete, red errors. 6–8px radii, 1px low-opacity
+ * borders, dense grid.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 224 20% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 20% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 20% 10%;
+    --primary: 189 100% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 224 20% 10%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 10% 42%;
+    --accent: 220 14% 92%;
+    --accent-foreground: 224 20% 10%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 88%;
+    --input: 220 13% 85%;
+    --ring: 189 100% 38%;
+    --radius: 0.5rem;
+    --agent-active: 189 100% 40%;
+    --agent-waiting: 38 92% 45%;
+    --agent-complete: 142 71% 38%;
+    --agent-error: 0 84% 55%;
+  }
+
+  .dark {
+    --background: 225 20% 5%;
+    --foreground: 213 25% 92%;
+    --card: 225 18% 7%;
+    --card-foreground: 213 25% 92%;
+    --popover: 225 18% 7%;
+    --popover-foreground: 213 25% 92%;
+    --primary: 189 100% 50%; /* #00d9ff */
+    --primary-foreground: 225 30% 8%;
+    --secondary: 223 15% 12%;
+    --secondary-foreground: 213 25% 92%;
+    --muted: 223 15% 12%;
+    --muted-foreground: 217 12% 58%;
+    --accent: 223 15% 14%;
+    --accent-foreground: 213 25% 92%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 222 14% 15%;
+    --input: 222 14% 17%;
+    --ring: 189 100% 50%;
+    --agent-active: 189 100% 50%;
+    --agent-waiting: 38 92% 50%;
+    --agent-complete: 142 71% 45%;
+    --agent-error: 0 84% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+}
