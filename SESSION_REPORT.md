@@ -6,6 +6,15 @@
 
 ---
 
+> **RELOCATION UPDATE (same day, post-sprint):** Joey chose to keep the
+> project in the OneDrive folder. The repo — full git history included —
+> now lives at **`C:\Users\jcoll\OneDrive\Desktop\rapidforge-leads`**.
+> CLAUDE.md's path references were updated accordingly, all acceptance
+> checks were re-run green in the new location, and `C:\dev\rapidforge`
+> now contains only the original `PRD\` docx folder (safe to delete —
+> a copy of `PRD\` sits in the repo, untracked). §0 below is the
+> historical record of the original decision.
+
 ## 0. Where the repo is (read this first)
 
 The session was launched from `C:\Users\jcoll\OneDrive\Desktop\rapidforge-leads`

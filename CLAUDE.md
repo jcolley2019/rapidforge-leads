@@ -10,7 +10,7 @@
 **RapidForge:** multi-agent local lead generation platform. Find local businesses (Google Places), audit their websites (deterministic measurements + AI interpretation), score Health (0–100) → star grade (1–5) and Sellability (0–100), and produce per-lead deliverables: issues list, Analyst verdict, Builder Brief, Sales Summary talk track.
 
 - **Owner:** Joey Colley (solo dev; single user in v1; multi-tenant schema from day one)
-- **Repo:** `jcolley2019/rapidforge` (private) · **Local:** `C:\dev\rapidforge` (NOT under OneDrive)
+- **Repo:** `jcolley2019/rapidforge` (private) · **Local:** `C:\Users\jcoll\OneDrive\Desktop\rapidforge-leads` (Joey's call, 2026-07-04 — if `npm install` hits OneDrive file locks, pause sync and retry)
 - **Source of truth:** `RapidForge-PRD.md` (v2.1) in repo root. Consult before building any agent, table, or view.
 
 **Topology:** npm workspaces monorepo — `apps/web` (Vite dashboard → Vercel, anon key + RLS only, zero secrets) · `apps/worker` (Node/Express pipeline — local in v1, Railway later — holds ALL secrets, runs the jobs poller, broadcasts Realtime events) · `packages/shared` (Zod schemas, scoring constants, event types) · `supabase/` (migrations, applied only by Joey in the web SQL editor).
@@ -73,7 +73,7 @@ Scores are **deterministic math** (PRD Section 4; constants in `packages/shared/
 
 ## 5. Windows + PowerShell
 
-All terminal commands in PowerShell syntax. Paths use backslashes (`C:\dev\rapidforge\apps\worker\src\agents\health.ts`).
+All terminal commands in PowerShell syntax. Paths use backslashes (`C:\Users\jcoll\OneDrive\Desktop\rapidforge-leads\apps\worker\src\agents\health.ts`).
 
 | Unix (wrong) | PowerShell (correct) |
 |---|---|
