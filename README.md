@@ -26,8 +26,8 @@ supabase/         Migration SQL files — applied ONLY by hand in the Supabase w
 ## Setup
 
 ```powershell
-git clone <repo> C:\dev\rapidforge
-Set-Location C:\dev\rapidforge
+git clone https://github.com/jcolley2019/rapidforge-leads.git C:\dev\rapidforge-leads
+Set-Location C:\dev\rapidforge-leads
 npm install
 npm run dev     # web on http://localhost:5173, worker on http://localhost:8788
 ```
