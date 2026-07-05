@@ -1,5 +1,6 @@
 import { Loader2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
+import { CommandPalette } from "@/components/CommandPalette";
 import { LeftRail } from "@/components/layout/LeftRail";
 import { TopBar } from "@/components/layout/TopBar";
 import { LeadDrawer } from "@/components/leads/LeadDrawer";
@@ -24,6 +25,7 @@ export function App() {
   // Workspace is the primary page (Sprint 4).
   const [view, setView] = useState<ViewKey>("workspace");
   const [collapsed, setCollapsed] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   // Submitting a search routes to the Workspace view for that id.
   const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
 
@@ -95,7 +97,12 @@ export function App() {
           </div>
         )}
 
-        <TopBar userEmail={userEmail} onSignOut={() => void signOut()} />
+        <TopBar
+          userEmail={userEmail}
+          onSignOut={() => void signOut()}
+          onOpenPalette={() => setPaletteOpen(true)}
+          onOpenAnalytics={() => setView("analytics")}
+        />
 
         <div className="flex flex-1 overflow-hidden">
           <LeftRail
@@ -110,6 +117,11 @@ export function App() {
         </div>
 
         <LeadDrawer />
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          onNavigate={setView}
+        />
       </div>
       </LeadDrawerProvider>
     </LiveContext.Provider>

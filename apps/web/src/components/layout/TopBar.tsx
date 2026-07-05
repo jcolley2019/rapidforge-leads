@@ -1,21 +1,35 @@
 import { LogOut, Moon, Sun } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import { useLive } from "@/features/live/useWorkspaceLive";
+import { fetchUsage } from "@/lib/api";
+import { formatCents } from "@/lib/format";
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+
+const USAGE_REFRESH_MS = 60_000;
 
 interface TopBarProps {
   /** Signed-in user email; null in offline preview / signed-out states. */
   userEmail: string | null;
   onSignOut: () => void;
+  /** Opens the cmd-K palette (PRD 7.5). */
+  onOpenPalette: () => void;
+  /** Usage meter deep-links to Analytics (PRD 7.2). */
+  onOpenAnalytics: () => void;
 }
 
 /**
  * Top bar (PRD 7.2, Glass v2): brand, workspace chip, connection state,
- * theme toggle, account. cmd-K + usage meter land Sprint 5.
+ * cmd-K trigger, live usage meter, theme toggle, account.
  */
-export function TopBar({ userEmail, onSignOut }: TopBarProps) {
+export function TopBar({
+  userEmail,
+  onSignOut,
+  onOpenPalette,
+  onOpenAnalytics,
+}: TopBarProps) {
   const [theme, setTheme] = useState<Theme>(getTheme);
   const { connection } = useLive();
 
@@ -40,21 +54,18 @@ export function TopBar({ userEmail, onSignOut }: TopBarProps) {
 
       <div className="flex-1" />
 
-      {/* cmd-K hint — palette lands Sprint 5 */}
-      <span
-        className="hidden rounded-lg border border-border/80 px-2 py-0.5 font-mono text-[11px] text-muted-foreground sm:inline"
-        title="Command palette — Sprint 5"
+      <button
+        type="button"
+        onClick={onOpenPalette}
+        className="hidden rounded-lg border border-border/80 px-2 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground sm:inline"
+        title="Command palette"
+        aria-label="Open command palette (Ctrl K)"
       >
         Ctrl K
-      </span>
+      </button>
 
-      {/* Usage meter placeholder — wired to usage_events in Sprint 5 */}
-      <span
-        className="font-mono text-xs text-muted-foreground"
-        title="Monthly API spend — wired in Sprint 5"
-      >
-        $0.00 / mo
-      </span>
+      <UsageMeter onClick={onOpenAnalytics} />
+
 
       <Button
         variant="ghost"
@@ -84,6 +95,46 @@ export function TopBar({ userEmail, onSignOut }: TopBarProps) {
         <span className="text-xs text-muted-foreground">offline preview</span>
       )}
     </header>
+  );
+}
+
+/**
+ * Current-month usage_events rollup (PRD 7.2). Refreshes every minute and
+ * after any lead mutation; failures degrade to an em-dash, never break the
+ * bar. Click deep-links to Analytics.
+ */
+function UsageMeter({ onClick }: { onClick: () => void }) {
+  const { leadsVersion } = useLeadDrawer();
+  const [totalCents, setTotalCents] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      try {
+        const summary = await fetchUsage();
+        if (!cancelled) setTotalCents(summary.total_cents);
+      } catch {
+        if (!cancelled) setTotalCents(null);
+      }
+    }
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), USAGE_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [leadsVersion]);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+      title="This month's API spend — open Analytics"
+      aria-label="Monthly usage — open Analytics"
+    >
+      {totalCents === null ? "$—.—" : formatCents(totalCents)} / mo
+    </button>
   );
 }
 

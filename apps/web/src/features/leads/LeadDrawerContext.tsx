@@ -21,6 +21,9 @@ interface LeadDrawerValue {
   /** Monotonic counter — bumped after any persisted lead change. */
   leadsVersion: number;
   notifyLeadsChanged: () => void;
+  /** Leads-view bulk selection, shared so cmd-K can act on it (PRD 7.5). */
+  selectedLeadIds: ReadonlySet<string>;
+  setSelectedLeadIds: (ids: Set<string>) => void;
 }
 
 const LeadDrawerContext = createContext<LeadDrawerValue | null>(null);
@@ -28,6 +31,9 @@ const LeadDrawerContext = createContext<LeadDrawerValue | null>(null);
 export function LeadDrawerProvider({ children }: { children: ReactNode }) {
   const [lead, setLead] = useState<LeadView | null>(null);
   const [leadsVersion, setLeadsVersion] = useState(0);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const openLead = useCallback((next: LeadView) => setLead(next), []);
   const closeLead = useCallback(() => setLead(null), []);
@@ -37,8 +43,23 @@ export function LeadDrawerProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ lead, openLead, closeLead, leadsVersion, notifyLeadsChanged }),
-    [lead, openLead, closeLead, leadsVersion, notifyLeadsChanged],
+    () => ({
+      lead,
+      openLead,
+      closeLead,
+      leadsVersion,
+      notifyLeadsChanged,
+      selectedLeadIds,
+      setSelectedLeadIds,
+    }),
+    [
+      lead,
+      openLead,
+      closeLead,
+      leadsVersion,
+      notifyLeadsChanged,
+      selectedLeadIds,
+    ],
   );
   return (
     <LeadDrawerContext.Provider value={value}>

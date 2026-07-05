@@ -61,7 +61,13 @@ function sortValue(lead: LeadView, key: SortKey): string | number | null {
 }
 
 export function LeadsView() {
-  const { openLead, leadsVersion, notifyLeadsChanged } = useLeadDrawer();
+  const {
+    openLead,
+    leadsVersion,
+    notifyLeadsChanged,
+    selectedLeadIds: selected,
+    setSelectedLeadIds: setSelected,
+  } = useLeadDrawer();
   const [leads, setLeads] = useState<LeadView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -76,7 +82,6 @@ export function LeadsView() {
   const [healthMax, setHealthMax] = useState("");
 
   const [sort, setSort] = useState<SortState>({ key: "sellability", dir: -1 });
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<LeadStatus>("called");
   const [forceReaudit, setForceReaudit] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -157,12 +162,10 @@ export function LeadsView() {
   }
 
   function toggleOne(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
   }
 
   const selectedLeads = filtered.filter((l) => selected.has(l.result.id));
