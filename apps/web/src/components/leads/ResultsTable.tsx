@@ -15,9 +15,11 @@ export interface ResultsTableProps {
   leads: LeadView[];
   /** Search status — drives the empty-state copy. */
   terminal: boolean;
+  /** Row click → lead drawer (Sprint 5). Chevron still inline-expands issues. */
+  onSelect?: (lead: LeadView) => void;
 }
 
-export function ResultsTable({ leads, terminal }: ResultsTableProps) {
+export function ResultsTable({ leads, terminal, onSelect }: ResultsTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
@@ -57,6 +59,7 @@ export function ResultsTable({ leads, terminal }: ResultsTableProps) {
                   current === lead.result.id ? null : lead.result.id,
                 )
               }
+              onSelect={onSelect}
             />
           ))}
           {leads.length === 0 && (
@@ -90,11 +93,13 @@ function LeadRow({
   rank,
   expanded,
   onToggle,
+  onSelect,
 }: {
   lead: LeadView;
   rank: number;
   expanded: boolean;
   onToggle: () => void;
+  onSelect?: (lead: LeadView) => void;
 }) {
   const { business, audit } = lead;
   const sellability = audit?.sellability_score ?? null;
@@ -113,23 +118,45 @@ function LeadRow({
         className={cn(
           "border-b border-border/50 transition-colors last:border-0",
           skipped && "opacity-45",
-          expandable && "cursor-pointer hover:bg-accent/40",
+          (onSelect || expandable) && "cursor-pointer hover:bg-accent/40",
         )}
-        onClick={expandable ? onToggle : undefined}
+        onClick={
+          onSelect
+            ? () => onSelect(lead)
+            : expandable
+              ? onToggle
+              : undefined
+        }
         title={
-          expandable ? `${issues.length} issue(s) — click to expand` : undefined
+          onSelect
+            ? "Open lead detail"
+            : expandable
+              ? `${issues.length} issue(s) — click to expand`
+              : undefined
         }
       >
         <td className="px-3 py-3 font-mono text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             {expandable && (
-              <motion.span
-                animate={{ rotate: expanded ? 90 : 0 }}
-                transition={spring.snappy}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggle();
+                }}
                 className="inline-flex"
+                title={`${issues.length} issue(s) — expand inline`}
+                aria-expanded={expanded}
+                aria-label="Toggle issue list"
               >
-                <ChevronRight className="h-3 w-3" aria-hidden />
-              </motion.span>
+                <motion.span
+                  animate={{ rotate: expanded ? 90 : 0 }}
+                  transition={spring.snappy}
+                  className="inline-flex"
+                >
+                  <ChevronRight className="h-3 w-3" aria-hidden />
+                </motion.span>
+              </button>
             )}
             {rank}
           </span>

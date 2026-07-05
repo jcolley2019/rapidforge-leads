@@ -14,6 +14,10 @@ import type {
   CreateSearchRequest,
   Search,
   SearchResult,
+  UpdateLeadStatusRequest,
+  UpdateWorkspaceConfigRequest,
+  UsageSummary,
+  WorkspaceConfig,
 } from "@rapidforge/shared";
 import { supabase } from "@/lib/supabase";
 
@@ -84,4 +88,66 @@ export async function createSearch(
 
 export async function fetchSearchDetail(id: string): Promise<SearchDetail> {
   return apiFetch(`/api/searches/${encodeURIComponent(id)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 5: pipeline / drawer / leads / settings / usage (PRD Section 8)
+// ---------------------------------------------------------------------------
+
+/** Every lead in the workspace, all searches — Pipeline + Leads views. */
+export async function fetchWorkspaceLeads(): Promise<LeadView[]> {
+  const { leads } = await apiFetch<{ leads: LeadView[] }>("/api/leads");
+  return leads;
+}
+
+/** Status / notes / follow-up patch. Returns the updated lead row. */
+export async function updateLeadStatus(
+  id: string,
+  patch: UpdateLeadStatusRequest,
+): Promise<SearchResult> {
+  const { lead } = await apiFetch<{ lead: SearchResult }>(
+    `/api/leads/${encodeURIComponent(id)}/status`,
+    { method: "POST", body: JSON.stringify(patch) },
+  );
+  return lead;
+}
+
+/** Audit history for the drawer's History tab — newest first. */
+export async function fetchBusinessAudits(businessId: string): Promise<Audit[]> {
+  const { audits } = await apiFetch<{ audits: Audit[] }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/audits`,
+  );
+  return audits;
+}
+
+/** Enqueue a fresh audit; force=true bypasses the 30-day cache (PRD 5.5). */
+export async function reauditBusiness(
+  businessId: string,
+  options: { force: boolean },
+): Promise<{ job_id: string; status: string }> {
+  return apiFetch(
+    `/api/businesses/${encodeURIComponent(businessId)}/reaudit`,
+    { method: "POST", body: JSON.stringify(options) },
+  );
+}
+
+/** Current-month usage_events rollup — the top-bar meter. */
+export async function fetchUsage(): Promise<UsageSummary> {
+  return apiFetch("/api/usage");
+}
+
+/** The workspace's cascading variables (Settings). */
+export async function fetchConfig(): Promise<WorkspaceConfig> {
+  const { config } = await apiFetch<{ config: WorkspaceConfig }>("/api/config");
+  return config;
+}
+
+export async function saveConfig(
+  patch: UpdateWorkspaceConfigRequest,
+): Promise<WorkspaceConfig> {
+  const { config } = await apiFetch<{ config: WorkspaceConfig }>(
+    "/api/config",
+    { method: "PUT", body: JSON.stringify(patch) },
+  );
+  return config;
 }

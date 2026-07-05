@@ -2,8 +2,10 @@ import { Loader2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { LeftRail } from "@/components/layout/LeftRail";
 import { TopBar } from "@/components/layout/TopBar";
+import { LeadDrawer } from "@/components/leads/LeadDrawer";
 import { AuthPage } from "@/features/auth/AuthPage";
 import { useAuth } from "@/features/auth/useAuth";
+import { LeadDrawerProvider } from "@/features/leads/LeadDrawerContext";
 import {
   LiveContext,
   useWorkspaceLive,
@@ -80,6 +82,7 @@ export function App() {
 
   return (
     <LiveContext.Provider value={liveValue}>
+      <LeadDrawerProvider>
       <div className="flex h-screen flex-col text-foreground">
         {auth.status === "unconfigured" && (
           <div className="flex items-center gap-2 border-b border-agent-waiting/30 bg-agent-waiting/10 px-6 py-1.5 text-xs text-agent-waiting">
@@ -105,7 +108,10 @@ export function App() {
             {renderView(view)}
           </main>
         </div>
+
+        <LeadDrawer />
       </div>
+      </LeadDrawerProvider>
     </LiveContext.Provider>
   );
 }

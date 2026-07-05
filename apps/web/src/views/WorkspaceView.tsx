@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ZipRadiusParams } from "@rapidforge/shared";
 import { ResultsTable } from "@/components/leads/ResultsTable";
 import { Button } from "@/components/ui/button";
+import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import { useLive } from "@/features/live/useWorkspaceLive";
 import {
   AGENTS,
@@ -51,10 +52,26 @@ export interface WorkspaceViewProps {
 
 export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
   const { live, connection } = useLive();
+  const { openLead, leadsVersion } = useLeadDrawer();
   const [tab, setTab] = useState<TabKey>("all");
   const [detail, setDetail] = useState<SearchDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stopped = useRef(false);
+
+  // Drawer edits (status/notes) refresh the table without waiting on a poll.
+  useEffect(() => {
+    if (!searchId || leadsVersion === 0) return;
+    let cancelled = false;
+    void fetchSearchDetail(searchId).then(
+      (next) => {
+        if (!cancelled) setDetail(next);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [searchId, leadsVersion]);
 
   // Polling fallback while the search is active (PRD 5.6).
   useEffect(() => {
@@ -211,6 +228,7 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
           <ResultsTable
             leads={detail?.leads ?? []}
             terminal={TERMINAL_STATUSES.has(status) || !searchId}
+            onSelect={openLead}
           />
         </div>
       ) : (
