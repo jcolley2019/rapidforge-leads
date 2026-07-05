@@ -49,8 +49,12 @@ export interface PlacesClient {
   nearbySearch(params: NearbySearchParams): Promise<PlaceRecord[]>;
   /** Place Details enrichment; null when the place id is unknown. */
   getDetails(placeId: string): Promise<PlaceRecord | null>;
-  /** Subscribe to per-call notifications (usage_events logging). */
-  onCall(listener: PlacesCallListener): void;
+  /**
+   * Subscribe to per-call notifications (usage_events logging). Returns
+   * an unsubscribe — Scout subscribes per run and MUST detach in finally,
+   * since the client instance outlives individual searches.
+   */
+  onCall(listener: PlacesCallListener): () => void;
 }
 
 /** Google Places (New) SKU prices, integer cents (usage_events.cost_cents). */

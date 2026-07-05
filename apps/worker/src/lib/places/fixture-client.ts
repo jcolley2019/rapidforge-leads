@@ -30,8 +30,11 @@ export class FixturePlacesClient implements PlacesClient {
   private listeners: PlacesCallListener[] = [];
   private warnedCategory = false;
 
-  onCall(listener: PlacesCallListener): void {
+  onCall(listener: PlacesCallListener): () => void {
     this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
   }
 
   private emit(endpoint: "geocode" | "nearby" | "details"): void {
