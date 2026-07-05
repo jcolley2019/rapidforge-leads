@@ -1,0 +1,202 @@
+/**
+ * DataStore — the swappable persistence seam (Sprint 2 modified
+ * constraint). Two implementations:
+ *
+ *   - SupabaseStore: real Postgres via service-role key (bypasses RLS —
+ *     that key exists ONLY in the worker env, PRD 5.4)
+ *   - MemoryStore:  in-memory, selected automatically when SUPABASE_URL
+ *     is absent so the full search flow runs end-to-end with no external
+ *     services
+ *
+ * Method surface is exactly what Sprint 2 needs — it grows with later
+ * sprints rather than speculating.
+ */
+import type {
+  AgentRun,
+  Audit,
+  Business,
+  Issue,
+  Job,
+  JobStatus,
+  Search,
+  SearchMode,
+  SearchResult,
+  UsageEventType,
+  WebsiteKind,
+} from "@rapidforge/shared";
+
+// ---------------------------------------------------------------------------
+// Dev identity (MemoryStore) — fixed UUIDs so the offline flow has a stable
+// workspace/user without Supabase Auth.
+// ---------------------------------------------------------------------------
+
+export const DEV_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001";
+export const DEV_USER_ID = "00000000-0000-4000-8000-000000000002";
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+
+export interface CreateSearchInput {
+  workspace_id: string;
+  created_by: string;
+  mode: SearchMode;
+  params: Record<string, unknown>;
+  category: string;
+}
+
+export interface EnqueueJobInput {
+  workspace_id: string;
+  job_type: string;
+  payload: Record<string, unknown>;
+}
+
+export interface UpsertBusinessInput {
+  workspace_id: string;
+  google_place_id: string;
+  name: string;
+  phone: string | null;
+  website_url: string | null;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  google_rating: number | null;
+  review_count: number | null;
+  category: string | null;
+  business_status: string | null;
+  is_chain: boolean;
+  website_kind: WebsiteKind;
+}
+
+export interface InsertAuditInput {
+  workspace_id: string;
+  business_id: string;
+  website_url: string | null;
+  http_status: number | null;
+  response_ms: number | null;
+  ssl_valid: boolean | null;
+  website_health_score: number | null;
+  star_grade: number | null;
+  sellability_score: number | null;
+  score_breakdown: Record<string, unknown> | null;
+  issues: Issue[] | null;
+  /** 'completed' | 'pending' (audit agents land Sprint 3) | 'skipped' */
+  status: string;
+  error_message: string | null;
+  completed_at: string | null;
+}
+
+export interface InsertAgentRunInput {
+  workspace_id: string;
+  agent_name: string;
+  job_id: string | null;
+  target_id: string | null;
+  /** Include search_id here — it is how runs are recalled per search. */
+  input: Record<string, unknown> | null;
+}
+
+export interface UpdateAgentRunPatch {
+  status: "completed" | "failed";
+  output?: Record<string, unknown> | null;
+  error?: string | null;
+  model_used?: string | null;
+  tokens_used?: number;
+  cost_cents?: number;
+  guardrail_passed?: boolean;
+  guardrail_notes?: string | null;
+  duration_ms?: number;
+}
+
+export interface LogUsageEventInput {
+  workspace_id: string;
+  event_type: UsageEventType;
+  cost_cents: number;
+  metadata: Record<string, unknown> | null;
+}
+
+// ---------------------------------------------------------------------------
+// Read models (GET /api/searches/:id)
+// ---------------------------------------------------------------------------
+
+export interface LeadView {
+  result: SearchResult;
+  business: Business;
+  audit: Audit | null;
+}
+
+export interface JobCounts {
+  queued: number;
+  running: number;
+  done: number;
+  failed: number;
+}
+
+export interface SearchDetail {
+  search: Search;
+  /** Sorted by sellability desc (nulls last), then name. */
+  leads: LeadView[];
+  agent_states: AgentRun[];
+  job_counts: JobCounts;
+}
+
+// ---------------------------------------------------------------------------
+// The store contract
+// ---------------------------------------------------------------------------
+
+export interface DataStore {
+  readonly mode: "supabase" | "memory";
+
+  // searches
+  createSearch(input: CreateSearchInput): Promise<Search>;
+  getSearch(id: string): Promise<Search | null>;
+  updateSearch(
+    id: string,
+    patch: Partial<
+      Pick<Search, "status" | "results_count" | "completed_at">
+    >,
+  ): Promise<void>;
+  getSearchDetail(id: string): Promise<SearchDetail | null>;
+
+  // jobs (the queue IS this table — CLAUDE.md Section 4)
+  enqueueJob(input: EnqueueJobInput): Promise<Job>;
+  /** Claim the oldest queued job (status→running, attempts+1) or null. */
+  claimNextQueuedJob(): Promise<Job | null>;
+  finishJob(
+    id: string,
+    outcome: { status: Extract<JobStatus, "done" | "failed" | "queued">; error?: string | null },
+  ): Promise<void>;
+  countActiveJobsForSearch(searchId: string): Promise<number>;
+
+  // businesses / results / audits
+  upsertBusiness(input: UpsertBusinessInput): Promise<Business>;
+  getBusiness(id: string): Promise<Business | null>;
+  ensureSearchResult(
+    workspaceId: string,
+    searchId: string,
+    businessId: string,
+  ): Promise<SearchResult>;
+  insertAudit(input: InsertAuditInput): Promise<Audit>;
+  setLatestAudit(searchId: string, businessId: string, auditId: string): Promise<void>;
+
+  // agent_runs / usage_events
+  insertAgentRun(input: InsertAgentRunInput): Promise<AgentRun>;
+  updateAgentRun(id: string, patch: UpdateAgentRunPatch): Promise<void>;
+  logUsageEvent(input: LogUsageEventInput): Promise<void>;
+
+  // auth support
+  getWorkspaceIdForUser(userId: string): Promise<string | null>;
+}
+
+/** Shared lead ordering: sellability desc, nulls last, then name asc. */
+export function sortLeads(leads: LeadView[]): LeadView[] {
+  return [...leads].sort((a, b) => {
+    const sa = a.audit?.sellability_score ?? null;
+    const sb = b.audit?.sellability_score ?? null;
+    if (sa === null && sb === null)
+      return a.business.name.localeCompare(b.business.name);
+    if (sa === null) return 1;
+    if (sb === null) return -1;
+    if (sb !== sa) return sb - sa;
+    return a.business.name.localeCompare(b.business.name);
+  });
+}
