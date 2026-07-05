@@ -10,8 +10,19 @@ const CALLBACK = "__rapidforgeMapsReady";
 declare global {
   interface Window {
     [CALLBACK]?: () => void;
+    /** Google calls this on key auth failures (bad key, referrer rejected). */
+    gm_authFailure?: () => void;
     google?: typeof google;
   }
+}
+
+/**
+ * Auth failures (RefererNotAllowedMapError, ApiNotActivatedMapError, …)
+ * arrive AFTER the script loads, via this global — without it the map
+ * shows Google's raw "Oops" tile instead of our glass error state.
+ */
+export function onMapsAuthFailure(handler: () => void): void {
+  window.gm_authFailure = handler;
 }
 
 /** Trimmed key or null — null renders the graceful placeholder tab. */

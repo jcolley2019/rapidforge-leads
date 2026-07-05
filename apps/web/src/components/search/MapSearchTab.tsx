@@ -23,7 +23,11 @@ import {
   type SearchFilters,
 } from "@/lib/geo";
 import { DARK_MAP_STYLES, LIGHT_MAP_STYLES } from "@/lib/map-styles";
-import { getMapsBrowserKey, loadGoogleMaps } from "@/lib/maps-loader";
+import {
+  getMapsBrowserKey,
+  loadGoogleMaps,
+  onMapsAuthFailure,
+} from "@/lib/maps-loader";
 import { getSearchDefaults } from "@/lib/search-defaults";
 import { getTheme } from "@/lib/theme";
 
@@ -78,6 +82,13 @@ function LiveMap({
   // Map bootstrap — once.
   useEffect(() => {
     let disposed = false;
+    onMapsAuthFailure(() => {
+      if (!disposed) {
+        setLoadError(
+          "Google rejected the browser key for this origin — add this URL to the key's HTTP-referrer allowlist (RefererNotAllowedMapError) and confirm Maps JavaScript API is enabled.",
+        );
+      }
+    });
     void loadGoogleMaps(mapsKey)
       .then((maps) => {
         if (disposed || !containerRef.current) return;
