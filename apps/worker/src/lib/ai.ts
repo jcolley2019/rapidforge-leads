@@ -53,6 +53,147 @@ export interface AiCallResult {
  */
 export async function callModel(_options: AiCallOptions): Promise<AiCallResult> {
   throw new Error(
-    "RapidForge AI Core wrapper is not wired yet (Sprint 2+). No agent may call Anthropic directly — see TODOs in lib/ai.ts.",
+    "RapidForge AI Core wrapper is not wired yet (Sprint 0 pending). No agent may call Anthropic directly — see TODOs in lib/ai.ts.",
   );
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 3 AI seam — Sonnet summaries with a deterministic template fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * Summary mode: 'core' routes through RapidForge AI Core when
+ * ANTHROPIC_API_KEY is present; 'template' produces deterministic
+ * summaries built from the measured data (numbers included), so the
+ * pipeline is fully functional with zero keys.
+ */
+export function aiSummaryMode(): "core" | "template" {
+  return process.env.ANTHROPIC_API_KEY ? "core" : "template";
+}
+
+/** Pure guardrail verdict (CLAUDE.md 6.2). */
+export interface GuardrailResult {
+  passed: boolean;
+  notes: string | null;
+}
+
+export interface SummarySpec<T> {
+  model: AiCallOptions["model"];
+  system: string;
+  prompt: string;
+  /** Zod-parse the model's strict-JSON reply (CLAUDE.md 6.1). */
+  parse: (raw: string) => T;
+  guardrail: (value: T) => GuardrailResult;
+  /** Deterministic fallback — template mode AND terminal AI failures. */
+  template: () => T;
+}
+
+export interface SummaryOutcome<T> {
+  value: T;
+  /** Null when the deterministic template answered. */
+  modelUsed: string | null;
+  tokensUsed: number;
+  costCents: number;
+  guardrailPassed: boolean;
+  guardrailNotes: string | null;
+}
+
+/** Strip markdown fences some models wrap around JSON. */
+export function stripJsonFences(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/, "")
+    .trim();
+}
+
+/**
+ * Guardrail protocol (CLAUDE.md 6.2): run → fail → re-run once → on the
+ * second failure persist flagged (guardrail_passed:false + notes), never
+ * silently accept bad output, never stall the job. Any hard AI failure
+ * (unwired Core, network, unparseable JSON twice) falls back to the
+ * deterministic template so the audit always completes.
+ */
+export async function generateJsonSummary<T>(
+  spec: SummarySpec<T>,
+): Promise<SummaryOutcome<T>> {
+  if (aiSummaryMode() === "template") {
+    const value = spec.template();
+    const verdict = spec.guardrail(value);
+    return {
+      value,
+      modelUsed: null,
+      tokensUsed: 0,
+      costCents: 0,
+      guardrailPassed: verdict.passed,
+      guardrailNotes: verdict.notes,
+    };
+  }
+
+  let tokensUsed = 0;
+  let costCents = 0;
+  let lastFailure = "";
+  let flagged: { value: T; modelUsed: string; notes: string } | null = null;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let result: AiCallResult;
+    try {
+      result = await callModel({
+        model: spec.model,
+        system: spec.system,
+        prompt: spec.prompt,
+      });
+    } catch (err) {
+      lastFailure = `AI call failed: ${err instanceof Error ? err.message : String(err)}`;
+      break; // transport/wiring failure — retrying won't change it
+    }
+    tokensUsed += result.tokensUsed;
+    costCents += result.costCents;
+    let value: T;
+    try {
+      value = spec.parse(stripJsonFences(result.text));
+    } catch (err) {
+      lastFailure = `Unparseable model output: ${err instanceof Error ? err.message : String(err)}`;
+      continue;
+    }
+    const verdict = spec.guardrail(value);
+    if (verdict.passed) {
+      return {
+        value,
+        modelUsed: result.modelUsed,
+        tokensUsed,
+        costCents,
+        guardrailPassed: true,
+        guardrailNotes: null,
+      };
+    }
+    lastFailure = verdict.notes ?? "guardrail failed";
+    flagged = {
+      value,
+      modelUsed: result.modelUsed,
+      notes: `Guardrail failed twice: ${lastFailure}`,
+    };
+  }
+
+  if (flagged) {
+    // Valid JSON that failed guardrails twice — persist flagged for review.
+    return {
+      value: flagged.value,
+      modelUsed: flagged.modelUsed,
+      tokensUsed,
+      costCents,
+      guardrailPassed: false,
+      guardrailNotes: flagged.notes,
+    };
+  }
+
+  const value = spec.template();
+  return {
+    value,
+    modelUsed: null,
+    tokensUsed,
+    costCents,
+    guardrailPassed: false,
+    guardrailNotes: `Fell back to deterministic template — ${lastFailure}`,
+  };
 }
