@@ -1,26 +1,85 @@
-import type { NextFunction, Request, Response } from "express";
-
 /**
- * Supabase JWT validation middleware — Sprint 1 STUB.
+ * Supabase JWT validation middleware (PRD Section 8: worker validates
+ * Supabase JWTs on its HTTP API).
  *
- * Sprint 1 behavior: requires a Bearer token to be present, nothing more.
- * TODO(Sprint 2): verify the JWT properly (signature via the project's JWT
- * secret or JWKS, `exp`, `aud`), attach user id + workspace membership to
- * the request, and reject with 401/403 accordingly.
+ * Configured mode (SUPABASE_URL + service-role key present): the Bearer
+ * token is verified via supabase.auth.getUser() and the caller's
+ * workspace resolved from workspace_members — 401 on a bad token, 403
+ * when the user has no workspace yet.
+ *
+ * Dev mode (env absent — Sprint 2 modified constraint): any Bearer token
+ * is accepted and the fixed dev workspace/user attached, so the full flow
+ * runs with zero external services. Logged loudly at startup.
  */
-export function requireSupabaseJwt(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  const header = req.header("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { DEV_USER_ID, DEV_WORKSPACE_ID, type DataStore } from "../store";
 
-  if (!token) {
-    res.status(401).json({ error: "Missing Authorization: Bearer <supabase-jwt>" });
-    return;
+export interface AuthContext {
+  userId: string;
+  workspaceId: string;
+}
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      auth?: AuthContext;
+    }
+  }
+}
+
+export function createRequireSupabaseJwt(store: DataStore): RequestHandler {
+  const url = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const admin: SupabaseClient | null =
+    url && serviceRoleKey
+      ? createClient(url, serviceRoleKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        })
+      : null;
+
+  if (!admin) {
+    console.warn(
+      "[auth] dev mode — Supabase env absent; any Bearer token maps to the dev workspace",
+    );
   }
 
-  // TODO(Sprint 2): real verification — presence-only until then.
-  next();
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const header = req.header("authorization") ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+
+    if (!token) {
+      res
+        .status(401)
+        .json({ error: "Missing Authorization: Bearer <supabase-jwt>" });
+      return;
+    }
+
+    if (!admin) {
+      req.auth = { userId: DEV_USER_ID, workspaceId: DEV_WORKSPACE_ID };
+      next();
+      return;
+    }
+
+    try {
+      const { data, error } = await admin.auth.getUser(token);
+      if (error || !data.user) {
+        res.status(401).json({ error: "Invalid or expired Supabase JWT" });
+        return;
+      }
+      const workspaceId = await store.getWorkspaceIdForUser(data.user.id);
+      if (!workspaceId) {
+        res
+          .status(403)
+          .json({ error: "No workspace membership for this user" });
+        return;
+      }
+      req.auth = { userId: data.user.id, workspaceId };
+      next();
+    } catch (err) {
+      console.error("[auth] verification failed:", err);
+      res.status(500).json({ error: "Auth verification failed" });
+    }
+  };
 }
