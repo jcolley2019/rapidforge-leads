@@ -14,7 +14,9 @@ export default defineConfig({
     // CORS. Production uses VITE_WORKER_URL instead (see lib/api.ts).
     proxy: {
       "/api": {
-        target: "http://localhost:8788",
+        // WORKER_PROXY_TARGET lets tooling point a second Vite instance at
+        // a second worker (e.g. the offline screenshot/Lighthouse stack).
+        target: process.env.WORKER_PROXY_TARGET ?? "http://localhost:8788",
         changeOrigin: true,
       },
     },

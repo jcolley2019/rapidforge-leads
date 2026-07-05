@@ -8,8 +8,11 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const url = import.meta.env.VITE_SUPABASE_URL;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// trim() so whitespace-only values (e.g. a tooling stack disabling Supabase
+// via env override) fall back to offline preview instead of crashing
+// createClient with an invalid URL.
+const url = import.meta.env.VITE_SUPABASE_URL?.trim();
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 
 export const supabase: SupabaseClient | null =
   url && anonKey ? createClient(url, anonKey) : null;

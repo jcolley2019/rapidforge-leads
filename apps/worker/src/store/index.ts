@@ -14,6 +14,13 @@ export { SupabaseStore } from "./supabase";
 export function createDataStore(): DataStore {
   const url = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Tooling escape hatch (screenshot/Lighthouse stacks): memory store even
+  // when Supabase env is present. NOT part of RAPIDFORGE_FORCE_FIXTURES —
+  // the main fixture stack still needs Supabase for Realtime.
+  if (process.env.RAPIDFORGE_FORCE_MEMORY_STORE === "true") {
+    console.log("[store] mode: memory (RAPIDFORGE_FORCE_MEMORY_STORE)");
+    return new MemoryStore();
+  }
   if (url && serviceRoleKey) {
     console.log("[store] mode: supabase (service-role)");
     return new SupabaseStore(url, serviceRoleKey);

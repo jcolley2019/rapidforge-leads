@@ -32,8 +32,11 @@ declare global {
 export function createRequireSupabaseJwt(store: DataStore): RequestHandler {
   const url = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Dev mode follows the STORE mode: a memory store has no real workspaces,
+  // so real JWT validation would reject everything (incl. the forced-memory
+  // tooling stack). Supabase store + env present → real validation.
   const admin: SupabaseClient | null =
-    url && serviceRoleKey
+    store.mode !== "memory" && url && serviceRoleKey
       ? createClient(url, serviceRoleKey, {
           auth: { persistSession: false, autoRefreshToken: false },
         })
