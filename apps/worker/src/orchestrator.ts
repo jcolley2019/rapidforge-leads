@@ -56,6 +56,8 @@ export interface OrchestratorDeps {
 export interface JobPayload {
   search_id?: string;
   business_id?: string;
+  /** Re-audit's cache bypass (PRD 5.5 "Force re-audit") — Sprint 5. */
+  force?: boolean;
 }
 
 export function payloadOf(job: Job): JobPayload {
@@ -123,7 +125,7 @@ async function handleAuditBusinessJob(
   deps: OrchestratorDeps,
 ): Promise<void> {
   const { store } = deps;
-  const { search_id: searchId, business_id: businessId } = payloadOf(job);
+  const { search_id: searchId, business_id: businessId, force } = payloadOf(job);
   if (!searchId || !businessId) {
     throw new Error("audit_business job payload missing search_id/business_id");
   }
@@ -135,8 +137,12 @@ async function handleAuditBusinessJob(
   if (!business) throw new Error(`business ${businessId} not found`);
 
   // 30-day audit cache lookup (PRD 5.5) — Filter short-circuits on it.
+  // force=true (Sprint 5 re-audit) skips the lookup for a fresh pipeline run.
   const now = new Date();
-  const latest = await store.getLatestCompletedAuditForBusiness(business.id);
+  const latest =
+    force === true
+      ? null
+      : await store.getLatestCompletedAuditForBusiness(business.id);
   const cachedAudit =
     latest?.completed_at != null &&
     isWithinDays(latest.completed_at, AUDIT_CACHE_DAYS, now)

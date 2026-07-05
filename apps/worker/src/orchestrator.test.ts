@@ -272,6 +272,44 @@ describe("audit pipeline on fixture data", () => {
     ).toHaveLength(2);
   });
 
+  it("force=true bypasses the 30-day cache and runs a fresh pipeline (Sprint 5 re-audit)", async () => {
+    const business = await seedBusiness(harness, {
+      google_place_id: "fx-013",
+      name: "Kuna Electric",
+      website_url: "https://kunaelectric.squarespace.com",
+      address: "751 W Main St, Kuna, ID 83634",
+      review_count: 19,
+      google_rating: 4.9,
+    });
+    await runAuditJob(harness, business.id);
+    const firstLead = await leadFor(harness, business.id);
+    const firstAuditId = firstLead.result.latest_audit_id;
+    expect(firstAuditId).toBeTruthy();
+
+    // Re-audit with force — same search context, cache must NOT short-circuit.
+    await harness.store.enqueueJob({
+      workspace_id: DEV_WORKSPACE_ID,
+      job_type: "audit_business",
+      payload: {
+        search_id: harness.search.id,
+        business_id: business.id,
+        force: true,
+      },
+    });
+    const job = await harness.store.claimNextQueuedJob();
+    await handleJob(job!, harness.deps);
+
+    const lead = await leadFor(harness, business.id);
+    expect(lead.result.latest_audit_id).not.toBe(firstAuditId); // fresh audit
+    expect(lead.audit?.status).toBe("completed");
+    // Two full pipeline runs → 2 PSI strategy pairs.
+    expect(
+      harness.store
+        .listUsageEvents()
+        .filter((e) => e.event_type === "pagespeed_call"),
+    ).toHaveLength(4);
+  });
+
   it("sorts the full mix by sellability: money + pain on top, healthy sites at the bottom", async () => {
     const great = await seedBusiness(harness, {
       google_place_id: "fx-001",
