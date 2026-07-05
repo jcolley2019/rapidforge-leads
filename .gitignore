@@ -21,3 +21,6 @@ Thumbs.db
 # logs
 *.log
 npm-debug.log*
+
+# kickoff docx drafts — archived at C:\dev\_archive\rapidforge-prd-docx; keep out if it returns
+PRD/
