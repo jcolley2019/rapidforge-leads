@@ -8,10 +8,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-/** Left-rail views (PRD 7.2). All stubs in Sprint 1. */
+/**
+ * App views. The left rail lists VIEWS below; 'live-search' is reached
+ * only by submitting a search (PRD 7.3) and has no rail entry.
+ */
 export type ViewKey =
   | "pipeline"
   | "new-search"
+  | "live-search"
   | "leads"
   | "agents"
   | "analytics"

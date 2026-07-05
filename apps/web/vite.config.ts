@@ -9,4 +9,14 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  server: {
+    // Dev-only: same-origin /api calls reach the local worker without
+    // CORS. Production uses VITE_WORKER_URL instead (see lib/api.ts).
+    proxy: {
+      "/api": {
+        target: "http://localhost:8788",
+        changeOrigin: true,
+      },
+    },
+  },
 });

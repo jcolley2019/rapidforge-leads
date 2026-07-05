@@ -7,33 +7,57 @@ import { useAuth } from "@/features/auth/useAuth";
 import { AgentsView } from "@/views/AgentsView";
 import { AnalyticsView } from "@/views/AnalyticsView";
 import { LeadsView } from "@/views/LeadsView";
+import { LiveSearchView } from "@/views/LiveSearchView";
 import { NewSearchView } from "@/views/NewSearchView";
 import { PipelineView } from "@/views/PipelineView";
 import { SettingsView } from "@/views/SettingsView";
 import type { ViewKey } from "@/views/views";
-
-function renderView(view: ViewKey) {
-  switch (view) {
-    case "pipeline":
-      return <PipelineView />;
-    case "new-search":
-      return <NewSearchView />;
-    case "leads":
-      return <LeadsView />;
-    case "agents":
-      return <AgentsView />;
-    case "analytics":
-      return <AnalyticsView />;
-    case "settings":
-      return <SettingsView />;
-  }
-}
 
 export function App() {
   const { auth, signOut } = useAuth();
   // Pipeline is the default view (PRD 7.3).
   const [view, setView] = useState<ViewKey>("pipeline");
   const [collapsed, setCollapsed] = useState(false);
+  // Submitting a search routes to Live Search for that id (PRD 7.3).
+  const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
+
+  function renderView(current: ViewKey) {
+    switch (current) {
+      case "pipeline":
+        return <PipelineView />;
+      case "new-search":
+        return (
+          <NewSearchView
+            onSearchCreated={(searchId) => {
+              setActiveSearchId(searchId);
+              setView("live-search");
+            }}
+          />
+        );
+      case "live-search":
+        return activeSearchId ? (
+          <LiveSearchView
+            searchId={activeSearchId}
+            onNewSearch={() => setView("new-search")}
+          />
+        ) : (
+          <NewSearchView
+            onSearchCreated={(searchId) => {
+              setActiveSearchId(searchId);
+              setView("live-search");
+            }}
+          />
+        );
+      case "leads":
+        return <LeadsView />;
+      case "agents":
+        return <AgentsView />;
+      case "analytics":
+        return <AnalyticsView />;
+      case "settings":
+        return <SettingsView />;
+    }
+  }
 
   if (auth.status === "loading") {
     return (
