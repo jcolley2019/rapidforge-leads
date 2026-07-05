@@ -65,14 +65,82 @@ export const ZipRadiusParamsSchema = z.object({
 });
 export type ZipRadiusParams = z.infer<typeof ZipRadiusParamsSchema>;
 
-/** POST /api/searches body (PRD Section 8). map_draw/keyword land v1.5. */
-export const CreateSearchRequestSchema = z.object({
-  mode: z.literal("zip_radius"),
-  /** Places (New) included type, e.g. 'plumber'. */
-  category: z.string().min(1),
-  params: ZipRadiusParamsSchema,
+/**
+ * Map-radius search params (Sprint 5 map tab; searches.params jsonb).
+ * Same filter set as zip/radius; the pin replaces the zip geocode.
+ */
+export const MapDrawParamsSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  radius_miles: z.number().min(1).max(25),
+  min_reviews: z.number().int().min(0).default(0),
+  min_rating: z.number().min(0).max(5).default(0),
+  exclude_chains: z.boolean().default(false),
 });
+export type MapDrawParams = z.infer<typeof MapDrawParamsSchema>;
+
+/** POST /api/searches body (PRD Section 8). keyword mode lands v1.5. */
+export const CreateSearchRequestSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("zip_radius"),
+    /** Places (New) included type, e.g. 'plumber'. */
+    category: z.string().min(1),
+    params: ZipRadiusParamsSchema,
+  }),
+  z.object({
+    mode: z.literal("map_draw"),
+    category: z.string().min(1),
+    params: MapDrawParamsSchema,
+  }),
+]);
 export type CreateSearchRequest = z.infer<typeof CreateSearchRequestSchema>;
+
+/**
+ * POST /api/leads/:id/status body (PRD Section 8). Every field optional so
+ * the drawer can autosave notes without touching status; at least one field
+ * must be present. last_contacted_at is server-managed (set on status change).
+ */
+export const UpdateLeadStatusRequestSchema = z
+  .object({
+    status: LeadStatusSchema.optional(),
+    notes: z.string().max(20_000).nullable().optional(),
+    next_followup_at: z.string().nullable().optional(),
+  })
+  .refine(
+    (o) =>
+      o.status !== undefined ||
+      o.notes !== undefined ||
+      o.next_followup_at !== undefined,
+    { message: "at least one of status, notes, next_followup_at required" },
+  );
+export type UpdateLeadStatusRequest = z.infer<
+  typeof UpdateLeadStatusRequestSchema
+>;
+
+/** PUT /api/config body — the six cascading variables (CLAUDE.md 6.4). */
+export const UpdateWorkspaceConfigRequestSchema = z.object({
+  your_offer: z.string().nullable().optional(),
+  target_industry: z.string().nullable().optional(),
+  ideal_website_traits: z.string().nullable().optional(),
+  sales_tone: z.string().nullable().optional(),
+  user_location: z.string().nullable().optional(),
+  user_brand: z.string().nullable().optional(),
+});
+export type UpdateWorkspaceConfigRequest = z.infer<
+  typeof UpdateWorkspaceConfigRequestSchema
+>;
+
+/** GET /api/usage response — current-month usage_events rollup (PRD 7.2). */
+export const UsageSummarySchema = z.object({
+  month_start: z.string(),
+  total_cents: z.number().int(),
+  events: z.number().int(),
+  by_type: z.record(
+    z.string(),
+    z.object({ count: z.number().int(), cost_cents: z.number().int() }),
+  ),
+});
+export type UsageSummary = z.infer<typeof UsageSummarySchema>;
 
 /** "What's wrong" issue bullet (PRD 4.5), stored in audits.issues. */
 export const IssueSchema = z.object({
