@@ -107,9 +107,10 @@ export const RATING_QUALITY_THRESHOLD = 3.8;
 /** Special case (PRD 4.4): no website (or social-only, CLAUDE.md 6.7) → auto. */
 export const NO_WEBSITE_SELLABILITY_SCORE = 95;
 
-/** Badge copy for the special cases (PRD 4.4). */
+/** Badge copy for the special cases (PRD 4.4 + PRD 6.2 social-only). */
 export const SPECIAL_CASE_BADGES = {
   noWebsite: "No website — easiest pitch",
+  socialOnly: "Social-only presence",
   deadSite: "Site broken — urgent",
   builderSite: "Builder site",
 } as const;

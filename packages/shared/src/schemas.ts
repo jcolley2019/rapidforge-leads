@@ -51,6 +51,29 @@ export const UsageEventTypeSchema = z.enum([
 ]);
 export type UsageEventType = z.infer<typeof UsageEventTypeSchema>;
 
+/**
+ * Zip/radius search params (PRD 7.3 New Search tab; searches.params jsonb).
+ * Validated by the web form before POST and by the worker on receipt.
+ */
+export const ZipRadiusParamsSchema = z.object({
+  zip: z.string().regex(/^\d{5}$/, "5-digit US zip code"),
+  radius_miles: z.number().min(1).max(25),
+  min_reviews: z.number().int().min(0).default(0),
+  min_rating: z.number().min(0).max(5).default(0),
+  /** PRD 6.2: is_chain exclusion is configurable; off by default. */
+  exclude_chains: z.boolean().default(false),
+});
+export type ZipRadiusParams = z.infer<typeof ZipRadiusParamsSchema>;
+
+/** POST /api/searches body (PRD Section 8). map_draw/keyword land v1.5. */
+export const CreateSearchRequestSchema = z.object({
+  mode: z.literal("zip_radius"),
+  /** Places (New) included type, e.g. 'plumber'. */
+  category: z.string().min(1),
+  params: ZipRadiusParamsSchema,
+});
+export type CreateSearchRequest = z.infer<typeof CreateSearchRequestSchema>;
+
 /** "What's wrong" issue bullet (PRD 4.5), stored in audits.issues. */
 export const IssueSchema = z.object({
   severity: z.enum(["low", "medium", "high"]),
