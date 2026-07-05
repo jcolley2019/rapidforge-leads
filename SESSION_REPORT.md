@@ -1,205 +1,126 @@
-# SESSION_REPORT — Sprint 1 (Foundation)
+# SESSION_REPORT — Sprint 2 (Scout + Search Flow)
 
-**Date:** 2026-07-04 · **Mode:** Autonomous Session Mode (granted in kickoff Prompt S1)
-**Scope:** PRD Section 11, Sprint 1 — monorepo, web shell + auth, worker skeleton, shared schemas/scoring, migration files, env examples, README.
-**Status: COMPLETE — all acceptance criteria pass. Nothing blocked me mid-sprint; your setup steps are listed under "What Joey must do."**
+**Date:** 2026-07-04 · **Mode:** Autonomous Session Mode (granted in kickoff Prompt S2)
+**Scope:** PRD Section 11 Sprint 2 + the session's modified constraint: build everything behind swappable interfaces so the whole flow runs today with **zero env vars** and flips to live services with **zero code changes**.
+**Status: COMPLETE — all acceptance criteria pass, verified in a real browser. Nothing BLOCKED.** The previous Sprint 1 report is preserved in git history (`6a3d718`).
 
 ---
 
-> **RELOCATION UPDATE (same day, post-sprint, final):** The repo — full
-> git history included — lives at **`C:\dev\rapidforge-leads`**, with a
-> shortcut on the visible desktop. (The visible Windows desktop turned
-> out to be OneDrive-redirected, so "on the desktop" meant "in the
-> cloud"; Joey chose a truly local home instead.) GitHub remote:
-> **`jcolley2019/rapidforge-leads`** (renamed from `rapidforge`), master
-> pushed. Acceptance checks re-run green here. Safe to delete when ready:
-> the old `C:\dev\rapidforge` (only the original PRD docx remain there —
-> a copy sits in this repo, untracked) and the now-empty
-> `OneDrive\Desktop\rapidforge-leads` folder. §0 below is the historical
-> record of the original decision.
-
-## 0. Where the repo is (read this first)
-
-The session was launched from `C:\Users\jcoll\OneDrive\Desktop\rapidforge-leads`
-(kickoff folder with `CLAUDE_1.md` / `RapidForge-PRD_1.md`). CLAUDE.md
-Section 1 says the repo lives at **`C:\dev\rapidforge` — NOT under OneDrive**
-(OneDrive file-locking breaks `node_modules`). That path existed (only your
-`PRD\` docx folder inside), so **the monorepo was built at
-`C:\dev\rapidforge`** and git-initialized there. This report lives at the
-repo root; a copy was placed in the OneDrive kickoff folder so you'd find it.
-
-- The two kickoff docs were copied **verbatim** into the repo root as
-  `CLAUDE.md` and `RapidForge-PRD.md` (source of truth in repo root per
-  CLAUDE.md). Not edited in any way.
-- Your `PRD\*.docx` folder was left untouched and untracked.
-- No git remote configured; **nothing pushed** (per hard limits). Local
-  branch: `master`.
-
-## 1. Everything built, by commit
+## 1. What was built (by commit)
 
 | Commit | What |
 |---|---|
-| `a6dbe62` chore(repo) | npm-workspaces root (`apps/*`, `packages/*`), `dev` script via concurrently, `.gitignore` (covers `.env*`, keeps `.env.example`) |
-| `29fe3e2` docs | CLAUDE.md + RapidForge-PRD.md copied verbatim into repo root |
-| `3835aa0` feat(shared) | Zod schemas for all 11 core tables, `AgentEvent` (PRD 5.6 verbatim) + `AgentResult` envelope, `scoring.ts` with every PRD §4 weight/threshold as exported constants + `computeHealthScore` / `deriveStarGrade` / `computeSellabilityScore`, 22 vitest tests incl. all PRD 4.4 special cases |
-| `9753f61` feat(db) | `0001_tenancy.sql`, `0002_domain.sql`, `0003_operational.sql` (DDL verbatim from PRD §5), `0004_rls.sql` (policies per PRD 5.4 + `bootstrap_workspace()` RPC). **Written only — nothing executed anywhere** |
-| `b924ad0` feat(worker) | Express `/health`, JWT presence-stub middleware on `/api`, 2s jobs-poller skeleton (graceful no-op without env), `orchestrator.ts` / `queue.ts` / `events.ts`, `lib/ai.ts` AI-Core wrapper stub with the 4 model constants + refusal-retry TODO, 14 agent stubs (one per PRD 3.2 row, each TODO-tagged with its PRD §6 section), `agents/prompts/` + `agents/guardrails/` with convention READMEs, `.env.example` per PRD §9 |
-| `55f2dea` feat(web) | Vite + React 18.3 + TS strict + Tailwind 3.4 + shadcn-style components; dark default theme with cyan `#00d9ff` primary, Inter + JetBrains Mono (bundled via fontsource); top bar (workspace chip, Ctrl-K hint, usage placeholder, account), collapsible left rail with the 6 PRD 7.2 views as stubs; auth page (magic link + Google OAuth); first-signup bootstrap via `bootstrap_workspace` RPC; offline preview mode when env is absent; `.env.example` |
-| `c766f09` docs(readme) | Setup steps + a table of where every env value comes from |
-| (this commit) docs | SESSION_REPORT.md |
+| `8675127` | `feat(worker)` — geo math for Scout: haversine, adaptive tile radius (≤5 km single call / 5 km tiles / 10 km tiles), square-grid coverage plan, `MAX_TILES_PER_SEARCH = 48` cost backstop |
+| `34714c6` | `feat(worker)` — **PlacesClient** seam: `GooglePlacesClient` (Places API New: searchText geocode, searchNearby, Place Details, FieldMasks, per-call cost cents) + `FixturePlacesClient` (25 realistic Treasure Valley businesses, 20-result cap mirrored, radius math real) + **WebProbe** seam (real HEAD-check w/ GET fallback + 10s timeout · fixture probe answering from `DEAD_FIXTURE_HOSTS`). Selection: `GOOGLE_PLACES_API_KEY` present → google, absent → fixture, logged at startup |
+| `d5bfc84` | `feat(worker)` — **DataStore** seam: `SupabaseStore` (service-role, optimistic job claiming, jsonb-contains lookups) + `MemoryStore` (auto when `SUPABASE_URL` absent). Sprint-2-sized contract: searches, jobs, businesses, search_results, audits, agent_runs, usage_events, search-detail read model |
+| `0aec4a9` | `feat(shared)` — `ZipRadiusParamsSchema` + `CreateSearchRequestSchema` (form and worker validate against the same Zod), `socialOnly` badge added to `SPECIAL_CASE_BADGES` |
+| `8bb1878` | `feat(agent-scout)` — real Scout per PRD 6.1: grid tiling, dedupe by place_id, in-radius post-filter, Details enrichment for records missing website/phone, `website_kind` classification, `is_chain` (35-brand list + ≥3-location detection), upserts, one `usage_events` row per Places call |
+| `f26d283` | `feat(agent-filter)` — real Filter per PRD 6.2: deterministic gates (OPERATIONAL, min_reviews, min_rating, configurable chain exclusion) then routing law: none/social_only → sellability-95 hot lead (health null, never audited) · real → probe → dead = health 10 / star 1 / "Site broken — urgent" · live = provisional `pending` audit. Pure `planFilterOutcome()` core, fully unit-testable |
+| `9edef51` | `feat(orchestrator)` — job dispatch (`scout` → fan-out `audit_business` per business; filter per business), 2s poller claiming up to 5 concurrent, retry-once then park failed, search lifecycle (pending → scouting → auditing → completed/failed) with auto-completion when jobs drain, `agent_runs` + AgentEvents around every agent call, `POST /api/searches` + `GET /api/searches/:id`, JWT middleware (real `auth.getUser()` verification when configured / dev workspace when not) |
+| `dccfd26` | `test(worker)` — 42 unit tests: tiling coverage proof (1 km lattice sweep), classification, chain heuristics, dedupe, usage logging, all filter gates + routing paths, sellability sort |
+| `e68b77c` | `feat(web)` — New Search form (zip, radius slider 1–25 + presets, searchable category picker of 20 curated Places types, min reviews, min rating presets, exclude-chains, cost estimate line) + Live Search view (2s polling until settled, status pill, job/filter counters, results table sorted by sellability desc with hot-lead/site-broken/pending/skipped states) + `/api` Vite dev proxy + api client |
 
-## 2. Acceptance results (commands run, output recorded)
+## 2. Acceptance results (all run with NO env vars — no `.env` files exist)
 
-**1. `npx tsc --noEmit` clean in all three workspaces — PASS**
-
-```
-=== shared: npx tsc --noEmit ===   exit: 0
-=== worker: npx tsc --noEmit ===   exit: 0
-=== web:    npx tsc --noEmit ===   exit: 0
-```
-
-**2. vitest on scoring.ts — PASS (22/22)**
-
-```
-✓ src/scoring.test.ts (22 tests) 6ms
-Test Files  1 passed (1)
-Tests       22 passed (22)
-```
-
-Covers PRD 4.4: no-website → auto-95 + badge (regardless of other signals);
-social-only → identical routing (CLAUDE.md 6.7); dead site → health pinned
-to 10 + sellability boost + "Site broken — urgent" badge; builder-platform
-tagging; plus star band edges (85/84/70/69/50/49/30/29), review-count bands,
-the 3.8 rating threshold, weight-sum integrity, and determinism.
-
-**3. `npm run dev` with no env vars — PASS (no crash, graceful no-op)**
-
-Verified zero `.env` files exist, then:
-
-```
-[web]   VITE v5.4.21  ready in 305 ms → http://localhost:5173/
-[worker] [queue] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — poller disabled (graceful no-op).
-[worker] [worker] listening on http://localhost:8788 (queue: disabled)
-```
-
-Probes: `GET http://localhost:8788/health` →
-`{"ok":true,"service":"rapidforge-worker","uptime_s":19,"queue":"disabled","poll_interval_ms":2000}`;
-web root → HTTP 200, RapidForge title. Web shows the shell in "offline
-preview" with an amber banner telling you to fill `.env`.
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` in shared / worker / web | **PASS** — exit 0 in all three |
+| Tests | **PASS** — 22/22 shared + 42/42 worker (64 total) |
+| Worker boots with zero env | **PASS** — `/health` reports `store_mode:"memory"`, `places_mode:"fixture"`, `queue:"polling"`; modes logged at startup |
+| API flow end-to-end | **PASS** — `POST /api/searches` (83704 · plumber · 10 mi) → 202 → search `completed` in **11.1s**, 26 jobs done (1 scout + 25 filter), 0 failed |
+| Browser flow (Chrome, via Vite at localhost:5173) | **PASS** — form submitted in the UI → Live Search populated **25 businesses**, sorted: 8 hot leads at **95** on top (4 no-website + 4 social-only), dead site at 92 with "Site broken — urgent", live sites 49–80 "est · Audit pending (Sprint 3)", 2 closed businesses dimmed "Skipped · Business status is CLOSED_*" |
+| No-website leads at sellability 95 | **PASS** — every unskipped none/social_only lead scored exactly 95 |
+| usage_events per Places call | **PASS** — 16 rows per 10-mi search (1 geocode + 9 nearby tiles + 6 details), asserted in tests |
+| No keys in browser | **PASS** — web has no secrets; worker-only env; `/api` proxied in dev |
 
 ## 3. Decisions made (and why)
 
-1. **Repo at `C:\dev\rapidforge`** — see §0. If you'd rather work from the
-   OneDrive folder, say so and I'll explain the trade-offs before anything moves.
-2. **Vite 5, not 6.** vitest 2.x hard-depends on vite 5; two vite majors in
-   one npm-workspaces tree caused a TS type clash in `vite.config.ts`.
-   Pinned web to `vite ^5.4.21`. Upgrade vite+vitest together later if wanted.
-3. **Tailwind 3.4 classic + hand-written shadcn-style primitives** (Button,
-   Input, Label, Card, Separator) — no Radix deps yet, keeping Sprint 1 deps
-   minimal. `components.json` is in place, so `npx shadcn@latest add <x>`
-   works when real components are needed (Sprints 4–5).
-4. **No router.** The left rail switches views with local state. React
-   Router isn't in the CLAUDE.md §4 fixed stack, and stub views don't
-   justify asking. Flagging per the "note it and ask" rule: if you want
-   URL-addressable views in Sprint 4–5, that's the moment to add one.
-5. **Bootstrap as a `SECURITY DEFINER` RPC** (`bootstrap_workspace()` in
-   `0004_rls.sql`): member-scoped RLS can't self-insert the *first*
-   membership row (chicken-and-egg), and the client can't safely create
-   plan rows. The RPC idempotently creates Founder plan → workspace →
-   owner member → workspace_config, and returns the existing workspace on
-   re-login. Also added `user_workspace_ids()` (SECURITY DEFINER helper)
-   to avoid the classic workspace_members RLS self-recursion bug.
-6. **Founder plan row is created by the RPC, not seeded in 0001** — keeps
-   0001–0003 byte-faithful to PRD §5 DDL.
-7. **RLS is select/insert only, exactly per PRD 5.4 prose.** Sprint 5
-   (Settings edits, lead status updates) will need `update` policies —
-   those land as a NEW migration then (0004 stays append-only).
-8. **Scoring interpretation calls** (PRD §4 gives weights but not every
-   edge): technical/conversion/freshness subscores = equal-weighted
-   pass/fail checks within each signal; unknown/null platform scores as
-   custom (85); unmeasured PSI on a live site = neutral 50 (not 0 — avoids
-   fake "your site is slow" pitches); "Builder site" tag = platform score
-   ≤ 45 (Wix, GoDaddy, Squarespace); dead-site "sellability boost" is the
-   natural inverted-health effect (100−10=90 at 40% weight — no extra
-   fudge constant); half-stars deferred (PRD marks them optional). All
-   constants in `packages/shared/src/scoring.ts` for your hand-tuning.
-9. **Worker runtime:** `tsx watch` for dev + `dotenv` for env loading —
-   both boring, neither on the banned list. JWT middleware is a
-   presence-only stub (documented TODO for real verification in Sprint 2).
-10. **`npm audit`: 5 findings, all inside the vitest→vite→esbuild dev-only
-    chain** (known esbuild dev-server advisory). No runtime dependency
-    affected; resolves whenever vitest/vite get bumped. Left alone rather
-    than force-upgrading mid-sprint.
+1. **Provisional sellability for live real sites.** Audit agents land Sprint 3, but a sort key was needed now. Live sites get a `pending` audit row whose sellability comes from `computeSellabilityScore` with neutral health (the shared function's documented null-health behavior). Marked `provisional: true` in `score_breakdown` and rendered as "80 est". Sprint 3's Scorer appends the real audit row (audits are append-only) and `latest_audit_id` moves.
+2. **Gates run before hot-lead routing.** A `CLOSED_PERMANENTLY` business with no website is a skip, not a hot lead — "never skipped" protects against *website-based* skipping, not against calling closed businesses. Unit-tested explicitly.
+3. **Skips are persisted audit rows** (`status:'skipped'`, reason in `error_message`) so every scouted business stays visible in the table with its reason, dimmed at the bottom.
+4. **Filter's Haiku edge-pass deferred to Sprint 3.** Its PRD triggers (enterprise-CMS fingerprints, spam names) need audit-agent signals that don't exist yet; Sprint 2's filter is 100% deterministic — the sprint spent **$0 in AI**.
+5. **WebProbe pairs with the Places mode.** Fixture URLs aren't real; probing them live would mark all 25 dead. `GOOGLE_PLACES_API_KEY` flips both seams together.
+6. **Fixture client ignores the category filter** (logged once) so any category demos the full 25-business dataset. Real client filters by Places `includedTypes` as spec'd.
+7. **Optimistic job claiming, no new migration.** Single worker process in v1 → a guarded `UPDATE … WHERE status='queued'` suffices; migrations stay 0001–0004. When multiple workers arrive (Railway), add a `claim_next_job()` SQL function with `FOR UPDATE SKIP LOCKED`.
+8. **Multi-location chain threshold = 3** same-named locations in one result set (2 felt coincidence-prone; the fixture trio validates it).
+9. **`socialOnly` badge added to `SPECIAL_CASE_BADGES`** in `shared/scoring.ts` — a display string, not a weight; the protected-file rule targets the tuning constants, which are untouched.
+10. **`lead.scored` Realtime event deferred to the Sprint 3 Scorer** — the event shape requires a numeric healthScore, which hot leads deliberately don't have. agent.started/completed/failed are already emitted through the (Sprint 4) broadcast stub.
+11. **Tile cost cap:** worst case 48 nearby calls ≈ $1.55/search; a 25-mile search plans ~39 tiles. Logged when the cap ever truncates.
+12. **Category picker is a curated 20-type list** of Places (New) Table A types I'm confident exist. I did NOT include an HVAC-specific type (uncertain it exists in Table A — verify against the live API before adding).
 
-## 4. BLOCKED / what Joey must do (exact steps)
+## 4. BLOCKED
 
-Nothing blocked the sprint itself. These are the manual steps only you can
-do — the app is fully wired to come alive once they're done:
+**Nothing blocked this sprint.** The items below are the (expected) live-mode setup that only you can do.
 
-**A. Supabase project (~10 min)**
-1. https://supabase.com → New project (name: `rapidforge`; save the DB password in your password manager).
-2. SQL Editor → run each file **in this order**, one at a time:
-   `supabase/migrations/0001_tenancy.sql` → `0002_domain.sql` → `0003_operational.sql` → `0004_rls.sql`.
-3. Authentication → Providers: Email is on by default (magic link). For
-   Google: Google Cloud Console → OAuth consent screen (External) → create
-   OAuth Client ID (Web application) → paste client ID + secret into
-   Supabase's Google provider form → add the callback URL Supabase displays
-   to the OAuth client's authorized redirect URIs.
-4. Authentication → URL Configuration → Site URL: `http://localhost:5173`.
+## 5. LIVE-SWITCH CHECKLIST (fixtures → real, ~15 minutes, zero code changes)
 
-**B. Env files (never committed; `.gitignore` already covers them)**
-- `apps/web/.env` ← copy `.env.example`: `VITE_SUPABASE_URL`,
-  `VITE_SUPABASE_ANON_KEY` (Project Settings → API).
-- `apps/worker/.env` ← copy `.env.example`: `SUPABASE_URL`,
-  `SUPABASE_SERVICE_ROLE_KEY` (same page — service_role, worker only),
-  `GOOGLE_PLACES_API_KEY` (GCP → enable **Places API (New)** → server key,
-  IP-restricted), `PAGESPEED_API_KEY` (GCP → enable PageSpeed Insights
-  API), `ANTHROPIC_API_KEY` (console.anthropic.com). `YELP_API_KEY` can
-  wait until Sprint 6.
+**A. Supabase (~7 min)**
+1. supabase.com → New project (name `rapidforge`, region us-west, save the DB password).
+2. SQL Editor → paste + run, **in order**: `supabase/migrations/0001_tenancy.sql`, `0002_domain.sql`, `0003_operational.sql`, `0004_rls.sql`.
+3. Authentication → URL Configuration → Site URL: `http://localhost:5173`.
+4. (Optional now, needed for Google sign-in later: Authentication → Providers → Google. Magic link works out of the box.)
+5. Project Settings → API → copy three values:
+   - **Project URL** → `apps/web/.env` `VITE_SUPABASE_URL` **and** `apps/worker/.env` `SUPABASE_URL`
+   - **anon public key** → `apps/web/.env` `VITE_SUPABASE_ANON_KEY`
+   - **service_role key** → `apps/worker/.env` `SUPABASE_SERVICE_ROLE_KEY` (worker only — never web, never `VITE_`)
 
-**C. Verify end-to-end (~2 min)** — `npm run dev`, sign in via magic link,
-confirm you land in the shell; in Supabase Table Editor check `plans` has a
-`founder` row and `workspaces` / `workspace_members` / `workspace_config`
-each gained one row.
+**B. Google Cloud (~6 min)**
+6. console.cloud.google.com → New project `rapidforge` → APIs & Services → Enable **Places API (New)** (and **PageSpeed Insights API** while you're there — Sprint 3 needs it).
+7. Credentials → Create API key → restrict it to Places API (New) → `apps/worker/.env` `GOOGLE_PLACES_API_KEY`.
+8. Second key restricted to PageSpeed Insights → `apps/worker/.env` `PAGESPEED_API_KEY`.
+9. Billing must be enabled for Places (the $200/mo credit covers solo use; set a budget alert at $50).
 
-**D. Sprint 0 reminder (separate repo).** PRD §11 Sprint 0 — verify
-`claude-fable-5` + refusal→`claude-opus-4-8` fallback in
-`rapidforge-ai-core` — hasn't been run. Not needed for Sprint 2
-(deterministic Places work) but required before Sprint 3's LLM summaries.
+**C. Flip and verify (~2 min)**
+10. Copy `apps/web/.env.example` → `apps/web/.env` and `apps/worker/.env.example` → `apps/worker/.env`; fill the values above. `WORKER_PORT=8788` stays.
+11. `npm run dev` → worker logs must now say `[store] mode: supabase` and `[places] mode: google`.
+12. Sign in with a magic link (first sign-in auto-creates your workspace via `bootstrap_workspace`).
+13. New Search → plumber · your zip · 10 mi → real businesses stream in; check `usage_events` rows in the Supabase Table Editor.
 
-**E. GitHub (optional, when ready).** No remote is configured. When you
-want it on GitHub: create `jcolley2019/rapidforge` (private), then
-`git remote add origin ...` and push yourself — I won't.
+Rollback at any point: delete the two `.env` files → fixture mode returns.
 
-## 5. Recommended Sprint 2 kickoff prompt
+## 6. Notes for Joey
+
+- Untracked files `CLAUDE_1.md`, `RapidForge-PRD_1.md`, and `PRD/*.docx` are sitting in the repo root (your copies — I didn't touch them). If they're scratch, delete them or I can gitignore `PRD/` next session.
+- Nothing was pushed. 9 local commits on `main` await your go.
+- The searches table now sees statuses `pending → scouting → auditing → completed | failed` — worth knowing when you read rows in the Supabase editor.
+
+## 7. Recommended Sprint 3 prompt
 
 ```
-Prompt S2 — RapidForge Sprint 2 (Scout + search flow) — AUTONOMOUS SESSION MODE
+Prompt S3 — RapidForge Sprint 3 (Audit Agents + Scorer) — AUTONOMOUS SESSION MODE
 
-Autonomous Session Mode is GRANTED for Sprint 2 per CLAUDE.md Section 12. Repo: C:\dev\rapidforge. Read CLAUDE.md, then PRD Sections 3.3, 3.5, 6.1, 6.2, 8, and 11 (Sprint 2) before writing anything.
+Autonomous Session Mode is GRANTED per CLAUDE.md Section 12. Read CLAUDE.md and
+RapidForge-PRD.md Sections 4, 6.3–6.7, and 11 (Sprint 3), then execute end-to-end.
 
-STATUS FROM SPRINT 1: monorepo, web shell + auth, worker skeleton, shared scoring, migrations 0001–0004 all in place. I have [applied the migrations / filled both .env files — SAY IF NOT, and Claude must treat live-API acceptance as BLOCKED and still build everything code-side].
+SAME MODIFIED CONSTRAINT AS SPRINT 2: I may not have env keys yet. Extend the
+swappable-seam pattern: a PsiClient interface (real PageSpeed Insights vs fixture
+returning realistic Lighthouse/CrUX payloads per fixture business) and an
+HtmlFetcher interface (real homepage fetch vs fixture HTML per business covering
+platform fingerprints, tel: links, forms, booking widgets, viewport/schema, stale
+copyright years). Fixture mode must exercise every scorer path.
 
-DELIVERABLES (PRD Section 11, Sprint 2):
-1. Scout agent: Places (New) Nearby Search with grid tiling for radius >~5mi, Place Details enrichment, dedupe by place_id, is_chain heuristic, website_kind classification ('real'|'social_only'|'none'), upsert into businesses on (workspace_id, google_place_id), one usage_events row per Places call.
-2. Worker HTTP: POST /api/searches (zip_radius mode) per PRD Section 8 — creates searches row + enqueues scout job; GET /api/searches/:id returns search + paginated results (polling). Real Supabase JWT verification replaces the Sprint 1 stub.
-3. Queue: 2s poller claims jobs atomically (FOR UPDATE SKIP LOCKED), dispatches via orchestrator, marks done/failed with attempts + error.
-4. Web: New Search view (zip, radius slider 1–25 + presets, searchable category picker, min reviews / min rating), Live Search view polling GET /api/searches/:id, results table sorted by review count.
-5. No audit agents yet, no Realtime yet — Sprint 3/4.
+Build per PRD Sprint 3: Health (PSI desktop+mobile, SSL, platform detection,
+copyright year), Conversion (HTML parse), Presence (Place Details depth), Traffic
+(CrUX flag from the PSI response), deterministic Scorer replacing Sprint 2's
+provisional pending audits with real health/stars/sellability/issues, the
+lead.scored event, 5-concurrent fan-out, agent_runs + usage_events (pagespeed_call)
+rows. Sonnet summary calls go through RapidForge AI Core ONLY behind an AiCore
+interface with a fixture implementation, so the pipeline runs without
+ANTHROPIC_API_KEY (persist summaries as null + guardrail note in fixture mode).
 
-ACCEPTANCE: "plumber, 83704, 10mi" returns 20–50 businesses with name/phone/rating/reviews within 60s; usage_events rows exist for every Places call; tsc clean everywhere; no keys reach the browser.
+Unit tests: platform fingerprints, health-score inputs from fixture PSI/HTML,
+scorer integration (dead site 10, builder platforms low, issues list thresholds),
+provisional→real audit replacement.
 
-HARD LIMITS: same as CLAUDE.md 12 — no push, no SQL execution (new tables/policies = new migration files only), no resource creation, PowerShell syntax, SESSION_REPORT.md before stopping.
+ACCEPTANCE (no env vars): tsc clean; all tests pass; npm run dev → re-run the
+fixture search → every 'Audit pending' lead re-scores with real deterministic
+health/stars/sellability + issues; dead site stays 10/92; hot leads stay 95;
+agent_runs rows exist for health/conversion/presence/traffic/scorer.
+
+HARD LIMITS unchanged. EXIT: SESSION_REPORT.md with acceptance output and an
+updated live-switch note (PAGESPEED_API_KEY + ANTHROPIC_API_KEY).
 ```
 
-## 6. Loose ends worth knowing
+---
 
-- Git warns `LF will be replaced by CRLF` on Windows — cosmetic (autocrlf).
-  If it annoys you, a `.gitattributes` with `* text=auto eol=lf` is a
-  one-commit fix; didn't add one un-asked.
-- `apps/web/src/features/auth/useAuth.ts` re-checks membership on every
-  auth event (including token refresh). Cheap (one indexed select), but
-  worth revisiting when TanStack Query lands in Sprint 2+.
-- Model constants live in `apps/worker/src/lib/ai.ts` and CLAUDE.md 4.1
-  names appear nowhere else; grep for `claude-` before Sprint 3 to keep it
-  that way.
+*Session executed by Claude Code (Fable 5) under CLAUDE.md v1.2 — Sprint 2, 2026-07-04.*
