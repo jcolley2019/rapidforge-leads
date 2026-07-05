@@ -306,3 +306,114 @@ BLOCKED and continue. EXIT: append Sprint 5 section to SESSION_REPORT.md.
 ---
 
 *Session executed by Claude Code (Fable 5) under CLAUDE.md v1.2 — Sprint 4, 2026-07-05.*
+
+---
+
+# SESSION_REPORT — Sprint 5 (Map search, Lead drawer, Pipeline, Leads, cmd-K)
+
+Autonomous Session Mode · 2026-07-05 (evening) · scope: PRD 7.2–7.5, 8, 11 Sprint 5 + Joey's map-radius primary-mode spec
+
+## S5-1. What was built (by commit)
+
+| Commit | What |
+|---|---|
+| `cd3ef9d` | **Migration 0005** — member UPDATE policies on `search_results` + `workspace_config`. ⚠️ The kickoff said "the update RLS policy 0005 exists" — it did **not** (only 0001–0004 were in the repo). Written this session; **paste it in the Supabase SQL editor** (S5-4). Nothing in the app depends on it yet — all Sprint 5 writes go through the worker's service-role — it enables future direct browser writes. |
+| `d1fe5aa` | **Shared schemas** — `MapDrawParamsSchema` (lat/lng + radius 1–25 + same filter fields), `CreateSearchRequestSchema` widened to a mode-discriminated union, `UpdateLeadStatusRequest` (status/notes/next_followup_at, min one field, so notes can autosave alone), `UpdateWorkspaceConfigRequest`, `UsageSummary`. +25 tests. |
+| `f572c0b` | **Worker map_draw** — `parseSearchParams` discriminates on `search.mode`; Scout uses the pin directly (no geocode); Filter's gates typed to the shared filter fields so both modes route identically. |
+| `90a7328` | **Worker Sprint 5 API** — routes factored into `createApp()` (`http.ts`) so they're testable on an ephemeral port against MemoryStore. New per PRD 8: `POST /api/leads/:id/status` (server stamps `last_contacted_at` on any change away from `new` — client timestamps never trusted), `GET /api/leads` (workspace-wide), `GET /api/businesses/:id/audits` (drawer History), `POST /api/businesses/:id/reaudit` `{force}`, `GET /api/usage` (UTC-month rollup; Supabase fetch capped 10k rows with a logged warning), `GET`/`PUT /api/config`. DataStore grew matching methods in BOTH stores. +23 tests incl. full route coverage. |
+| `2ff30f9` | **Re-audit force flag** — `audit_business` payload `force:true` skips the 30-day cache lookup entirely (PRD 5.5 "Force re-audit"). Pipeline-level test: fresh audit id, 4 PSI calls across two runs. |
+| `08b4306` | **Lead drawer (PRD 7.4)** — right glass panel (560px, spring slide-in, Esc/veil close) from any results row: Overview (status dropdown w/ optimistic revert, sellability + stars cards, what's-wrong, key signals) · Audit (per-agent raw findings in expandable groups + score-breakdown JSON) · History (business's full audit trail) · Notes (autosave, 700ms debounce, flush-on-close) · Screenshots placeholder. `LeadDrawerProvider` at the shell exposes `openLead` + `leadsVersion` so every view refetches after drawer edits. cmdk dep added here. |
+| `12bd151` | **Pipeline kanban (PRD 7.3)** — New/Called/Interested/Sold/Dead across ALL workspace leads; native HTML5 drag-drop persists via the status route (optimistic move, refetch on failure); cards (name, sellability badge, phone, last action) spring between columns via motion `layout` wrappers; name filter + hot-leads-only toggle; card click opens the drawer. |
+| `d160454` | **Leads view** — sortable workspace-wide table over `GET /api/leads`; filters: has/no-website, platform, status, sellability + health min/max; bulk select → CSV export (RFC 4180 builder, tested), bulk status, bulk re-audit with an explicit "Force fresh (ignore 30-day cache)" checkbox **defaulting OFF** (cost discipline — cache respected unless Joey says otherwise). |
+| `ad86cc7` | **Settings** — the six cascading variables via `GET/PUT /api/config` (empty string → NULL, dirty tracking); search defaults (radius/category) in localStorage pre-filling New Search — deliberately NOT workspace_config, which stays reserved for agent variables; theme picker on the persisted preference. |
+| `1ef6aad` | **Map-radius search tab (Joey's spec)** — Map tab in New Search: hand-rolled singleton Maps JS loader (no loader dep; `@types/google.maps` dev-only), click drops a pin, `editable` circle gives the native edge resize handle (clamped 1–25 mi, 0.1 steps, slider synced two-way), draggable pin AND circle, live glass readout chip (radius · ≈calls · ~cost), dark/light map styles tracking the theme live, filters shared verbatim with the zip tab (`SearchFilterControls`), Run POSTs `mode:'map_draw'` via `mapSelectionToParams` (10 geo tests — the radius→params conversion). Key absent → glass setup placeholder, never a broken map. Zip/Radius stays the quick-entry tab. Workspace header renders map_draw params ("43.615, -116.202 · plumber"). |
+| `0b2e1eb` | **cmd-K + usage meter (PRD 7.5/7.2)** — cmdk palette on Ctrl/⌘-K: jump-to-lead (opens drawer), new search, go-to-view, toggle theme, export-all CSV, re-audit the Leads selection (selection lifted into the shared context so the palette can see it). Top bar's `$0.00 / mo` placeholder is now the real `GET /api/usage` rollup, refreshed every 60s + after lead mutations, click → Analytics. |
+| `8eda93b` | **Maps auth-failure fix** — `window.gm_authFailure` wired so a rejected key (e.g. `RefererNotAllowedMapError`) renders our glass error card with the exact remediation instead of Google's raw "Oops" tile. Found live during acceptance (see S5-5). |
+| `ec781fa` | **Acceptance harness** — `scripts/sprint5-e2e.mjs` (offline stack, zero quota) runs the kickoff's E2E list with 15 recorded assertions; screenshots to `docs/design/s5-*`. |
+
+## S5-2. Acceptance results
+
+1. **tsc clean** — shared, worker, web. ✔
+2. **All tests pass** — shared **58** (was 33), worker **122** (was 99), web **30** (was 13). New coverage: status transitions (route walks new→called→interested→sold, invalid status 400, foreign-workspace 404), notes persistence (notes-only patch leaves status/last_contacted_at untouched), CSV export shape (RFC 4180 quoting, header alignment, null → empty), map radius→params conversion (rounding, clamping, schema validity), usage rollup math, config roundtrip, force-bypasses-cache. ✔
+3. **Browser E2E, offline stack (`RAPIDFORGE_FORCE_FIXTURES` + `RAPIDFORGE_FORCE_MEMORY_STORE`, ports 8789/5175) — 15/15**: search populates (25 rows) · kanban drag New→Called moves the card AND persists `status=called` + `last_contacted_at` (store-verified via `/api/leads`) · drawer opens from row click · note autosaves ("saved" indicator) and **survives a full page reload** · CSV downloads with verified contents (header, 25 rows = store count, dragged lead shows `called`, note text present) · Ctrl+K opens palette, jumps to Settings, jumps to a lead by name (drawer opens) · usage meter renders · map tab placeholder correct with key blanked. Rerun any time: `node scripts/sprint5-e2e.mjs`. ✔
+4. **Phone/state never wrap at 1280 & 1600** — measured as rendered line boxes (1 line max across all rows, both widths, zero cell overflow, no page h-scroll). ✔
+5. **Lighthouse mobile ≥ 85 (production build, `vite preview`)** — **Performance 91** (FCP 2.6s · LCP 2.9s · TBT 10ms · CLS 0.018 · SI 2.6s). Bundle is now 722 kB (was 617; cmdk + map code) — code-split remains the pre-Vercel item. ✔
+6. **Screenshots** — `docs/design/s5-{map,drawer,kanban}-{1280,1600}.png` + `s5-cmdk-1280.png`. ✔
+7. **Map pin-drop E2E on a real map** — **BLOCKED** (S5-5); everything short of the live Google canvas is covered by unit tests + the placeholder/auth-failure paths.
+
+## S5-3. Decisions made (and why)
+
+- **All Sprint 5 writes go through the worker API** (service-role) rather than direct supabase-js from the browser — works before 0005 is pasted, keeps one write path, and the worker can enforce server-stamped fields. 0005 exists for parity and future direct writes.
+- **HTTP layer factored to `createApp()`** — the kickoff demanded route-level tests (status transitions, notes persistence); an app factory + ephemeral-port fetch does it with zero new deps (no supertest).
+- **Re-audit force defaults false everywhere** — an un-forced re-audit is a cache no-op by design; the UI makes "Force fresh" an explicit checkbox. Cost discipline (CLAUDE.md §8) over convenience.
+- **Kanban uses native HTML5 DnD with a motion `layout` wrapper** — framer-motion hijacks `onDragStart` on motion components (its own gesture system), so the draggable is a plain element and framer only animates reflow. No dnd library added.
+- **Search defaults live in localStorage** — `workspace_config` is the cascading agent variables table (PRD 5.1); UI conveniences don't belong in it.
+- **TanStack Query/Table were NOT introduced** — they're in the sanctioned stack but the codebase's manual fetch + hand-rolled tables are consistent and sufficient at v1 scale; swapping mid-sprint would have been a cross-cutting refactor. Flagged for a future deliberate migration if list sizes demand virtualization.
+- **Maps loader hand-rolled; classic Marker + editable Circle** — no `@googlemaps/js-api-loader` dep; cloud map IDs (required by AdvancedMarker) are incompatible with JSON style arrays, and the JSON styles are what match DESIGN_NOTES in both themes. `gm_authFailure` wired so key problems surface as glass, not Google's error tile.
+- **Usage meter window = UTC calendar month**, matching the `usage_events` index; Supabase rollup fetch caps at 10k rows and logs when hit (no silent undercount).
+- **ResultsTable row click now opens the drawer**; the Sprint 4 inline issue-expand survives on the chevron only (issues also appear in the drawer's Overview).
+
+## S5-4. What Joey must do
+
+1. **Paste migration 0005** (`supabase/migrations/0005_update_policies.sql`) into the Supabase web SQL editor. Two `create policy` statements; safe any time. (Kickoff assumed it existed — it didn't.)
+2. **Maps key referrer allowlist**: your `VITE_GOOGLE_MAPS_BROWSER_KEY` (added to `apps/web/.env` mid-session — detected by name only, value never read) currently allows `localhost:5173` but rejected the test origin: `RefererNotAllowedMapError` for `http://localhost:5175/`. The map tab **already works in your own dev session at localhost:5173**. To let the automated harness exercise the live map too, add `http://localhost:5175/*` to the key's HTTP-referrer allowlist, then rerun `node scripts/sprint5-e2e.mjs` (start the offline stack per S4-4's recipe first).
+3. Optional cleanup: S3-4's fixture-row cleanup SQL still applies if you want the 25 `fx-*` businesses out of your live workspace.
+
+## S5-5. BLOCKED
+
+- **Live-map pin-drop E2E**: the browser key appeared mid-session (thanks) but its referrer restriction rejects the automation origin (5175), and 5173 is your running dev server, which this session deliberately did not touch. Everything around the Google canvas is verified (params conversion unit-tested, placeholder + auth-failure states rendered and screenshotted, `map_draw` accepted end-to-end by the worker on the fixture stack). One allowlist entry unblocks the full automated run — or just click the map in your 5173 session; it's live there now.
+
+## S5-6. Recommended Sprint 6 prompt
+
+```
+Prompt S6 — RapidForge Sprint 6 (v1.5 agents part 1: Screenshots, Design, Reputation, SEO) — AUTONOMOUS SESSION MODE
+
+Autonomous Session Mode is GRANTED per CLAUDE.md Section 12. Read CLAUDE.md,
+RapidForge-PRD.md Sections 6.8–6.10, 11 (Sprint 6), DESIGN_NOTES.md, and
+SESSION_REPORT.md Sprint 5. Execute end-to-end without waiting for me.
+
+BUILD:
+1. SCREENSHOTS: worker Puppeteer captures desktop (1440×900) + mobile
+   (390×844) homepage shots per audit → Supabase Storage bucket
+   'screenshots' (worker service-role upload; public-read or signed URLs —
+   decide and document); audits.screenshot_desktop_url/_mobile_url filled;
+   drawer Screenshots tab goes live (side-by-side, click to open full).
+   Fixture mode: deterministic placeholder PNGs, no Chrome needed in CI.
+2. DESIGN AGENT (PRD 6.8, Sonnet vision): sends BOTH screenshots to
+   claude-sonnet-4-6 via RapidForge AI Core; strict-JSON critique
+   (modernity score input, dated-patterns list, specific observations with
+   citations); replaces the stub design weight in scoring inputs; guardrail:
+   observations must reference visible elements, no scores assigned by the
+   model. Re-run once on guardrail failure, then persist flagged.
+3. REPUTATION (PRD 6.9): Google-first (rating/velocity/photo signals
+   already measured) + Yelp seam (YELP_API_KEY absent → fixture, same
+   pattern as every other seam); divergence flag when Google and Yelp
+   disagree materially; Sonnet summary.
+4. SEO AGENT (PRD 6.10): deterministic checks (title/meta/h1/schema/
+   sitemap/robots) on the fetched homepage + PSI SEO score; Sonnet summary;
+   new issues surface in the what's-wrong list and drawer.
+5. Wire all four into the audit_business fan-out (concurrency cap 5 stays),
+   agent_runs + Realtime events per agent, usage_events for AI calls with
+   real token costs from AI Core.
+
+NOTE: ANTHROPIC_API_KEY may still be absent — every agent must run in
+template/fixture mode without it (mark AI-dependent acceptance BLOCKED
+rather than improvising). Screenshots bucket creation is SQL/dashboard work:
+write the storage policy SQL as a migration for me to paste, never execute.
+
+ACCEPTANCE (fixture stack): tsc clean everywhere; all existing tests pass;
+new tests for screenshot storage paths, Design guardrails (reject
+unverifiable claims), Yelp divergence flag, SEO issue generation; dated Wix
+fixture gets a specific Design critique; schema-missing fixture flagged by
+SEO; drawer Screenshots tab shows both viewports; Lighthouse mobile ≥ 85;
+before/after screenshots to docs/design/.
+
+HARD LIMITS unchanged: no push, no SQL execution, no cloud changes, no .env
+edits, PowerShell syntax, local commits per step. EXIT: append Sprint 6 to
+SESSION_REPORT.md with commits, acceptance evidence, decisions, BLOCKED, and
+the recommended Sprint 7 prompt.
+```
+
+---
+
+*Session executed by Claude Code (Fable 5) under CLAUDE.md v1.2 — Sprint 5, 2026-07-05.*
