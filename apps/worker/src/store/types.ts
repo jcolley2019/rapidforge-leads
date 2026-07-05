@@ -86,6 +86,43 @@ export interface InsertAuditInput {
   completed_at: string | null;
 }
 
+/**
+ * Scorer's finalize patch (Sprint 3): fills the measured fields on the
+ * pending audit row Filter created and flips it to 'completed'. Audits
+ * stay append-only PER RUN (PRD 5.5) — this updates the current run's
+ * row, never a historical one.
+ */
+export interface UpdateAuditPatch {
+  ps_performance?: number | null;
+  ps_mobile_performance?: number | null;
+  ps_accessibility?: number | null;
+  ps_seo?: number | null;
+  ps_best_practices?: number | null;
+  ps_lcp_ms?: number | null;
+  ps_cls?: number | null;
+  http_status?: number | null;
+  ssl_valid?: boolean | null;
+  response_ms?: number | null;
+  platform?: string | null;
+  copyright_year?: number | null;
+  has_phone?: boolean | null;
+  has_form?: boolean | null;
+  has_booking?: boolean | null;
+  has_chat?: boolean | null;
+  has_viewport_meta?: boolean | null;
+  has_schema_markup?: boolean | null;
+  gbp_photo_count?: number | null;
+  has_crux_data?: boolean | null;
+  website_health_score?: number | null;
+  star_grade?: number | null;
+  sellability_score?: number | null;
+  score_breakdown?: Record<string, unknown> | null;
+  issues?: Issue[] | null;
+  status?: string;
+  error_message?: string | null;
+  completed_at?: string | null;
+}
+
 export interface InsertAgentRunInput {
   workspace_id: string;
   agent_name: string;
@@ -176,6 +213,9 @@ export interface DataStore {
     businessId: string,
   ): Promise<SearchResult>;
   insertAudit(input: InsertAuditInput): Promise<Audit>;
+  updateAudit(id: string, patch: UpdateAuditPatch): Promise<void>;
+  /** Newest completed audit for a business — the 30-day cache (PRD 5.5). */
+  getLatestCompletedAuditForBusiness(businessId: string): Promise<Audit | null>;
   setLatestAudit(searchId: string, businessId: string, auditId: string): Promise<void>;
 
   // agent_runs / usage_events

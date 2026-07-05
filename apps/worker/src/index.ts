@@ -11,8 +11,11 @@
 import "dotenv/config";
 import express from "express";
 import { CreateSearchRequestSchema } from "@rapidforge/shared";
+import { aiSummaryMode } from "./lib/ai";
 import { createPlacesClient } from "./lib/places";
 import { createWebProbe } from "./lib/probe";
+import { createPsiClient } from "./lib/psi";
+import { createSiteFetcher } from "./lib/site";
 import { createRequireSupabaseJwt } from "./middleware/auth";
 import type { OrchestratorDeps } from "./orchestrator";
 import { POLL_INTERVAL_MS, startQueuePoller } from "./queue";
@@ -28,7 +31,12 @@ const deps: OrchestratorDeps = {
   store: createDataStore(),
   places: createPlacesClient(),
   probe: createWebProbe(),
+  psi: createPsiClient(),
+  site: createSiteFetcher(),
 };
+console.log(
+  `[ai] summary mode: ${aiSummaryMode()}${aiSummaryMode() === "template" ? " — ANTHROPIC_API_KEY absent; Sonnet summaries are deterministic templates" : ""}`,
+);
 const poller = startQueuePoller(deps);
 
 app.get("/health", (_req, res) => {
@@ -41,6 +49,9 @@ app.get("/health", (_req, res) => {
     poll_interval_ms: POLL_INTERVAL_MS,
     store_mode: deps.store.mode,
     places_mode: deps.places.mode,
+    psi_mode: deps.psi.mode,
+    site_mode: deps.site.mode,
+    ai_mode: aiSummaryMode(),
   });
 });
 

@@ -23,6 +23,7 @@ import {
   SPECIAL_CASE_BADGES,
   ZipRadiusParamsSchema,
   type AgentResult,
+  type Audit,
   type Business,
   type Issue,
   type Search,
@@ -240,10 +241,16 @@ export interface FilterContext {
   search: Search;
   business: Business;
   jobId: string | null;
+  /**
+   * Latest completed audit within the 30-day cache window (PRD 5.5), or
+   * null. When present, real-site businesses reuse it — no probe, no
+   * audit pipeline, no new audit row.
+   */
+  cachedAudit: Audit | null;
 }
 
 export interface FilterOutput extends Record<string, unknown> {
-  outcome: FilterPlan["outcome"];
+  outcome: FilterPlan["outcome"] | "cache_hit";
   audit_id: string;
   sellability: number | null;
   health: number | null;
@@ -263,6 +270,33 @@ export async function runFilter(
     let plan = planFilterOutcome(business, params, null);
     let probeResult: ProbeResult | null = null;
     if (plan.outcome === "needs_probe") {
+      // 30-day audit cache (PRD 5.5): a fresh completed audit short-
+      // circuits the probe AND the audit pipeline — reuse it as-is.
+      if (ctx.cachedAudit) {
+        const cached = ctx.cachedAudit;
+        await store.setLatestAudit(search.id, business.id, cached.id);
+        return {
+          agent: "filter",
+          status: "completed",
+          output: {
+            outcome: "cache_hit",
+            audit_id: cached.id,
+            sellability: cached.sellability_score,
+            health: cached.website_health_score,
+            badge:
+              ((cached.score_breakdown as { badge?: string } | null)?.badge ??
+                null),
+            reason: "Reused completed audit within the 30-day cache window",
+          },
+          error: null,
+          modelUsed: null,
+          tokensUsed: 0,
+          costCents: 0,
+          durationMs: Date.now() - startedAt,
+          guardrailPassed: true,
+          guardrailNotes: null,
+        };
+      }
       probeResult = await probe.probe(business.website_url ?? "");
       plan = planFilterOutcome(business, params, probeResult);
     }

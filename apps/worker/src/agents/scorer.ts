@@ -1,19 +1,234 @@
-import type { AgentResult } from "@rapidforge/shared";
-import { notImplemented } from "./stub";
-
 /**
  * Scorer — PRD 6.7 (v1, DETERMINISTIC MATH — no LLM, ever).
  *
- * Health Score, star grade, Sellability Score, threshold-based issues
- * list. All math lives in @rapidforge/shared/scoring.ts
- * (computeHealthScore, deriveStarGrade, computeSellabilityScore) — this
- * agent only gathers inputs, calls those pure functions, and persists.
- * An LLM assigning a score is a bug (CLAUDE.md 4.2).
+ * Assembles the audit agents' measured outputs, calls the pure functions
+ * in @rapidforge/shared (computeHealthScore, deriveStarGrade,
+ * computeSellabilityScore, buildIssues), and finalizes the pending
+ * `audits` row Filter created. An LLM assigning a score is a bug
+ * (CLAUDE.md 4.2). The orchestrator emits `lead.scored` on completion.
  *
- * TODO(Sprint 3): implement per PRD 6.7 — assemble inputs from the audit
- * agents' outputs, compute scores + issues (PRD 4.5 plain-English
- * bullets), write the `audits` row, emit `lead.scored`.
+ * A failed upstream agent leaves its fields null — unmeasured checks
+ * score as failed/neutral per scoring.ts semantics, and unknown inputs
+ * produce no issue bullets (never invented).
  */
-export async function runScorer(): Promise<AgentResult> {
-  return notImplemented("scorer", "6.7");
+import {
+  buildIssues,
+  computeHealthScore,
+  computeSellabilityScore,
+  deriveStarGrade,
+  isBuilderPlatform,
+  SPECIAL_CASE_BADGES,
+  type AgentResult,
+  type Business,
+  type Issue,
+} from "@rapidforge/shared";
+import type { DataStore, UpdateAuditPatch } from "../store";
+import type { ConversionOutput } from "./conversion";
+import type { HealthOutput } from "./health";
+import type { PresenceOutput } from "./presence";
+import type { TrafficOutput } from "./traffic";
+
+export interface ScorerContext {
+  store: DataStore;
+  business: Business;
+  /** The pending audit row Filter created — finalized in place. */
+  auditId: string;
+  health: HealthOutput | null;
+  conversion: ConversionOutput | null;
+  presence: PresenceOutput | null;
+  traffic: TrafficOutput | null;
+  /** Injected for determinism. */
+  now: Date;
+}
+
+export interface AssembledScores {
+  healthScore: number;
+  starGrade: 1 | 2 | 3 | 4 | 5;
+  sellabilityScore: number;
+  issues: Issue[];
+  badge: string | null;
+  scoreBreakdown: Record<string, unknown>;
+}
+
+/** Pure score assembly — exported for the pipeline unit tests. */
+export function assembleScores(
+  business: Business,
+  health: HealthOutput | null,
+  conversion: ConversionOutput | null,
+  presence: PresenceOutput | null,
+  traffic: TrafficOutput | null,
+  now: Date,
+): AssembledScores {
+  const currentYear = now.getFullYear();
+
+  const healthResult = computeHealthScore({
+    siteDead: false, // dead sites are routed by Filter and never reach Scorer
+    psDesktopPerformance: health?.ps_performance ?? null,
+    psMobilePerformance: health?.ps_mobile_performance ?? null,
+    sslValid: health?.ssl_valid ?? false,
+    httpsEnforced: health?.https_enforced ?? false,
+    responseMs: health?.response_ms ?? null,
+    hasViewportMeta: conversion?.has_viewport_meta ?? false,
+    platform: health?.platform ?? null,
+    hasVisiblePhone: conversion?.has_visible_phone ?? false,
+    hasContactForm: conversion?.has_form ?? false,
+    hasBookingLink: conversion?.has_booking ?? false,
+    hasCtaAboveFold: conversion?.has_cta_above_fold ?? false,
+    hasClickToCall: conversion?.has_tel_link ?? false,
+    copyrightYear: health?.copyright_year ?? null,
+    currentYear,
+    hasRecentLastModified: health?.has_recent_last_modified ?? false,
+    hasBrokenImages: false, // unmeasured in v1 (needs per-image fetches)
+    designScore: null, // stub 50 until the v1.5 Design agent (PRD 4.1)
+  });
+
+  const sellabilityResult = computeSellabilityScore({
+    websiteKind: "real",
+    healthScore: healthResult.score,
+    reviewCount: business.review_count,
+    googleRating: business.google_rating,
+    hasPhone: business.phone !== null,
+    isChain: business.is_chain === true,
+    businessStatus: business.business_status,
+  });
+
+  const issues = buildIssues({
+    psMobilePerformance: health?.ps_mobile_performance ?? null,
+    psDesktopPerformance: health?.ps_performance ?? null,
+    psLcpMs: health?.ps_lcp_ms ?? null,
+    psCls: health?.ps_cls ?? null,
+    sslValid: health?.ssl_valid ?? null,
+    httpsEnforced: health?.https_enforced ?? null,
+    responseMs: health?.response_ms ?? null,
+    platform: health?.platform ?? null,
+    copyrightYear: health?.copyright_year ?? null,
+    currentYear,
+    hasVisiblePhone:
+      (conversion?.has_visible_phone || conversion?.has_tel_link) ?? false,
+    hasClickToCall: conversion?.has_tel_link ?? false,
+    hasForm: conversion?.has_form ?? false,
+    hasBooking: conversion?.has_booking ?? false,
+    hasViewportMeta: conversion?.has_viewport_meta ?? false,
+    hasSchemaMarkup: conversion?.has_schema_markup ?? false,
+    hasCruxData: traffic?.has_crux_data ?? null,
+    napConsistent: presence?.nap.nap_consistent ?? null,
+  });
+
+  const badge =
+    health?.platform && isBuilderPlatform(health.platform)
+      ? SPECIAL_CASE_BADGES.builderSite
+      : null;
+
+  return {
+    healthScore: healthResult.score,
+    starGrade: deriveStarGrade(healthResult.score),
+    sellabilityScore: sellabilityResult.score,
+    issues,
+    badge,
+    scoreBreakdown: {
+      health: healthResult.breakdown,
+      sellability: sellabilityResult.breakdown,
+      ...(badge ? { badge } : {}),
+      agents: {
+        health: health !== null,
+        conversion: conversion !== null,
+        presence: presence !== null,
+        traffic: traffic !== null,
+      },
+    },
+  };
+}
+
+export interface ScorerOutput extends Record<string, unknown> {
+  audit_id: string;
+  health_score: number;
+  star_grade: number;
+  sellability_score: number;
+  issue_count: number;
+  badge: string | null;
+}
+
+export async function runScorer(
+  ctx: ScorerContext,
+): Promise<AgentResult<ScorerOutput>> {
+  const startedAt = Date.now();
+  try {
+    const { business, health, conversion, presence, traffic, now } = ctx;
+    const scores = assembleScores(
+      business,
+      health,
+      conversion,
+      presence,
+      traffic,
+      now,
+    );
+
+    const patch: UpdateAuditPatch = {
+      ps_performance: health?.ps_performance ?? null,
+      ps_mobile_performance: health?.ps_mobile_performance ?? null,
+      ps_accessibility: health?.ps_accessibility ?? null,
+      ps_seo: health?.ps_seo ?? null,
+      ps_best_practices: health?.ps_best_practices ?? null,
+      ps_lcp_ms: health?.ps_lcp_ms ?? null,
+      ps_cls: health?.ps_cls ?? null,
+      http_status: health?.http_status ?? null,
+      ssl_valid: health?.ssl_valid ?? null,
+      response_ms: health?.response_ms ?? null,
+      platform: health?.platform ?? null,
+      copyright_year: health?.copyright_year ?? null,
+      has_phone:
+        conversion === null
+          ? null
+          : conversion.has_visible_phone || conversion.has_tel_link,
+      has_form: conversion?.has_form ?? null,
+      has_booking: conversion?.has_booking ?? null,
+      has_chat: conversion?.has_chat ?? null,
+      has_viewport_meta: conversion?.has_viewport_meta ?? null,
+      has_schema_markup: conversion?.has_schema_markup ?? null,
+      gbp_photo_count: presence?.gbp_photo_count ?? null,
+      has_crux_data: traffic?.has_crux_data ?? null,
+      website_health_score: scores.healthScore,
+      star_grade: scores.starGrade,
+      sellability_score: scores.sellabilityScore,
+      score_breakdown: scores.scoreBreakdown,
+      issues: scores.issues,
+      status: "completed",
+      error_message: null,
+      completed_at: now.toISOString(),
+    };
+    await ctx.store.updateAudit(ctx.auditId, patch);
+
+    return {
+      agent: "scorer",
+      status: "completed",
+      output: {
+        audit_id: ctx.auditId,
+        health_score: scores.healthScore,
+        star_grade: scores.starGrade,
+        sellability_score: scores.sellabilityScore,
+        issue_count: scores.issues.length,
+        badge: scores.badge,
+      },
+      error: null,
+      modelUsed: null, // deterministic math — no LLM, ever (PRD 6.7)
+      tokensUsed: 0,
+      costCents: 0,
+      durationMs: Date.now() - startedAt,
+      guardrailPassed: true,
+      guardrailNotes: null,
+    };
+  } catch (err) {
+    return {
+      agent: "scorer",
+      status: "failed",
+      output: null,
+      error: err instanceof Error ? err.message : String(err),
+      modelUsed: null,
+      tokensUsed: 0,
+      costCents: 0,
+      durationMs: Date.now() - startedAt,
+      guardrailPassed: true,
+      guardrailNotes: null,
+    };
+  }
 }

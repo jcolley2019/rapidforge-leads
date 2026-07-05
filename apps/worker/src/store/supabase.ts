@@ -30,6 +30,7 @@ import {
   type LogUsageEventInput,
   type SearchDetail,
   type UpdateAgentRunPatch,
+  type UpdateAuditPatch,
   type UpsertBusinessInput,
 } from "./types";
 
@@ -269,6 +270,30 @@ export class SupabaseStore implements DataStore {
       .select()
       .single();
     return must(data, error, "insertAudit") as Audit;
+  }
+
+  async updateAudit(id: string, patch: UpdateAuditPatch): Promise<void> {
+    const { error } = await this.db.from("audits").update(patch).eq("id", id);
+    if (error) throw new Error(`[store] updateAudit: ${error.message}`);
+  }
+
+  async getLatestCompletedAuditForBusiness(
+    businessId: string,
+  ): Promise<Audit | null> {
+    const { data, error } = await this.db
+      .from("audits")
+      .select("*")
+      .eq("business_id", businessId)
+      .eq("status", "completed")
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(1);
+    if (error) {
+      throw new Error(
+        `[store] getLatestCompletedAuditForBusiness: ${error.message}`,
+      );
+    }
+    return ((data ?? [])[0] as Audit | undefined) ?? null;
   }
 
   async setLatestAudit(

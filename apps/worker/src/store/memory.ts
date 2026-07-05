@@ -28,6 +28,7 @@ import {
   type LogUsageEventInput,
   type SearchDetail,
   type UpdateAgentRunPatch,
+  type UpdateAuditPatch,
   type UpsertBusinessInput,
 } from "./types";
 
@@ -255,6 +256,25 @@ export class MemoryStore implements DataStore {
     };
     this.audits.set(audit.id, audit);
     return audit;
+  }
+
+  async updateAudit(id: string, patch: UpdateAuditPatch): Promise<void> {
+    const audit = this.audits.get(id);
+    if (audit) Object.assign(audit, patch);
+  }
+
+  async getLatestCompletedAuditForBusiness(
+    businessId: string,
+  ): Promise<Audit | null> {
+    let latest: Audit | null = null;
+    for (const audit of this.audits.values()) {
+      if (audit.business_id !== businessId) continue;
+      if (audit.status !== "completed" || audit.completed_at === null) continue;
+      if (latest === null || audit.completed_at > (latest.completed_at ?? "")) {
+        latest = audit;
+      }
+    }
+    return latest;
   }
 
   async setLatestAudit(

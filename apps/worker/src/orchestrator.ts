@@ -15,12 +15,19 @@
  * Every agent run writes an `agent_runs` row and emits AgentEvents
  * (CLAUDE.md 6.5) — done here so agents stay pure.
  */
-import type { AgentResult, Job, Search } from "@rapidforge/shared";
+import type { AgentResult, Business, Job, Search } from "@rapidforge/shared";
+import { runConversion } from "./agents/conversion";
 import { runFilter } from "./agents/filter";
+import { runHealth } from "./agents/health";
+import { runPresence } from "./agents/presence";
+import { runScorer } from "./agents/scorer";
 import { runScout } from "./agents/scout";
+import { runTraffic } from "./agents/traffic";
 import { broadcastAgentEvent } from "./events";
 import type { PlacesClient } from "./lib/places";
 import type { WebProbe } from "./lib/probe";
+import type { PsiClient, PsiStrategy } from "./lib/psi";
+import type { SiteFetcher } from "./lib/site";
 import type { DataStore } from "./store";
 
 /** Hard cap on concurrent business audits (CLAUDE.md Section 8). */
@@ -29,10 +36,20 @@ export const AUDIT_CONCURRENCY_CAP = 5;
 /** Analyst auto-run threshold (CLAUDE.md Section 8) — used from Sprint 7. */
 export const ANALYST_SELLABILITY_THRESHOLD = 60;
 
+/**
+ * 30-day audit cache (PRD 5.5). Freshness is keyed on the audit's own
+ * completed_at rather than businesses.last_refreshed_at, because Scout
+ * bumps last_refreshed_at on every search — it measures discovery
+ * recency, not audit recency.
+ */
+export const AUDIT_CACHE_DAYS = 30;
+
 export interface OrchestratorDeps {
   store: DataStore;
   places: PlacesClient;
   probe: WebProbe;
+  psi: PsiClient;
+  site: SiteFetcher;
 }
 
 /** jobs.payload shape for 'scout' and 'audit_business' jobs. */
@@ -96,6 +113,11 @@ async function handleScoutJob(job: Job, deps: OrchestratorDeps): Promise<void> {
   }
 }
 
+function isWithinDays(iso: string, days: number, now: Date): boolean {
+  const age = now.getTime() - Date.parse(iso);
+  return Number.isFinite(age) && age >= 0 && age <= days * 86_400_000;
+}
+
 async function handleAuditBusinessJob(
   job: Job,
   deps: OrchestratorDeps,
@@ -112,15 +134,136 @@ async function handleAuditBusinessJob(
   if (!search) throw new Error(`search ${searchId} not found`);
   if (!business) throw new Error(`business ${businessId} not found`);
 
+  // 30-day audit cache lookup (PRD 5.5) — Filter short-circuits on it.
+  const now = new Date();
+  const latest = await store.getLatestCompletedAuditForBusiness(business.id);
+  const cachedAudit =
+    latest?.completed_at != null &&
+    isWithinDays(latest.completed_at, AUDIT_CACHE_DAYS, now)
+      ? latest
+      : null;
+
   const result = await withAgentRun(
     deps,
     { job, search, agent: "filter", targetId: business.id },
     () =>
-      runFilter({ store, probe: deps.probe, search, business, jobId: job.id }),
+      runFilter({
+        store,
+        probe: deps.probe,
+        search,
+        business,
+        jobId: job.id,
+        cachedAudit,
+      }),
   );
-  if (result.status === "failed") {
+  if (result.status === "failed" || !result.output) {
     throw new Error(result.error ?? "filter failed");
   }
+
+  // Only live real sites proceed to the audit agents (PRD 3.3 steps 4–5).
+  // Hot leads / dead sites / skips / cache hits are complete after Filter.
+  if (result.output.outcome !== "pending_audit") return;
+  await runAuditPipeline(job, search, business, result.output.audit_id, deps);
+}
+
+/**
+ * PRD 3.3 steps 4–5: Health / Conversion / Presence / Traffic in parallel
+ * on shared measured inputs (ONE homepage fetch, ONE mobile+desktop PSI
+ * pair — Traffic reads CrUX off Health's PSI response, PRD 6.6), then the
+ * deterministic Scorer finalizes the audit row and `lead.scored` fires.
+ *
+ * A single failed audit agent does NOT fail the job: its agent_runs row
+ * records the failure and Scorer treats the missing fields as unmeasured.
+ */
+async function runAuditPipeline(
+  job: Job,
+  search: Search,
+  business: Business,
+  auditId: string,
+  deps: OrchestratorDeps,
+): Promise<void> {
+  const { store } = deps;
+  const url = business.website_url ?? "";
+  const now = new Date();
+
+  const runPsiLogged = async (strategy: PsiStrategy) => {
+    const metrics = await deps.psi.run(url, strategy);
+    await store.logUsageEvent({
+      workspace_id: search.workspace_id,
+      event_type: "pagespeed_call",
+      cost_cents: 0, // PSI is free tier (PRD 3.5)
+      metadata: { url, strategy, mode: deps.psi.mode, ok: metrics !== null },
+    });
+    return metrics;
+  };
+  const [site, psiMobile, psiDesktop] = await Promise.all([
+    deps.site.fetchHomepage(url),
+    runPsiLogged("mobile"),
+    runPsiLogged("desktop"),
+  ]);
+
+  const runCtx = { job, search };
+  const [health, conversion, presence, traffic] = await Promise.all([
+    withAgentRun(deps, { ...runCtx, agent: "health", targetId: business.id }, () =>
+      runHealth({ business, site, psiDesktop, psiMobile, now }),
+    ),
+    withAgentRun(
+      deps,
+      { ...runCtx, agent: "conversion", targetId: business.id },
+      () => runConversion({ business, site }),
+    ),
+    withAgentRun(
+      deps,
+      { ...runCtx, agent: "presence", targetId: business.id },
+      () => runPresence({ business, site }),
+    ),
+    withAgentRun(
+      deps,
+      { ...runCtx, agent: "traffic", targetId: business.id },
+      () => runTraffic({ psiDesktop, psiMobile }),
+    ),
+  ]);
+
+  const scorer = await withAgentRun(
+    deps,
+    { ...runCtx, agent: "scorer", targetId: business.id },
+    () =>
+      runScorer({
+        store,
+        business,
+        auditId,
+        health: health.output,
+        conversion: conversion.output,
+        presence: presence.output,
+        traffic: traffic.output,
+        now,
+      }),
+  );
+  if (scorer.status === "failed" || !scorer.output) {
+    throw new Error(scorer.error ?? "scorer failed");
+  }
+
+  await store.logUsageEvent({
+    workspace_id: search.workspace_id,
+    event_type: "audit_run",
+    cost_cents:
+      health.costCents +
+      conversion.costCents +
+      presence.costCents +
+      traffic.costCents,
+    metadata: {
+      business_id: business.id,
+      audit_id: auditId,
+      health_score: scorer.output.health_score,
+      sellability_score: scorer.output.sellability_score,
+    },
+  });
+  await broadcastAgentEvent(search.workspace_id, {
+    type: "lead.scored",
+    businessId: business.id,
+    healthScore: scorer.output.health_score,
+    sellabilityScore: scorer.output.sellability_score,
+  });
 }
 
 /**

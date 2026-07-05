@@ -240,6 +240,7 @@ describe("runFilter (MemoryStore + FixtureWebProbe)", () => {
       search,
       business,
       jobId: null,
+      cachedAudit: null,
     });
 
     expect(result.status).toBe("completed");
@@ -264,6 +265,7 @@ describe("runFilter (MemoryStore + FixtureWebProbe)", () => {
       search,
       business,
       jobId: null,
+      cachedAudit: null,
     });
 
     expect(result.output?.outcome).toBe("dead_site");
@@ -317,7 +319,7 @@ describe("runFilter (MemoryStore + FixtureWebProbe)", () => {
     });
     for (const business of [live, hot]) {
       await store.ensureSearchResult(DEV_WORKSPACE_ID, search.id, business.id);
-      await runFilter({ store, probe, search, business, jobId: null });
+      await runFilter({ store, probe, search, business, jobId: null, cachedAudit: null });
     }
 
     const detail = await store.getSearchDetail(search.id);
