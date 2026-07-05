@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "concurrently -n web,worker -c cyan,magenta \"npm run dev -w apps/web\" \"npm run dev -w apps/worker\"",
     "typecheck": "npm run typecheck -w packages/shared && npm run typecheck -w apps/worker && npm run typecheck -w apps/web",
-    "test": "npm run test -w packages/shared"
+    "test": "npm run test -w packages/shared && npm run test -w apps/worker"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
