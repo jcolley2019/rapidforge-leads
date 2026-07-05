@@ -55,10 +55,16 @@ export default {
         },
       },
       borderRadius: {
-        // 6–8px radii per PRD 7.1 (--radius = 8px)
+        // DESIGN_NOTES: cards rounded-2xl (16px, tailwind default), controls
+        // rounded-xl via --radius = 12px.
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        // Glass shadow recipe (DESIGN_NOTES.md) — theme-aware via CSS vars.
+        card: "var(--shadow-card)",
+        float: "var(--shadow-float)",
       },
     },
   },

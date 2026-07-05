@@ -3,70 +3,153 @@
 @tailwind utilities;
 
 /*
- * RapidForge visual language (PRD 7.1): dark default with light toggle,
- * electric cyan #00d9ff (hsl 189 100% 50%) for agent-active/primary,
- * amber waiting, green complete, red errors. 6–8px radii, 1px low-opacity
- * borders, dense grid.
+ * RapidForge visual language v2 — "Glass" (DESIGN_NOTES.md, Sprint 4).
+ * Apple-style modern product: generous whitespace, frosted surfaces, soft
+ * depth, cyan #00d9ff as the single accent. Dark default, light toggle.
  */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 224 20% 10%;
+    --background: 220 30% 97%;
+    --foreground: 228 25% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 224 20% 10%;
+    --card-foreground: 228 25% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 20% 10%;
-    --primary: 189 100% 38%;
+    --popover-foreground: 228 25% 10%;
+    --primary: 191 100% 34%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 14% 94%;
-    --secondary-foreground: 224 20% 10%;
-    --muted: 220 14% 94%;
-    --muted-foreground: 220 10% 42%;
-    --accent: 220 14% 92%;
-    --accent-foreground: 224 20% 10%;
-    --destructive: 0 72% 50%;
+    --secondary: 220 20% 93%;
+    --secondary-foreground: 228 25% 10%;
+    --muted: 220 20% 93%;
+    --muted-foreground: 220 12% 42%;
+    --accent: 220 20% 91%;
+    --accent-foreground: 228 25% 10%;
+    --destructive: 0 72% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 88%;
-    --input: 220 13% 85%;
-    --ring: 189 100% 38%;
-    --radius: 0.5rem;
-    --agent-active: 189 100% 40%;
-    --agent-waiting: 38 92% 45%;
-    --agent-complete: 142 71% 38%;
-    --agent-error: 0 84% 55%;
+    --border: 220 16% 88%;
+    --input: 220 16% 85%;
+    --ring: 191 100% 34%;
+    --radius: 0.75rem;
+    --agent-active: 191 100% 34%;
+    --agent-waiting: 38 92% 47%;
+    --agent-complete: 142 70% 37%;
+    --agent-error: 0 84% 52%;
+    /* Glass recipe (light) */
+    --glass-fill: 0 0% 100% / 0.65;
+    --glass-border: 228 25% 10% / 0.06;
+    --shadow-card:
+      0 1px 2px rgba(16, 24, 40, 0.05), 0 8px 24px rgba(16, 24, 40, 0.08);
+    --shadow-float:
+      0 2px 4px rgba(16, 24, 40, 0.06), 0 16px 48px rgba(16, 24, 40, 0.14);
+    /* Ambient background the glass refracts */
+    --ambient:
+      radial-gradient(
+        60rem 40rem at 12% -10%,
+        hsl(191 100% 40% / 0.07),
+        transparent 60%
+      ),
+      radial-gradient(
+        50rem 36rem at 100% 110%,
+        hsl(224 60% 50% / 0.06),
+        transparent 60%
+      );
   }
 
   .dark {
-    --background: 225 20% 5%;
-    --foreground: 213 25% 92%;
-    --card: 225 18% 7%;
-    --card-foreground: 213 25% 92%;
-    --popover: 225 18% 7%;
-    --popover-foreground: 213 25% 92%;
+    --background: 228 20% 5%;
+    --foreground: 220 25% 94%;
+    --card: 228 16% 9%;
+    --card-foreground: 220 25% 94%;
+    --popover: 228 16% 8%;
+    --popover-foreground: 220 25% 94%;
     --primary: 189 100% 50%; /* #00d9ff */
-    --primary-foreground: 225 30% 8%;
-    --secondary: 223 15% 12%;
-    --secondary-foreground: 213 25% 92%;
-    --muted: 223 15% 12%;
-    --muted-foreground: 217 12% 58%;
-    --accent: 223 15% 14%;
-    --accent-foreground: 213 25% 92%;
+    --primary-foreground: 228 30% 8%;
+    --secondary: 226 15% 13%;
+    --secondary-foreground: 220 25% 94%;
+    --muted: 226 15% 13%;
+    --muted-foreground: 220 12% 60%;
+    --accent: 226 15% 15%;
+    --accent-foreground: 220 25% 94%;
     --destructive: 0 72% 55%;
     --destructive-foreground: 0 0% 98%;
-    --border: 222 14% 15%;
-    --input: 222 14% 17%;
+    --border: 224 14% 16%;
+    --input: 224 14% 18%;
     --ring: 189 100% 50%;
     --agent-active: 189 100% 50%;
-    --agent-waiting: 38 92% 50%;
-    --agent-complete: 142 71% 45%;
+    --agent-waiting: 38 92% 55%;
+    --agent-complete: 142 70% 45%;
     --agent-error: 0 84% 60%;
+    /* Glass recipe (dark) */
+    --glass-fill: 228 16% 9% / 0.55;
+    --glass-border: 0 0% 100% / 0.08;
+    --shadow-card:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 30px rgba(0, 0, 0, 0.35);
+    --shadow-float:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 16px 60px rgba(0, 0, 0, 0.5);
+    --ambient:
+      radial-gradient(
+        60rem 40rem at 12% -10%,
+        hsl(189 100% 50% / 0.05),
+        transparent 60%
+      ),
+      radial-gradient(
+        50rem 36rem at 100% 110%,
+        hsl(224 70% 40% / 0.04),
+        transparent 60%
+      );
   }
 
   * {
     @apply border-border;
   }
 
+  html {
+    /* Apple-ish standard easing for plain CSS transitions */
+    --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
   body {
     @apply bg-background font-sans text-foreground antialiased;
+    background-image: var(--ambient);
+    background-attachment: fixed;
+  }
+
+  /* Numeric data is always tabular (DESIGN_NOTES: type rules). */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Frosted surface — chrome + cards. Never nest more than one level. */
+  .glass {
+    background-color: hsl(var(--glass-fill));
+    border: 1px solid hsl(var(--glass-border));
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .glass-card {
+    @apply glass rounded-2xl;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Working-agent pulse: soft breathing ring + cyan glow (2s). */
+  .pulse-live {
+    animation: pulse-live 2s var(--ease-standard) infinite;
+  }
+  @keyframes pulse-live {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 hsl(var(--agent-active) / 0.45);
+    }
+    50% {
+      box-shadow: 0 0 12px 3px hsl(var(--agent-active) / 0.25);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-live {
+      animation: none;
+      box-shadow: 0 0 8px 1px hsl(var(--agent-active) / 0.3);
+    }
   }
 }
