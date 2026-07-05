@@ -4,9 +4,9 @@
  * table populates live, sorted by sellability desc (server-side).
  * Sprint 4 replaces polling with Realtime agent events + pulse grid.
  */
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { ZipRadiusParams } from "@rapidforge/shared";
+import type { Issue, ZipRadiusParams } from "@rapidforge/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { fetchSearchDetail, type LeadView, type SearchDetail } from "@/lib/api";
@@ -23,6 +23,7 @@ export interface LiveSearchViewProps {
 export function LiveSearchView({ searchId, onNewSearch }: LiveSearchViewProps) {
   const [detail, setDetail] = useState<SearchDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const stopped = useRef(false);
 
   useEffect(() => {
@@ -123,18 +124,29 @@ export function LiveSearchView({ searchId, onNewSearch }: LiveSearchViewProps) {
                 <th className="px-4 py-2.5 font-medium">Phone</th>
                 <th className="px-4 py-2.5 font-medium">Reviews</th>
                 <th className="px-4 py-2.5 font-medium">Website</th>
+                <th className="px-4 py-2.5 text-right font-medium">Health</th>
                 <th className="px-4 py-2.5 text-right font-medium">Sellability</th>
                 <th className="px-4 py-2.5 font-medium">State</th>
               </tr>
             </thead>
             <tbody>
               {leads.map((lead, i) => (
-                <LeadRow key={lead.result.id} lead={lead} rank={i + 1} />
+                <LeadRow
+                  key={lead.result.id}
+                  lead={lead}
+                  rank={i + 1}
+                  expanded={expandedId === lead.result.id}
+                  onToggle={() =>
+                    setExpandedId((current) =>
+                      current === lead.result.id ? null : lead.result.id,
+                    )
+                  }
+                />
               ))}
               {leads.length === 0 && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-4 py-10 text-center text-sm text-muted-foreground"
                   >
                     {TERMINAL_STATUSES.has(status) ? (
@@ -202,75 +214,184 @@ function Stat({
   );
 }
 
-function LeadRow({ lead, rank }: { lead: LeadView; rank: number }) {
+function LeadRow({
+  lead,
+  rank,
+  expanded,
+  onToggle,
+}: {
+  lead: LeadView;
+  rank: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const { business, audit } = lead;
   const sellability = audit?.sellability_score ?? null;
+  const health = audit?.website_health_score ?? null;
+  const stars = audit?.star_grade ?? null;
   const provisional = Boolean(
     (audit?.score_breakdown as { provisional?: boolean } | null)?.provisional,
   );
   const skipped = audit?.status === "skipped";
+  const issues = audit?.issues ?? [];
+  const expandable = issues.length > 0;
 
   return (
-    <tr
-      className={cn(
-        "border-b border-border/60 last:border-0",
-        skipped && "opacity-45",
-      )}
-    >
-      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-        {rank}
-      </td>
-      <td className="px-4 py-2.5">
-        <div className="font-medium">{business.name}</div>
-        <div className="text-xs text-muted-foreground">{business.address}</div>
-      </td>
-      <td className="px-4 py-2.5 font-mono text-xs">
-        {business.phone ?? <span className="text-muted-foreground">—</span>}
-      </td>
-      <td className="px-4 py-2.5 font-mono text-xs">
-        {business.google_rating !== null ? (
-          <>
-            <span className="text-agent-waiting">★</span>{" "}
-            {business.google_rating.toFixed(1)}
-            <span className="text-muted-foreground">
-              {" "}
-              · {business.review_count ?? 0}
-            </span>
-          </>
-        ) : (
-          <span className="text-muted-foreground">no reviews</span>
+    <>
+      <tr
+        className={cn(
+          "border-b border-border/60 last:border-0",
+          skipped && "opacity-45",
+          expandable && "cursor-pointer hover:bg-muted/20",
         )}
-      </td>
-      <td className="px-4 py-2.5">
-        <WebsiteCell lead={lead} />
-      </td>
-      <td className="px-4 py-2.5 text-right">
-        {sellability !== null ? (
-          <span
-            className={cn(
-              "font-mono text-base font-semibold",
-              sellability >= 90
-                ? "text-primary"
-                : sellability >= 70
-                  ? "text-agent-waiting"
-                  : "text-muted-foreground",
-            )}
-          >
-            {sellability}
-            {provisional && (
-              <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-                est
-              </span>
-            )}
+        onClick={expandable ? onToggle : undefined}
+        title={expandable ? `${issues.length} issue(s) — click to expand` : undefined}
+      >
+        <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            {expandable &&
+              (expanded ? (
+                <ChevronDown className="h-3 w-3" aria-hidden />
+              ) : (
+                <ChevronRight className="h-3 w-3" aria-hidden />
+              ))}
+            {rank}
           </span>
-        ) : (
-          <span className="font-mono text-muted-foreground">—</span>
+        </td>
+        <td className="px-4 py-2.5">
+          <div className="font-medium">{business.name}</div>
+          <div className="text-xs text-muted-foreground">{business.address}</div>
+        </td>
+        <td className="px-4 py-2.5 font-mono text-xs">
+          {business.phone ?? <span className="text-muted-foreground">—</span>}
+        </td>
+        <td className="px-4 py-2.5 font-mono text-xs">
+          {business.google_rating !== null ? (
+            <>
+              <span className="text-agent-waiting">★</span>{" "}
+              {business.google_rating.toFixed(1)}
+              <span className="text-muted-foreground">
+                {" "}
+                · {business.review_count ?? 0}
+              </span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">no reviews</span>
+          )}
+        </td>
+        <td className="px-4 py-2.5">
+          <WebsiteCell lead={lead} />
+        </td>
+        <td className="px-4 py-2.5 text-right">
+          <HealthCell health={health} stars={stars} />
+        </td>
+        <td className="px-4 py-2.5 text-right">
+          {sellability !== null ? (
+            <span
+              className={cn(
+                "font-mono text-base font-semibold",
+                sellability >= 90
+                  ? "text-primary"
+                  : sellability >= 70
+                    ? "text-agent-waiting"
+                    : "text-muted-foreground",
+              )}
+            >
+              {sellability}
+              {provisional && (
+                <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                  est
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="font-mono text-muted-foreground">—</span>
+          )}
+        </td>
+        <td className="px-4 py-2.5">
+          <StateChip lead={lead} />
+        </td>
+      </tr>
+      {expanded && expandable && (
+        <tr className="border-b border-border/60 bg-muted/10">
+          <td colSpan={8} className="px-4 py-3 pl-12">
+            <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+              What&rsquo;s wrong
+            </p>
+            <ul className="space-y-1">
+              {issues.map((issue, i) => (
+                <IssueBullet key={i} issue={issue} />
+              ))}
+            </ul>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** Health score + star grade (PRD 4.1/4.2). Null = never audited. */
+function HealthCell({
+  health,
+  stars,
+}: {
+  health: number | null;
+  stars: number | null;
+}) {
+  if (health === null) {
+    return <span className="font-mono text-muted-foreground">—</span>;
+  }
+  return (
+    <span className="inline-flex flex-col items-end leading-tight">
+      <span
+        className={cn(
+          "font-mono text-base font-semibold",
+          health >= 70
+            ? "text-agent-complete"
+            : health >= 40
+              ? "text-agent-waiting"
+              : "text-agent-error",
         )}
-      </td>
-      <td className="px-4 py-2.5">
-        <StateChip lead={lead} />
-      </td>
-    </tr>
+      >
+        {health}
+      </span>
+      {stars !== null && (
+        <span
+          className="text-[10px] tracking-tighter text-agent-waiting"
+          aria-label={`${stars} star grade`}
+        >
+          {"★".repeat(Math.round(stars))}
+          <span className="text-muted-foreground/40">
+            {"★".repeat(Math.max(0, 5 - Math.round(stars)))}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function IssueBullet({ issue }: { issue: Issue }) {
+  return (
+    <li className="flex items-baseline gap-2 text-xs">
+      <span
+        className={cn(
+          "rounded border px-1 font-mono text-[10px] uppercase",
+          issue.severity === "high"
+            ? "border-agent-error/50 text-agent-error"
+            : issue.severity === "medium"
+              ? "border-agent-waiting/50 text-agent-waiting"
+              : "border-border text-muted-foreground",
+        )}
+      >
+        {issue.severity}
+      </span>
+      <span>
+        {issue.label}
+        {issue.detail && (
+          <span className="text-muted-foreground"> — {issue.detail}</span>
+        )}
+      </span>
+    </li>
   );
 }
 
@@ -321,8 +442,8 @@ function StateChip({ lead }: { lead: LeadView }) {
   }
   if (audit.status === "pending") {
     return (
-      <span className="font-mono text-[11px] text-muted-foreground">
-        Audit pending <span className="text-[10px]">(Sprint 3)</span>
+      <span className="font-mono text-[11px] text-primary animate-pulse">
+        auditing…
       </span>
     );
   }
