@@ -35,6 +35,7 @@ import {
   updateLeadStatus,
   type LeadView,
 } from "@/lib/api";
+import { relativeTime } from "@/lib/format";
 import { spring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -750,24 +751,4 @@ function bool(value: boolean | null): ReactNode {
 
 function dash(): ReactNode {
   return <span className="text-muted-foreground">—</span>;
-}
-
-function relativeTime(iso: string | null): string | null {
-  if (!iso) return null;
-  const delta = Date.now() - Date.parse(iso);
-  const future = delta < 0;
-  const abs = Math.abs(delta);
-  const minutes = Math.round(abs / 60_000);
-  const hours = Math.round(minutes / 60);
-  const days = Math.round(hours / 24);
-  const span =
-    minutes < 1
-      ? "just now"
-      : minutes < 60
-        ? `${minutes}m`
-        : hours < 24
-          ? `${hours}h`
-          : `${days}d`;
-  if (span === "just now") return span;
-  return future ? `in ${span}` : `${span} ago`;
 }
