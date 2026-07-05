@@ -113,20 +113,20 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4">
       <div className="space-y-1">
-        <p className="font-mono text-[11px] uppercase tracking-widest text-primary">
-          Sprint 2
+        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-primary">
+          Prospecting
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">New Search</h1>
       </div>
 
-      <div className="flex gap-2 text-xs">
-        <span className="rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 font-medium text-primary">
+      <div className="glass-card flex w-fit items-center gap-1 rounded-full p-1.5 text-xs">
+        <span className="rounded-full bg-accent px-3 py-1 font-medium text-foreground shadow-card">
           Zip / Radius
         </span>
-        <span className="rounded-md border border-border px-2.5 py-1 text-muted-foreground">
+        <span className="px-3 py-1 text-muted-foreground">
           Map Draw <span className="font-mono text-[10px]">v1.5</span>
         </span>
-        <span className="rounded-md border border-border px-2.5 py-1 text-muted-foreground">
+        <span className="px-3 py-1 text-muted-foreground">
           Keyword <span className="font-mono text-[10px]">v1.5</span>
         </span>
       </div>
@@ -175,7 +175,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
                     type="button"
                     onClick={() => setRadius(preset)}
                     className={cn(
-                      "rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors",
+                      "rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-colors",
                       radius === preset
                         ? "border-primary/60 bg-primary/10 text-primary"
                         : "border-border text-muted-foreground hover:text-foreground",
@@ -210,7 +210,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
                   type="button"
                   onClick={() => setCategory(c)}
                   className={cn(
-                    "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                    "rounded-full border px-3 py-1 text-xs transition-colors",
                     category?.type === c.type
                       ? "border-primary/60 bg-primary/10 text-primary"
                       : "border-border text-muted-foreground hover:text-foreground",
@@ -251,7 +251,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
                     type="button"
                     onClick={() => setMinRating(preset.value)}
                     className={cn(
-                      "rounded-md border px-2 py-1 font-mono text-[11px] transition-colors",
+                      "rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors",
                       minRating === preset.value
                         ? "border-primary/60 bg-primary/10 text-primary"
                         : "border-border text-muted-foreground hover:text-foreground",
@@ -266,7 +266,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
               <Label htmlFor="exclude-chains">Chains</Label>
               <label
                 htmlFor="exclude-chains"
-                className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground"
+                className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-border px-3.5 text-sm text-muted-foreground"
               >
                 <input
                   id="exclude-chains"
@@ -296,7 +296,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
           </div>
 
           {error && (
-            <p className="rounded-md border border-agent-error/40 bg-agent-error/10 px-3 py-2 text-xs text-agent-error">
+            <p className="rounded-xl border border-agent-error/40 bg-agent-error/10 px-3.5 py-2 text-xs text-agent-error">
               {error}
             </p>
           )}

@@ -57,18 +57,23 @@ export function AuthPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="space-y-2 text-center">
-          <div className="mx-auto flex items-center gap-2">
-            <span className="h-3 w-3 rounded-sm bg-primary" aria-hidden />
-            <span className="text-lg font-semibold tracking-tight">
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-sm shadow-float">
+        <CardHeader className="space-y-3 pt-8 text-center">
+          <div className="mx-auto flex items-center gap-2.5">
+            <span
+              className="h-5 w-5 rounded-lg bg-primary shadow-[0_0_16px_hsl(var(--primary)/0.55)]"
+              aria-hidden
+            />
+            <span className="text-xl font-semibold tracking-tight">
               RapidForge
             </span>
           </div>
-          <CardTitle className="text-xl">Sign in</CardTitle>
+          <CardTitle className="text-lg font-medium text-muted-foreground">
+            Sign in to your workspace
+          </CardTitle>
           <CardDescription>
-            Multi-agent local lead generation
+            A team of agents that finds, audits, and scores local leads.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
