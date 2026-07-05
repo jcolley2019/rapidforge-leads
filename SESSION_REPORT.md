@@ -124,3 +124,87 @@ updated live-switch note (PAGESPEED_API_KEY + ANTHROPIC_API_KEY).
 ---
 
 *Session executed by Claude Code (Fable 5) under CLAUDE.md v1.2 — Sprint 2, 2026-07-04.*
+
+---
+
+# SESSION_REPORT — Sprint 3 (Audit Agents + Scorer)
+
+Autonomous Session Mode · 2026-07-05 · scope: PRD Section 11 Sprint 3 (PRD 6.3–6.7, 4.1–4.5, 3.3)
+
+## S3-1. What was built (by commit)
+
+| Commit | What |
+|---|---|
+| `051cc1d` | **PSI seam** — `lib/psi.ts` (`RealPsiClient` when `PAGESPEED_API_KEY` set, `FixturePsiClient` otherwise) + `lib/psi-fixtures.ts`: realistic mobile+desktop Lighthouse profiles for the 13 fixture hosts spanning great → terrible, CrUX presence only on busy businesses, deterministic hash fallback for unknown hosts. 7 tests. |
+| `ede9e12` | **Site fetcher seam + platform detection** — `lib/site.ts` (real GET vs `lib/site-fixtures.ts` per-host homepage HTML crafted to exercise every detection path), `lib/platform.ts` (wix/godaddy/squarespace/wordpress/webflow/custom by URL+HTML+header fingerprint, copyright-year extraction, Last-Modified freshness). 18 tests. |
+| `22e6e39` | **Four audit agents + AI seam** — Health (PRD 6.3), Conversion (6.4: tel:/forms+field counts/booking/chat/viewport/schema/above-fold CTAs), Presence (6.5: deterministic NAP normalize+compare, social links), Traffic (6.6: CrUX flag off Health's PSI response, no extra call). Sonnet summaries go through `lib/ai.ts generateJsonSummary` — real model when `ANTHROPIC_API_KEY` exists, deterministic template (numbers included) when absent; guardrails as pure functions in `agents/guardrails/`; prompts + Zod contracts in `agents/prompts/`. 21 tests. `zod` added to worker deps (already in the stack via shared). |
+| `ea4b86e` | **Issues builder** — `packages/shared/src/issues.ts`: PRD 4.5 threshold bullets (`ISSUE_THRESHOLDS` exported constants), severity-sorted, null inputs produce NO bullet (unknown ≠ broken). **scoring.ts untouched.** 11 tests. |
+| `66442c7` | **Orchestration + Scorer + 30-day cache** — `audit_business` job now runs Filter → (cache check) → Health/Conversion/Presence/Traffic in parallel on shared inputs (ONE homepage fetch + ONE mobile/desktop PSI pair per business) → deterministic Scorer finalizes the pending audit row (real health/star/sellability/issues, replaces `provisional`) → `lead.scored`. Store gains `updateAudit` + `getLatestCompletedAuditForBusiness` (memory + supabase). `pagespeed_call` ×2 + `audit_run` ×1 usage events per audited business. A single failed audit agent no longer fails the job — Scorer scores what was measured. |
+| `43dc46d` | **Pipeline integration test** — 6 end-to-end tests on fixture data: score bands, issue content, special routing intact, cache hit reuses the audit (agent_runs shows only `filter` with `outcome: cache_hit`), usage events, sellability ordering. |
+| `cbbc824` | **Web** — Live Search table: Health column (tiered color + star glyphs), click-to-expand "What's wrong" issue list with severity chips, `auditing…` pulse replaces the Sprint 3 placeholder. `est` disappears once Scorer replaces the provisional score. |
+
+## S3-2. Acceptance results
+
+All verified 2026-07-05 with **every external key blanked via process env** (`.env` files untouched):
+
+1. **tsc clean** — `npx tsc --noEmit` passes in worker, shared, web. ✔
+2. **Tests** — worker **94/94** (was 42), shared **33/33** (was 22); new coverage: platform detection, NAP comparison, issues thresholds, full scoring pipeline. ✔
+3. **Browser E2E (pure fixture stack: memory store + all fixture seams)** — searched "plumber · 83642 · 10 mi": 25 results, completed in ~30 s. Every live-site business shows a real health score + stars + sellability with **no `est` markers** (e.g. snakeriver 91/5★/64, precision 90/5★/64, rotorooter 86/5★/56, wix 36/2★/82, godaddy 35/2★/82, ancient custom 38/2★/54). The 8 no-website/social-only fixtures sit on top at **95 · Hot lead**; `oldfaithfulplumbing.com` shows **health 10 + "Site broken — urgent"**; the two CLOSED_* fixtures are greyed out with skip reasons. Row expansion lists the PRD 4.5 bullets with metric citations (wix row: 2 high / 8 medium / 2 low). ✔
+4. **agent_runs in Supabase (live store + fixture externals)** — migrations turned out to be applied and Joey's workspace bootstrapped, so this ran against REAL Supabase: search completed in ~20 s; `agent_runs` = scout×1, filter×25, health/conversion/presence/traffic/scorer ×14 each (the 14 audited live-site businesses), all `completed`; `usage_events` = places_call×16, pagespeed_call×28, audit_run×14. ✔
+
+## S3-3. Decisions made (and why)
+
+- **Cache freshness keys on `audits.completed_at`, not `businesses.last_refreshed_at`** (PRD 5.5 letter): Scout bumps `last_refreshed_at` on every search, so it measures discovery recency, not audit age — using it would make the cache window slide forever. Spirit of "30-day audit cache" preserved.
+- **Scorer updates the pending audit row in place** rather than appending a second row per run: audits stay append-only per RUN (history preserved across runs); one search = one audit row.
+- **AI summaries**: `generateJsonSummary` implements the full guardrail protocol (fail → re-run once → persist flagged) and falls back to deterministic templates on hard AI failures so a refusal/outage can never stall a job. `callModel` still throws pending Sprint 0 (AI Core fable-5 verification) — see S3-5.
+- **Unmeasured ≠ broken**: null inputs produce no issue bullets and score as failed checks only where scoring.ts already defined that semantic (e.g. response time). `has_broken_images` stays unmeasured (false) in v1 — needs per-image fetches.
+- **Presence GBP depth** (photo count, hours completeness) stays `null`/`"unknown"`: Scout doesn't capture photo counts and there is no businesses column for them — never invented. NAP comparison + social-link detection are fully live.
+- **Filter Haiku edge-pass remains deferred** (needs AI Core + an Anthropic key; not in this sprint's BUILD list).
+- **Half-live guard**: fixture PSI serves deterministic hash profiles for unknown (real) hosts so a half-live config degrades instead of crashing — but see the warning in S3-6.
+
+## S3-4. Data note — fixture rows in the live workspace
+
+The Supabase acceptance run left **25 fixture businesses + 1 search + 25 audits + fixture agent_runs/usage_events** in your real workspace. Their `google_place_id`s are `fx-*` so they can never collide with real Places data, and they're handy for eyeballing the dashboard — but when you want them gone, paste this into the SQL editor (I don't run SQL):
+
+```sql
+delete from search_results where business_id in (select id from businesses where google_place_id like 'fx-%');
+delete from audits where business_id in (select id from businesses where google_place_id like 'fx-%');
+delete from businesses where google_place_id like 'fx-%';
+-- searches/jobs/agent_runs/usage_events rows from the test search can stay (harmless history) or go by created_at.
+```
+
+## S3-5. BLOCKED / what changes when keys are added
+
+Nothing blocked Sprint 3's deliverables. Outstanding, in your hands:
+
+- **`PAGESPEED_API_KEY` (free, 25k/day)** → `[psi] mode: real`: real Lighthouse + CrUX for real sites. **Add this BEFORE running real-Places searches** — see warning below.
+- **`ANTHROPIC_API_KEY` + Sprint 0** → `[ai] summary mode: core`: Sonnet-written audit narratives replace the templates. Requires verifying fable-5 + refusal fallback in `rapidforge-ai-core` first (Sprint 0, separate repo); until then a set key falls back to templates with a guardrail note rather than crashing.
+- ⚠️ **You added `GOOGLE_PLACES_API_KEY` to `apps/worker/.env` mid-session** (worker now boots `places: google`). Heads-up: with Places real but PSI fixture, a real search audits REAL businesses with **made-up hash-fallback PSI numbers**. Either add the (free) PageSpeed key first, or blank the Places key until you want live runs. Sprint 3 acceptance was run with all keys blanked via process env — your `.env` was not modified.
+
+## S3-6. Recommended Sprint 4 prompt
+
+```
+Prompt S4 — RapidForge Sprint 4 (Realtime Dashboard) — AUTONOMOUS SESSION MODE
+
+Autonomous Session Mode is GRANTED per CLAUDE.md Section 12. Read CLAUDE.md and
+RapidForge-PRD.md Sections 5.6, 7, and 11 (Sprint 4), then execute end-to-end.
+
+BUILD (per PRD Sprint 4):
+1. events.ts: real Supabase Realtime broadcast on channel workspace:{id}
+   (service-role key) replacing the console stub; keep the graceful no-op
+   without env.
+2. Web: subscribe on login to workspace:{id}; agent grid with per-agent pulse
+   states driven by agent.started/progress/completed/failed; live event stream
+   with filters; results table live-updates on lead.scored (no full re-poll);
+   polling GET /api/searches/:id stays as reload/fallback recovery.
+3. State recovery: on page load, rebuild current agent states from agent_runs.
+ACCEPTANCE: second browser window shows agents working live without refresh;
+no flicker; reload mid-search recovers state. Realtime path works against the
+live Supabase project (already wired); fixture Places data is fine throughout.
+HARD LIMITS unchanged (no push, no SQL execution, no .env edits, PowerShell,
+local commits per logical step). EXIT: SESSION_REPORT.md Sprint 4 section.
+```
+
+---
+
+*Session executed by Claude Code (Fable 5) under CLAUDE.md v1.2 — Sprint 3, 2026-07-05.*
