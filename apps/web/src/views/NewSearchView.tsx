@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createSearch } from "@/lib/api";
+import { getSearchDefaults } from "@/lib/search-defaults";
 import { cn } from "@/lib/utils";
 
 /** Curated Places (New) included types (PRD 6.1 type filter). */
@@ -66,9 +67,15 @@ export interface NewSearchViewProps {
 
 export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
   const [zip, setZip] = useState("");
-  const [radius, setRadius] = useState(10);
+  // Settings → search defaults pre-fill radius + category (Sprint 5).
+  const [radius, setRadius] = useState(
+    () => getSearchDefaults()?.radius_miles ?? 10,
+  );
   const [categoryQuery, setCategoryQuery] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [category, setCategory] = useState(() => {
+    const preferred = getSearchDefaults()?.category_type;
+    return CATEGORIES.find((c) => c.type === preferred) ?? CATEGORIES[0];
+  });
   const [minReviews, setMinReviews] = useState(0);
   const [minRating, setMinRating] = useState(0);
   const [excludeChains, setExcludeChains] = useState(false);
