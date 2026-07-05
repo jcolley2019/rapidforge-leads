@@ -13,7 +13,10 @@ import type {
   JobStatus,
   Search,
   SearchResult,
+  UpdateWorkspaceConfigRequest,
   UsageEvent,
+  UsageSummary,
+  WorkspaceConfig,
 } from "@rapidforge/shared";
 import {
   DEV_WORKSPACE_ID,
@@ -29,8 +32,10 @@ import {
   type SearchDetail,
   type UpdateAgentRunPatch,
   type UpdateAuditPatch,
+  type UpdateSearchResultPatch,
   type UpsertBusinessInput,
 } from "./types";
+import { summarizeUsage } from "./usage";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -46,6 +51,7 @@ export class MemoryStore implements DataStore {
   private audits = new Map<string, Audit>();
   private agentRuns = new Map<string, AgentRun>();
   private usageEvents: UsageEvent[] = [];
+  private configs = new Map<string, WorkspaceConfig>();
 
   // -- searches -------------------------------------------------------------
 
@@ -336,6 +342,99 @@ export class MemoryStore implements DataStore {
   /** Test/report helper — not part of the DataStore contract. */
   listUsageEvents(): readonly UsageEvent[] {
     return this.usageEvents;
+  }
+
+  // -- Sprint 5: pipeline / drawer / leads / settings / usage -----------------
+
+  async getSearchResult(id: string): Promise<SearchResult | null> {
+    return this.searchResults.get(id) ?? null;
+  }
+
+  async updateSearchResult(
+    id: string,
+    patch: UpdateSearchResultPatch,
+  ): Promise<SearchResult | null> {
+    const result = this.searchResults.get(id);
+    if (!result) return null;
+    Object.assign(result, patch);
+    return { ...result };
+  }
+
+  async listWorkspaceLeads(workspaceId: string): Promise<LeadView[]> {
+    const leads: LeadView[] = [];
+    for (const result of this.searchResults.values()) {
+      if (result.workspace_id !== workspaceId) continue;
+      const business = this.businesses.get(result.business_id);
+      if (!business) continue;
+      const audit = result.latest_audit_id
+        ? (this.audits.get(result.latest_audit_id) ?? null)
+        : null;
+      leads.push({ result, business, audit });
+    }
+    return sortLeads(leads);
+  }
+
+  async listAuditsForBusiness(businessId: string): Promise<Audit[]> {
+    return [...this.audits.values()]
+      .filter((a) => a.business_id === businessId)
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  }
+
+  async getLatestSearchResultForBusiness(
+    businessId: string,
+  ): Promise<SearchResult | null> {
+    let latest: SearchResult | null = null;
+    for (const result of this.searchResults.values()) {
+      if (result.business_id !== businessId) continue;
+      if (
+        latest === null ||
+        (result.created_at ?? "") > (latest.created_at ?? "")
+      ) {
+        latest = result;
+      }
+    }
+    return latest;
+  }
+
+  async getUsageSummary(
+    workspaceId: string,
+    sinceIso: string,
+  ): Promise<UsageSummary> {
+    const rows = this.usageEvents.filter(
+      (e) =>
+        e.workspace_id === workspaceId && (e.created_at ?? "") >= sinceIso,
+    );
+    return summarizeUsage(rows, sinceIso);
+  }
+
+  async getWorkspaceConfig(
+    workspaceId: string,
+  ): Promise<WorkspaceConfig | null> {
+    return this.configs.get(workspaceId) ?? null;
+  }
+
+  async updateWorkspaceConfig(
+    workspaceId: string,
+    patch: UpdateWorkspaceConfigRequest,
+  ): Promise<WorkspaceConfig> {
+    const existing = this.configs.get(workspaceId) ?? {
+      workspace_id: workspaceId,
+      your_offer: null,
+      target_industry: null,
+      ideal_website_traits: null,
+      // 0001 column defaults (bootstrap_workspace inserts them in Supabase).
+      sales_tone: "direct, friendly, peer-to-peer, no-BS",
+      user_location: null,
+      user_brand: "RapidForgeAI",
+      updated_at: null,
+    };
+    const updated: WorkspaceConfig = {
+      ...existing,
+      ...patch,
+      updated_at: nowIso(),
+    };
+    this.configs.set(workspaceId, updated);
+    return updated;
   }
 
   // -- auth -------------------------------------------------------------------

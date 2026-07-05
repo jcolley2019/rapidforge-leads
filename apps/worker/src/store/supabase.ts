@@ -17,6 +17,9 @@ import type {
   JobStatus,
   Search,
   SearchResult,
+  UpdateWorkspaceConfigRequest,
+  UsageSummary,
+  WorkspaceConfig,
 } from "@rapidforge/shared";
 import {
   sortLeads,
@@ -31,8 +34,13 @@ import {
   type SearchDetail,
   type UpdateAgentRunPatch,
   type UpdateAuditPatch,
+  type UpdateSearchResultPatch,
   type UpsertBusinessInput,
 } from "./types";
+import { summarizeUsage, type UsageRollupRow } from "./usage";
+
+/** Row cap for the month rollup fetch — logged when hit, never silent. */
+const USAGE_ROLLUP_ROW_CAP = 10_000;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -331,6 +339,156 @@ export class SupabaseStore implements DataStore {
   async logUsageEvent(input: LogUsageEventInput): Promise<void> {
     const { error } = await this.db.from("usage_events").insert(input);
     if (error) throw new Error(`[store] logUsageEvent: ${error.message}`);
+  }
+
+  // -- Sprint 5: pipeline / drawer / leads / settings / usage -----------------
+
+  async getSearchResult(id: string): Promise<SearchResult | null> {
+    const { data, error } = await this.db
+      .from("search_results")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw new Error(`[store] getSearchResult: ${error.message}`);
+    return (data as SearchResult | null) ?? null;
+  }
+
+  async updateSearchResult(
+    id: string,
+    patch: UpdateSearchResultPatch,
+  ): Promise<SearchResult | null> {
+    const { data, error } = await this.db
+      .from("search_results")
+      .update(patch)
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    if (error) throw new Error(`[store] updateSearchResult: ${error.message}`);
+    return (data as SearchResult | null) ?? null;
+  }
+
+  async listWorkspaceLeads(workspaceId: string): Promise<LeadView[]> {
+    const { data: results, error: rErr } = await this.db
+      .from("search_results")
+      .select("*")
+      .eq("workspace_id", workspaceId);
+    if (rErr) throw new Error(`[store] listWorkspaceLeads: ${rErr.message}`);
+    const resultRows = (results ?? []) as SearchResult[];
+    if (resultRows.length === 0) return [];
+
+    const businessIds = [...new Set(resultRows.map((r) => r.business_id))];
+    const auditIds = resultRows
+      .map((r) => r.latest_audit_id)
+      .filter((v): v is string => v !== null);
+
+    const [businesses, audits] = await Promise.all([
+      this.db.from("businesses").select("*").in("id", businessIds),
+      auditIds.length
+        ? this.db.from("audits").select("*").in("id", auditIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (businesses.error)
+      throw new Error(
+        `[store] listWorkspaceLeads businesses: ${businesses.error.message}`,
+      );
+    if (audits.error)
+      throw new Error(
+        `[store] listWorkspaceLeads audits: ${audits.error.message}`,
+      );
+
+    const businessById = new Map(
+      ((businesses.data ?? []) as Business[]).map((b) => [b.id, b]),
+    );
+    const auditById = new Map(
+      ((audits.data ?? []) as Audit[]).map((a) => [a.id, a]),
+    );
+    const leads: LeadView[] = [];
+    for (const result of resultRows) {
+      const business = businessById.get(result.business_id);
+      if (!business) continue;
+      leads.push({
+        result,
+        business,
+        audit: result.latest_audit_id
+          ? (auditById.get(result.latest_audit_id) ?? null)
+          : null,
+      });
+    }
+    return sortLeads(leads);
+  }
+
+  async listAuditsForBusiness(businessId: string): Promise<Audit[]> {
+    const { data, error } = await this.db
+      .from("audits")
+      .select("*")
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false });
+    if (error)
+      throw new Error(`[store] listAuditsForBusiness: ${error.message}`);
+    return (data ?? []) as Audit[];
+  }
+
+  async getLatestSearchResultForBusiness(
+    businessId: string,
+  ): Promise<SearchResult | null> {
+    const { data, error } = await this.db
+      .from("search_results")
+      .select("*")
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error)
+      throw new Error(
+        `[store] getLatestSearchResultForBusiness: ${error.message}`,
+      );
+    return ((data ?? [])[0] as SearchResult | undefined) ?? null;
+  }
+
+  async getUsageSummary(
+    workspaceId: string,
+    sinceIso: string,
+  ): Promise<UsageSummary> {
+    const { data, error } = await this.db
+      .from("usage_events")
+      .select("event_type, cost_cents")
+      .eq("workspace_id", workspaceId)
+      .gte("created_at", sinceIso)
+      .range(0, USAGE_ROLLUP_ROW_CAP - 1);
+    if (error) throw new Error(`[store] getUsageSummary: ${error.message}`);
+    const rows = (data ?? []) as UsageRollupRow[];
+    if (rows.length === USAGE_ROLLUP_ROW_CAP) {
+      console.warn(
+        `[store] getUsageSummary hit the ${USAGE_ROLLUP_ROW_CAP}-row cap — meter undercounts this month`,
+      );
+    }
+    return summarizeUsage(rows, sinceIso);
+  }
+
+  async getWorkspaceConfig(
+    workspaceId: string,
+  ): Promise<WorkspaceConfig | null> {
+    const { data, error } = await this.db
+      .from("workspace_config")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (error) throw new Error(`[store] getWorkspaceConfig: ${error.message}`);
+    return (data as WorkspaceConfig | null) ?? null;
+  }
+
+  async updateWorkspaceConfig(
+    workspaceId: string,
+    patch: UpdateWorkspaceConfigRequest,
+  ): Promise<WorkspaceConfig> {
+    const { data, error } = await this.db
+      .from("workspace_config")
+      .upsert(
+        { workspace_id: workspaceId, ...patch, updated_at: nowIso() },
+        { onConflict: "workspace_id" },
+      )
+      .select()
+      .single();
+    return must(data, error, "updateWorkspaceConfig") as WorkspaceConfig;
   }
 
   // -- auth -------------------------------------------------------------------

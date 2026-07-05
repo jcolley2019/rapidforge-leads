@@ -18,11 +18,15 @@ import type {
   Issue,
   Job,
   JobStatus,
+  LeadStatus,
   Search,
   SearchMode,
   SearchResult,
+  UpdateWorkspaceConfigRequest,
   UsageEventType,
+  UsageSummary,
   WebsiteKind,
+  WorkspaceConfig,
 } from "@rapidforge/shared";
 
 // ---------------------------------------------------------------------------
@@ -151,6 +155,17 @@ export interface LogUsageEventInput {
   metadata: Record<string, unknown> | null;
 }
 
+/**
+ * Sprint 5 pipeline/drawer patch (PRD 7.3/7.4). last_contacted_at is set by
+ * the route on status change, never taken from the client.
+ */
+export interface UpdateSearchResultPatch {
+  status?: LeadStatus;
+  notes?: string | null;
+  last_contacted_at?: string | null;
+  next_followup_at?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Read models (GET /api/searches/:id)
 // ---------------------------------------------------------------------------
@@ -222,6 +237,30 @@ export interface DataStore {
   insertAgentRun(input: InsertAgentRunInput): Promise<AgentRun>;
   updateAgentRun(id: string, patch: UpdateAgentRunPatch): Promise<void>;
   logUsageEvent(input: LogUsageEventInput): Promise<void>;
+
+  // Sprint 5: pipeline / drawer / leads / settings / usage
+  getSearchResult(id: string): Promise<SearchResult | null>;
+  /** Applies the patch; returns the updated row or null when absent. */
+  updateSearchResult(
+    id: string,
+    patch: UpdateSearchResultPatch,
+  ): Promise<SearchResult | null>;
+  /** Every lead row in the workspace, across ALL searches (PRD 7.3 Lead List). */
+  listWorkspaceLeads(workspaceId: string): Promise<LeadView[]>;
+  /** Audit history for the drawer's History tab — newest first (PRD 7.4). */
+  listAuditsForBusiness(businessId: string): Promise<Audit[]>;
+  /** Newest search_result for a business — re-audit's search context. */
+  getLatestSearchResultForBusiness(
+    businessId: string,
+  ): Promise<SearchResult | null>;
+  /** usage_events rollup since the given ISO timestamp (GET /api/usage). */
+  getUsageSummary(workspaceId: string, sinceIso: string): Promise<UsageSummary>;
+  getWorkspaceConfig(workspaceId: string): Promise<WorkspaceConfig | null>;
+  /** Upserts so a workspace missing its config row can still save. */
+  updateWorkspaceConfig(
+    workspaceId: string,
+    patch: UpdateWorkspaceConfigRequest,
+  ): Promise<WorkspaceConfig>;
 
   // auth support
   getWorkspaceIdForUser(userId: string): Promise<string | null>;
