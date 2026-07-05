@@ -9,6 +9,7 @@
  * fixture fetcher is selected whenever GOOGLE_PLACES_API_KEY is absent.
  * With real Places data the real fetcher does an actual GET.
  */
+import { forceFixtures } from "./env";
 import { fallbackSiteFixture, SITE_FIXTURES } from "./site-fixtures";
 
 export interface FetchedSite {
@@ -96,6 +97,10 @@ export class FixtureSiteFetcher implements SiteFetcher {
 
 /** Paired with the Places mode — see module docblock. */
 export function createSiteFetcher(): SiteFetcher {
+  if (forceFixtures()) {
+    console.log("[site] mode: fixture (RAPIDFORGE_FORCE_FIXTURES)");
+    return new FixtureSiteFetcher();
+  }
   if (process.env.GOOGLE_PLACES_API_KEY) {
     return new RealSiteFetcher();
   }

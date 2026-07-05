@@ -4,6 +4,7 @@
  * logs which mode it is in at startup — flipping to live is an env change,
  * zero code changes.
  */
+import { forceFixtures } from "../env";
 import { FixturePlacesClient } from "./fixture-client";
 import { GooglePlacesClient } from "./google-client";
 import type { PlacesClient } from "./types";
@@ -19,6 +20,10 @@ export {
 
 export function createPlacesClient(): PlacesClient {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (forceFixtures()) {
+    console.log("[places] mode: fixture (RAPIDFORGE_FORCE_FIXTURES)");
+    return new FixturePlacesClient();
+  }
   if (apiKey) {
     console.log("[places] mode: google (GOOGLE_PLACES_API_KEY present)");
     return new GooglePlacesClient(apiKey);

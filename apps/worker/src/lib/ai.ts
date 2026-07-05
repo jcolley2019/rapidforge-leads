@@ -6,6 +6,7 @@
  * RapidForge AI Core (github.com/jcolley2019/rapidforge-ai-core, local at
  * C:\Users\jcoll\OneDrive\Desktop\rapidforge-ai-core).
  */
+import { forceFixtures } from "./env";
 
 // Model assignments (CLAUDE.md 4.1 — retired names appear nowhere).
 /** Filter edge-pass; cheap classification. */
@@ -68,6 +69,7 @@ export async function callModel(_options: AiCallOptions): Promise<AiCallResult> 
  * pipeline is fully functional with zero keys.
  */
 export function aiSummaryMode(): "core" | "template" {
+  if (forceFixtures()) return "template";
   return process.env.ANTHROPIC_API_KEY ? "core" : "template";
 }
 

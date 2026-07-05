@@ -9,6 +9,7 @@
  * the Places mode — fixture URLs are fake, so probing them for real would
  * mark all 25 businesses dead.
  */
+import { forceFixtures } from "./env";
 import { DEAD_FIXTURE_HOSTS } from "./places/fixtures";
 
 export interface ProbeResult {
@@ -108,6 +109,10 @@ export class FixtureWebProbe implements WebProbe {
 
 /** Paired with the Places mode — see module docblock. */
 export function createWebProbe(): WebProbe {
+  if (forceFixtures()) {
+    console.log("[probe] mode: fixture (RAPIDFORGE_FORCE_FIXTURES)");
+    return new FixtureWebProbe();
+  }
   if (process.env.GOOGLE_PLACES_API_KEY) {
     return new RealWebProbe();
   }

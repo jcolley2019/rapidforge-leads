@@ -11,6 +11,7 @@
  * CrUX presence from the SAME response (PRD 6.6 — no extra call). Callers
  * log a `usage_events` 'pagespeed_call' row per run.
  */
+import { forceFixtures } from "./env";
 import { fallbackPsiProfile, PSI_FIXTURES } from "./psi-fixtures";
 
 export type PsiStrategy = "mobile" | "desktop";
@@ -136,6 +137,10 @@ export class FixturePsiClient implements PsiClient {
 /** Env-selected, logged at startup like every other seam. */
 export function createPsiClient(): PsiClient {
   const key = process.env.PAGESPEED_API_KEY;
+  if (forceFixtures()) {
+    console.log("[psi] mode: fixture (RAPIDFORGE_FORCE_FIXTURES)");
+    return new FixturePsiClient();
+  }
   if (key) {
     console.log("[psi] mode: real (PAGESPEED_API_KEY present)");
     return new RealPsiClient(key);
