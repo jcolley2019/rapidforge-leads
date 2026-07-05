@@ -18,7 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ZipRadiusParams } from "@rapidforge/shared";
+import type { MapDrawParams, ZipRadiusParams } from "@rapidforge/shared";
 import { ResultsTable } from "@/components/leads/ResultsTable";
 import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
@@ -133,7 +133,14 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
   }, [detail]);
 
   const search = detail?.search;
-  const params = (search?.params ?? {}) as Partial<ZipRadiusParams>;
+  // zip_radius carries zip; map_draw carries lat/lng — shared fields align.
+  const params = (search?.params ?? {}) as Partial<ZipRadiusParams> &
+    Partial<MapDrawParams>;
+  const searchLocation =
+    params.zip ??
+    (params.lat !== undefined && params.lng !== undefined
+      ? `${params.lat.toFixed(3)}, ${params.lng.toFixed(3)}`
+      : "—");
   const status = search?.status ?? (searchId ? "loading" : "idle");
   const jobs = detail?.job_counts;
 
@@ -147,7 +154,7 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">
               {search
-                ? `${params.zip ?? "—"} · ${search.category}`
+                ? `${searchLocation} · ${search.category}`
                 : "Agent pipeline"}
             </h1>
             {searchId && <StatusPill status={status} />}
