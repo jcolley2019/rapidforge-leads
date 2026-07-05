@@ -21,16 +21,25 @@ import {
   computeSellabilityScore,
   deriveStarGrade,
   SPECIAL_CASE_BADGES,
-  ZipRadiusParamsSchema,
   type AgentResult,
   type Audit,
   type Business,
   type Issue,
   type Search,
-  type ZipRadiusParams,
 } from "@rapidforge/shared";
 import type { ProbeResult, WebProbe } from "../lib/probe";
+import { parseSearchParams } from "../lib/search-params";
 import type { DataStore } from "../store";
+
+/**
+ * The gate fields shared by every search mode's params (zip_radius and
+ * map_draw both carry them) — the only params Filter reads.
+ */
+export interface FilterGateParams {
+  min_reviews: number;
+  min_rating: number;
+  exclude_chains: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Pure routing core — exported for unit tests
@@ -52,7 +61,7 @@ export interface FilterPlan {
 /** PRD 6.2 deterministic gates. Returns a skip reason or null (pass). */
 export function evaluateGates(
   business: Business,
-  params: ZipRadiusParams,
+  params: FilterGateParams,
 ): string | null {
   // Missing business_status is unknown, never invented (CLAUDE.md 6.3) —
   // only an explicit non-OPERATIONAL status skips.
@@ -82,7 +91,7 @@ export function evaluateGates(
  */
 export function planFilterOutcome(
   business: Business,
-  params: ZipRadiusParams,
+  params: FilterGateParams,
   probe: ProbeResult | null,
 ): FilterPlan {
   const skipReason = evaluateGates(business, params);
@@ -265,7 +274,7 @@ export async function runFilter(
   const startedAt = Date.now();
 
   try {
-    const params = ZipRadiusParamsSchema.parse(search.params);
+    const params = parseSearchParams(search);
 
     let plan = planFilterOutcome(business, params, null);
     let probeResult: ProbeResult | null = null;

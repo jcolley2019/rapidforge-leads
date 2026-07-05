@@ -9,12 +9,12 @@
  * + `search_results`; logs a usage_events row per Places call.
  */
 import {
-  ZipRadiusParamsSchema,
   type AgentResult,
   type Search,
   type WebsiteKind,
 } from "@rapidforge/shared";
 import { haversineMeters, METERS_PER_MILE, planTiles } from "../lib/geo";
+import { parseSearchParams } from "../lib/search-params";
 import type { PlaceRecord, PlacesClient } from "../lib/places";
 import type { DataStore } from "../store";
 
@@ -175,11 +175,20 @@ export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutp
   });
 
   try {
-    const params = ZipRadiusParamsSchema.parse(search.params);
+    const params = parseSearchParams(search);
 
-    const center = await places.geocodeZip(params.zip);
+    // map_draw carries its own pin; zip_radius geocodes (PRD 6.1 / Sprint 5).
+    const center =
+      params.mode === "map_draw"
+        ? { lat: params.lat, lng: params.lng }
+        : await places.geocodeZip(params.zip);
     if (!center) {
-      return fail(`Could not geocode zip ${params.zip}`, startedAt);
+      return fail(
+        params.mode === "zip_radius"
+          ? `Could not geocode zip ${params.zip}`
+          : "map_draw search missing center",
+        startedAt,
+      );
     }
 
     const radiusMeters = params.radius_miles * METERS_PER_MILE;
