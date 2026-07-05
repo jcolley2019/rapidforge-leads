@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   Bot,
   LayoutGrid,
@@ -9,13 +10,13 @@ import {
 } from "lucide-react";
 
 /**
- * App views. The left rail lists VIEWS below; 'live-search' is reached
- * only by submitting a search (PRD 7.3) and has no rail entry.
+ * App views. Workspace is the primary page (Sprint 4) — agent tabs, live
+ * pipeline, results. The left rail lists VIEWS below.
  */
 export type ViewKey =
+  | "workspace"
   | "pipeline"
   | "new-search"
-  | "live-search"
   | "leads"
   | "agents"
   | "analytics"
@@ -28,6 +29,7 @@ export interface ViewDef {
 }
 
 export const VIEWS: ViewDef[] = [
+  { key: "workspace", label: "Workspace", icon: Activity },
   { key: "pipeline", label: "Pipeline", icon: LayoutGrid },
   { key: "new-search", label: "New Search", icon: Search },
   { key: "leads", label: "Leads", icon: List },

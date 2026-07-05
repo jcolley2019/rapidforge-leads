@@ -4,25 +4,41 @@ import { LeftRail } from "@/components/layout/LeftRail";
 import { TopBar } from "@/components/layout/TopBar";
 import { AuthPage } from "@/features/auth/AuthPage";
 import { useAuth } from "@/features/auth/useAuth";
+import {
+  LiveContext,
+  useWorkspaceLive,
+} from "@/features/live/useWorkspaceLive";
 import { AgentsView } from "@/views/AgentsView";
 import { AnalyticsView } from "@/views/AnalyticsView";
 import { LeadsView } from "@/views/LeadsView";
-import { LiveSearchView } from "@/views/LiveSearchView";
 import { NewSearchView } from "@/views/NewSearchView";
 import { PipelineView } from "@/views/PipelineView";
 import { SettingsView } from "@/views/SettingsView";
+import { WorkspaceView } from "@/views/WorkspaceView";
 import type { ViewKey } from "@/views/views";
 
 export function App() {
   const { auth, signOut } = useAuth();
-  // Pipeline is the default view (PRD 7.3).
-  const [view, setView] = useState<ViewKey>("pipeline");
+  // Workspace is the primary page (Sprint 4).
+  const [view, setView] = useState<ViewKey>("workspace");
   const [collapsed, setCollapsed] = useState(false);
-  // Submitting a search routes to Live Search for that id (PRD 7.3).
+  // Submitting a search routes to the Workspace view for that id.
   const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
+
+  // One Realtime subscription per signed-in session (PRD 5.6).
+  const workspaceId =
+    auth.status === "signed_in" ? auth.workspaceId : null;
+  const liveValue = useWorkspaceLive(workspaceId);
 
   function renderView(current: ViewKey) {
     switch (current) {
+      case "workspace":
+        return (
+          <WorkspaceView
+            searchId={activeSearchId}
+            onNewSearch={() => setView("new-search")}
+          />
+        );
       case "pipeline":
         return <PipelineView />;
       case "new-search":
@@ -30,21 +46,7 @@ export function App() {
           <NewSearchView
             onSearchCreated={(searchId) => {
               setActiveSearchId(searchId);
-              setView("live-search");
-            }}
-          />
-        );
-      case "live-search":
-        return activeSearchId ? (
-          <LiveSearchView
-            searchId={activeSearchId}
-            onNewSearch={() => setView("new-search")}
-          />
-        ) : (
-          <NewSearchView
-            onSearchCreated={(searchId) => {
-              setActiveSearchId(searchId);
-              setView("live-search");
+              setView("workspace");
             }}
           />
         );
@@ -77,29 +79,33 @@ export function App() {
     auth.status === "signed_in" ? (auth.session.user.email ?? null) : null;
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      {auth.status === "unconfigured" && (
-        <div className="flex items-center gap-2 border-b border-agent-waiting/40 bg-agent-waiting/10 px-4 py-1.5 text-xs text-agent-waiting">
-          <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>
-            Supabase is not configured — copy <code>apps/web/.env.example</code>{" "}
-            to <code>apps/web/.env</code>, fill in the values, and restart.
-            Running in offline preview.
-          </span>
+    <LiveContext.Provider value={liveValue}>
+      <div className="flex h-screen flex-col text-foreground">
+        {auth.status === "unconfigured" && (
+          <div className="flex items-center gap-2 border-b border-agent-waiting/30 bg-agent-waiting/10 px-6 py-1.5 text-xs text-agent-waiting">
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>
+              Supabase is not configured — copy{" "}
+              <code>apps/web/.env.example</code> to <code>apps/web/.env</code>,
+              fill in the values, and restart. Running in offline preview.
+            </span>
+          </div>
+        )}
+
+        <TopBar userEmail={userEmail} onSignOut={() => void signOut()} />
+
+        <div className="flex flex-1 overflow-hidden">
+          <LeftRail
+            active={view}
+            collapsed={collapsed}
+            onNavigate={setView}
+            onToggleCollapsed={() => setCollapsed((c) => !c)}
+          />
+          <main className="flex-1 overflow-y-auto p-8">
+            {renderView(view)}
+          </main>
         </div>
-      )}
-
-      <TopBar userEmail={userEmail} onSignOut={() => void signOut()} />
-
-      <div className="flex flex-1 overflow-hidden">
-        <LeftRail
-          active={view}
-          collapsed={collapsed}
-          onNavigate={setView}
-          onToggleCollapsed={() => setCollapsed((c) => !c)}
-        />
-        <main className="flex-1 overflow-y-auto p-6">{renderView(view)}</main>
       </div>
-    </div>
+    </LiveContext.Provider>
   );
 }
