@@ -1,4 +1,6 @@
+import { motion } from "framer-motion";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { spring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { VIEWS, type ViewKey } from "@/views/views";
 
@@ -9,7 +11,7 @@ interface LeftRailProps {
   onToggleCollapsed: () => void;
 }
 
-/** Collapsible left rail (PRD 7.2): Pipeline, New Search, Leads, Agents, Analytics, Settings. */
+/** Collapsible glass rail (PRD 7.2, Glass v2). */
 export function LeftRail({
   active,
   collapsed,
@@ -19,26 +21,34 @@ export function LeftRail({
   return (
     <nav
       className={cn(
-        "flex shrink-0 flex-col border-r bg-card transition-[width] duration-200",
-        collapsed ? "w-12" : "w-52",
+        "glass flex shrink-0 flex-col border-b-0 border-l-0 transition-[width] duration-200",
+        collapsed ? "w-14" : "w-56",
       )}
       aria-label="Primary"
     >
-      <ul className="flex flex-1 flex-col gap-0.5 p-1.5">
+      <ul className="flex flex-1 flex-col gap-1 p-2">
         {VIEWS.map(({ key, label, icon: Icon }) => {
           const isActive = key === active;
           return (
-            <li key={key}>
+            <li key={key} className="relative">
+              {isActive && (
+                <motion.span
+                  layoutId="rail-active"
+                  transition={spring.default}
+                  className="absolute inset-0 rounded-xl bg-accent"
+                  aria-hidden
+                />
+              )}
               <button
                 type="button"
                 onClick={() => onNavigate(key)}
                 title={collapsed ? label : undefined}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+                  "relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors",
                   isActive
-                    ? "bg-accent font-medium text-primary"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    ? "font-medium text-primary"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   collapsed && "justify-center px-0",
                 )}
               >
@@ -50,13 +60,13 @@ export function LeftRail({
         })}
       </ul>
 
-      <div className="p-1.5">
+      <div className="p-2">
         <button
           type="button"
           onClick={onToggleCollapsed}
           title={collapsed ? "Expand rail" : "Collapse rail"}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+            "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground",
             collapsed && "justify-center px-0",
           )}
         >
