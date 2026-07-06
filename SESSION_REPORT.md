@@ -753,3 +753,81 @@ Build on a paying demand signal, not before.
 ---
 
 *Session executed by Claude Code (Opus 4.8, 1M context) under CLAUDE.md v1.2 — Sprint 7, 2026-07-06.*
+
+---
+
+# SESSION_REPORT — Sprint 8 (UI polish + model/cost tune-up)
+
+Autonomous Session Mode · 2026-07-06 · scope: Prompt S8 — UI polish (Part A),
+model tiering to Opus (Part B), Builder Brief all-sections fix (Part C),
+per-agent cost visibility (Part D). Fixture stack throughout; one authorized
+live smoke on Opus ($0.16). **The stack no longer depends on Fable 5.**
+
+## S8-1. What was built (by commit)
+
+| Commit | What |
+|---|---|
+| `34202c7` | **A.1 — one selector** — the Workspace view had two agent selectors (rounded pill row + wide chip bar). Removed the pill row; the chip bar is now the single control: a leading **All** chip (→ results table), each agent chip (→ that agent's feed), and the active chip carries a clear selected state (tint + inset ring). Three stacked rows → two; the "N of 10 complete · scored · running" summary stays. |
+| `f34e33d` | **B — Opus is the top tier** — Analyst + Builder Brief now call `claude-opus-4-8` (new `MODEL_OPUS`) at `effort: "low"`, so the stack runs fully on Opus/Sonnet/Haiku. The fable-5→opus refusal retry stays wired in `lib/ai.ts` as a dormant safety path. Sonnet still handles the analytical summaries; Haiku is the classification tier. CLAUDE.md §4.1 + PRD model references updated. |
+| `bfdb686` | **C — Builder Brief all sections** — the system prompt now hard-requires all twelve H2 headers verbatim/in-order (never merge/skip/rename, even a short section keeps its header) with a closing self-check. The missing-section guardrail stays as the net; a new test asserts the template emits every one of the 12 PRD sections. |
+| `c54914b` | **D — cost readout** — new read-only `GET /api/businesses/:id/costs` rolls `agent_runs.cost_cents` into a per-agent breakdown + a business total + the total for its most recent search. The drawer Audit tab shows it at the top (spenders only; a "no AI spend" note in template mode). Store method on both MemoryStore + SupabaseStore; no new writes. |
+| `66a0f47` | **A.3 — header polish** — the Leads view eyebrow read "Leads" over an "All leads" title (redundant) and Settings read "Workspace" (a different nav item). Set to their rail sections — "Pipeline" and "Account". The other views already matched. |
+| `660f3d1` | **A.2 — light contrast** — verified the canvas renders exactly `#EEF1F5` (`rgb(238,241,245)` in the E2E), so the "near-white" was a stale dev build; deepened the light `--shadow-card` so white cards pop clearly off the gray. Dark mode unchanged. |
+| `156b4b0` | **Acceptance harness** — `scripts/sprint8-e2e.mjs` (7 checks) + `money-smoke.ts` relabelled to Opus + `docs/design/s8-*` screenshots. |
+| `_pending_` | **This report.** |
+
+No worker/ai-core dependency change and **no migration** this sprint (the cost readout reads existing `agent_runs`).
+
+## S8-2. Acceptance results
+
+1. **tsc clean** — shared, worker, web. ✔
+2. **All tests pass** — shared **61**, worker **220** (was 217; +1 all-sections brief, +2 cost route), web **49**. **330 total**. ✔
+3. **Fixture E2E — `scripts/sprint8-e2e.mjs`, 7/7** on a fresh offline stack: the old rounded pill row is **gone** · the chip bar is the single selector with **11 tabs** (All + 10) · clicking an agent chip filters to its feed with the chip showing `aria-selected` · the **All** chip returns to the results table · the drawer Audit tab shows the **AI-cost readout** · the light canvas renders exactly `rgb(238,241,245)` (`#EEF1F5`). ✔
+4. **LIVE money smoke on Opus** (`money-smoke.ts`, real models, ONE fixture lead): **Analyst** (`claude-opus-4-8`, effort low, **3¢**) → `needs_rebuild`/hot, reasoning citing health/conversion/design/seo/reputation, guardrail **passed**. **Sales Summary** (`claude-sonnet-4-6`, **2¢**) → 130-word track, guardrail **passed**. **Builder Brief** (`claude-opus-4-8`, effort low, **11¢**) → **1436 words, all 12/12 sections, guardrail PASSED** (S7's Fable brief was 7/12 and flagged — the Part C fix + Opus close it). **Total 16¢ ($0.16)** vs S7's $0.53. ✔
+5. **Lighthouse mobile (production build, `vite preview`)** — **Performance 94** (FCP 2.4s · LCP 2.6s · TBT 0ms · **CLS 0** · SI 2.4s). Bundle flat at 748 kB JS / 215 kB gzip. ✔ (≥ 85 required)
+6. **Screenshots** — `docs/design/s8-{workspace,drawer-cost,dashboard}-{dark,light}.png` (visually verified: single chip bar with the active All chip, cards popping off the darker canvas, the drawer's per-agent AI-cost readout). ✔
+
+## S8-3. Before/after cost (the tune-up's point)
+
+Same fixture lead, before (S7, Fable) → after (S8, Opus at effort low):
+
+| Deliverable | Model before | ¢ before | Model after | ¢ after | Δ |
+|---|---|---|---|---|---|
+| **Analyst** (auto-runs per sellable audit) | Fable 5, effort medium | 7¢ | **Opus 4.8, effort low** | **3¢** | **−57%** |
+| **Builder Brief** (on-demand) | Fable 5, effort high | 44¢ (flagged 7/12) | **Opus 4.8, effort low** | **11¢ (passes 12/12)** | **−75% + fixed** |
+| **Sales Summary** (on-demand) | Sonnet | 2¢ | Sonnet | 2¢ | — |
+| **3-agent total** | | **53¢** | | **16¢** | **−70%** |
+
+**Per-audit estimate:** the only money agent that runs per audited lead is the
+auto-Analyst (sellability ≥ 60), so the marginal AI cost the money features add
+to a sellable audit dropped from **~7¢ to ~3¢**. Brief + Sales stay on-demand.
+The drawer's new cost readout surfaces these numbers per lead + per search.
+
+## S8-4. Decisions made (and why)
+
+- **Opus is the PRIMARY, not a fallback.** Fable 5's availability is uncertain, so Analyst + Builder Brief call `claude-opus-4-8` directly. Opus at `effort: "low"` came in **cheaper AND more reliable** than Fable at higher effort (the Brief went 7/12-flagged → 12/12-passing while cost fell). The refusal→Opus retry stays as dead code guarding the (now unused) Fable path — cheap insurance, removed only if Fable is formally retired.
+- **The light canvas was never broken in source.** The token has rendered `#EEF1F5` since S7 (E2E-asserted `rgb(238,241,245)`); Joey's "near-white" was a stale Vite dev build. The real, honest fix for "cards must pop" was a deeper card shadow, not a darker canvas (the spec fixes the canvas at `#EEF1F5`).
+- **The chip bar is now the one selector.** Keeping both the pill strip and the chip bar was the redundancy Joey flagged; the chip bar already had richer per-agent state, so the pill row was the one to drop. The All chip preserves the "back to the table" affordance the pill's All tab provided.
+- **Cost readout is read-only over `agent_runs`.** No new writes, no migration — `cost_cents` is already logged on every run (CLAUDE.md 6.5). Template-mode audits honestly show `$0.00 · no AI spend`.
+- **Header eyebrows name the rail section.** Fixed only the two that were redundant/misleading (Leads, Settings); the others already followed the pattern.
+
+## S8-5. What Joey must do
+
+Nothing new. Unchanged from S7 (live-stack only): push `rapidforge-ai-core`
+v0.3.0 already done; repoint the worker `file:` dep to the git reference before
+Railway; paste migrations **0005** + **0006**. The Opus/Sonnet/Haiku keys are
+already in `apps/worker/.env`. 8 Sprint 8 commits are **local, NOT pushed**.
+
+## S8-6. Fable-5 independence — confirmed
+
+The stack now runs **entirely on Opus 4.8 / Sonnet 4.6 / Haiku 4.5**. No agent
+selects `claude-fable-5` by default: Analyst + Builder Brief are on Opus, the
+analytical summaries (Design/Reputation/SEO/Sales) on Sonnet, classification on
+Haiku. The only remaining Fable reference is the dormant refusal→Opus retry in
+`lib/ai.ts` (inert unless a caller explicitly asks for Fable) and the optional
+mentions in CLAUDE.md §4.1 / the PRD. If `claude-fable-5` never ships, nothing
+in RapidForge breaks.
+
+---
+
+*Session executed by Claude Code (Opus 4.8, 1M context) under CLAUDE.md v1.2 — Sprint 8, 2026-07-06.*
