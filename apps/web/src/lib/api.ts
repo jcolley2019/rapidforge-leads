@@ -23,6 +23,15 @@ import { supabase } from "@/lib/supabase";
 
 const WORKER_URL: string = import.meta.env.VITE_WORKER_URL ?? "";
 
+/**
+ * Resolve a worker-relative asset URL (e.g. fixture screenshots stored as
+ * "/fixtures/screenshots/…") against the worker base. Absolute URLs
+ * (Supabase Storage public URLs) pass through untouched.
+ */
+export function resolveAssetUrl(url: string): string {
+  return /^https?:\/\//i.test(url) ? url : `${WORKER_URL}${url}`;
+}
+
 /** Mirrors the worker's LeadView/SearchDetail read models. */
 export interface LeadView {
   result: SearchResult;

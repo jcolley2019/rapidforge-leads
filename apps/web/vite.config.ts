@@ -19,6 +19,12 @@ export default defineConfig({
         target: process.env.WORKER_PROXY_TARGET ?? "http://localhost:8788",
         changeOrigin: true,
       },
+      // Fixture screenshots (Sprint 6) — audits in fixture mode store
+      // relative /fixtures/... URLs served by the worker.
+      "/fixtures": {
+        target: process.env.WORKER_PROXY_TARGET ?? "http://localhost:8788",
+        changeOrigin: true,
+      },
     },
   },
 });

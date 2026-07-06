@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import {
   fetchBusinessAudits,
+  resolveAssetUrl,
   updateLeadStatus,
   type LeadView,
 } from "@/lib/api";
@@ -167,7 +168,7 @@ function DrawerBody({ lead, onClose }: { lead: LeadView; onClose: () => void }) 
         {tab === "audit" && <AuditTab audit={lead.audit} />}
         {tab === "history" && <HistoryTab businessId={lead.business.id} />}
         {tab === "notes" && <NotesTab lead={lead} />}
-        {tab === "screenshots" && <ScreenshotsTab />}
+        {tab === "screenshots" && <ScreenshotsTab audit={lead.audit} />}
       </div>
     </>
   );
@@ -592,16 +593,74 @@ function NotesTab({ lead }: { lead: LeadView }) {
 }
 
 // ---------------------------------------------------------------------------
-// Screenshots — Sprint 6 placeholder
+// Screenshots (Sprint 6) — desktop + mobile homepage captures off the audit
 // ---------------------------------------------------------------------------
 
-function ScreenshotsTab() {
+function ScreenshotsTab({ audit }: { audit: Audit | null }) {
+  const desktop = audit?.screenshot_desktop_url ?? null;
+  const mobile = audit?.screenshot_mobile_url ?? null;
+
+  if (!desktop && !mobile) {
+    return (
+      <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border text-muted-foreground">
+        <Camera className="h-6 w-6" aria-hidden />
+        <p className="text-sm">No screenshots for this audit.</p>
+        <p className="text-xs">
+          Captured on the next audit run (no website — or capture unavailable).
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border text-muted-foreground">
-      <Camera className="h-6 w-6" aria-hidden />
-      <p className="text-sm">Desktop + mobile screenshots land in Sprint 6.</p>
-      <p className="text-xs">Puppeteer captures → Supabase Storage.</p>
+    <div className="space-y-5">
+      {desktop && (
+        <ScreenshotFigure
+          url={desktop}
+          label="Desktop · 1440px"
+          alt="Desktop homepage screenshot"
+        />
+      )}
+      {mobile && (
+        <ScreenshotFigure
+          url={mobile}
+          label="Mobile · 390px"
+          alt="Mobile homepage screenshot"
+          narrow
+        />
+      )}
     </div>
+  );
+}
+
+function ScreenshotFigure({
+  url,
+  label,
+  alt,
+  narrow = false,
+}: {
+  url: string;
+  label: string;
+  alt: string;
+  narrow?: boolean;
+}) {
+  const src = resolveAssetUrl(url);
+  return (
+    <figure>
+      <SectionTitle>{label}</SectionTitle>
+      <a
+        href={src}
+        target="_blank"
+        rel="noreferrer"
+        title="Open full size"
+        className={cn(
+          "block overflow-hidden rounded-xl border border-border bg-card transition-opacity hover:opacity-90",
+          narrow && "mx-auto max-w-[240px]",
+        )}
+      >
+        <img src={src} alt={alt} loading="lazy" className="block w-full" />
+      </a>
+    </figure>
   );
 }
 
