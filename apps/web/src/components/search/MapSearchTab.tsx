@@ -17,19 +17,17 @@ import {
   estimatePlacesCalls,
   estimateSearchCostCents,
   mapSelectionToParams,
-  metersToMiles,
   milesToMeters,
   type LatLng,
   type SearchFilters,
 } from "@/lib/geo";
-import { DARK_MAP_STYLES, LIGHT_MAP_STYLES } from "@/lib/map-styles";
+import { radiusMilesToCircle, snapCircleRadius } from "@/lib/map-sync";
 import {
   getMapsBrowserKey,
   loadGoogleMaps,
   onMapsAuthFailure,
 } from "@/lib/maps-loader";
 import { getSearchDefaults } from "@/lib/search-defaults";
-import { getTheme } from "@/lib/theme";
 
 /** Boise — Joey's market; the pin replaces this the moment the map is clicked. */
 const DEFAULT_CENTER: LatLng = { lat: 43.615, lng: -116.2023 };
@@ -92,11 +90,11 @@ function LiveMap({
     void loadGoogleMaps(mapsKey)
       .then((maps) => {
         if (disposed || !containerRef.current) return;
+        // Google's DEFAULT basemap in both themes (DESIGN_NOTES v3 §7) —
+        // RapidForge styles only its own layers (pin, circle, chip).
         const map = new maps.Map(containerRef.current, {
           center: DEFAULT_CENTER,
           zoom: DEFAULT_ZOOM,
-          styles: getTheme() === "dark" ? DARK_MAP_STYLES : LIGHT_MAP_STYLES,
-          backgroundColor: getTheme() === "dark" ? "#0a0b10" : "#f4f6fa",
           disableDefaultUI: true,
           zoomControl: true,
           gestureHandling: "greedy",
@@ -123,20 +121,6 @@ function LiveMap({
     };
   }, [mapsKey]);
 
-  // Theme flips restyle the live map (DESIGN_NOTES: both modes styled).
-  useEffect(() => {
-    const html = document.documentElement;
-    const observer = new MutationObserver(() => {
-      const dark = html.classList.contains("dark");
-      mapRef.current?.setOptions({
-        styles: dark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES,
-        backgroundColor: dark ? "#0a0b10" : "#f4f6fa",
-      });
-    });
-    observer.observe(html, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, []);
-
   // Pin → marker + editable circle (created lazily on first drop).
   useEffect(() => {
     const map = mapRef.current;
@@ -149,6 +133,11 @@ function LiveMap({
         position: pin,
         draggable: true,
         title: "Search center — drag to move",
+      });
+      // Circle follows the pin LIVE while dragging (S5.5 coupling).
+      marker.addListener("drag", () => {
+        const position = marker.getPosition();
+        if (position) circleRef.current?.setCenter(position);
       });
       marker.addListener("dragend", () => {
         const position = marker.getPosition();
@@ -172,16 +161,22 @@ function LiveMap({
         fillColor: "#1a8fff",
         fillOpacity: 0.08,
       });
+      // Edge handle resizes only — snapped to 0.1-mile steps in plan bounds.
       circle.addListener("radius_changed", () => {
         if (suppressRadiusEvent.current) return;
-        const miles = clampRadiusMiles(metersToMiles(circle.getRadius()));
-        const snapped = milesToMeters(miles);
-        if (Math.abs(snapped - circle.getRadius()) > 1) {
+        const snap = snapCircleRadius(circle.getRadius());
+        if (snap.needsResnap) {
           suppressRadiusEvent.current = true;
-          circle.setRadius(snapped);
+          circle.setRadius(snap.meters);
           suppressRadiusEvent.current = false;
         }
-        setRadiusMiles(miles);
+        setRadiusMiles(snap.miles);
+      });
+      // Dragging the circle BODY pans pin + circle together: the marker
+      // tracks live via center_changed, state commits on dragend.
+      circle.addListener("center_changed", () => {
+        const center = circle.getCenter();
+        if (center) markerRef.current?.setPosition(center);
       });
       circle.addListener("dragend", () => {
         const center = circle.getCenter();
@@ -197,14 +192,14 @@ function LiveMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin, ready]);
 
-  // Slider/readout → circle radius.
+  // Slider/readout → circle radius (two-way sync, loop-guarded).
   useEffect(() => {
     const circle = circleRef.current;
     if (!circle) return;
-    const target = milesToMeters(radiusMiles);
-    if (Math.abs(circle.getRadius() - target) > 1) {
+    const target = radiusMilesToCircle(radiusMiles, circle.getRadius());
+    if (target.needsUpdate) {
       suppressRadiusEvent.current = true;
-      circle.setRadius(target);
+      circle.setRadius(target.meters);
       suppressRadiusEvent.current = false;
     }
   }, [radiusMiles]);
