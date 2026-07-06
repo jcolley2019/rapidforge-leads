@@ -100,6 +100,14 @@ export async function fetchWorkspaceLeads(): Promise<LeadView[]> {
   return leads;
 }
 
+/** Recent searches, newest first — dashboard (S5.5). */
+export async function fetchRecentSearches(limit = 20): Promise<Search[]> {
+  const { searches } = await apiFetch<{ searches: Search[] }>(
+    `/api/searches?limit=${limit}`,
+  );
+  return searches;
+}
+
 /** Status / notes / follow-up patch. Returns the updated lead row. */
 export async function updateLeadStatus(
   id: string,

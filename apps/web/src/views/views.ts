@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   Bot,
+  LayoutDashboard,
   LayoutGrid,
   List,
   Search,
@@ -14,6 +15,7 @@ import {
  * pipeline, results. The left rail lists VIEWS below.
  */
 export type ViewKey =
+  | "dashboard"
   | "workspace"
   | "pipeline"
   | "new-search"
@@ -29,6 +31,7 @@ export interface ViewDef {
 }
 
 export const VIEWS: ViewDef[] = [
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "workspace", label: "Workspace", icon: Activity },
   { key: "pipeline", label: "Pipeline", icon: LayoutGrid },
   { key: "new-search", label: "New Search", icon: Search },
@@ -53,7 +56,7 @@ export interface ViewGroup {
 }
 
 export const RAIL_GROUPS: ViewGroup[] = [
-  { header: "Prospecting", keys: ["workspace", "new-search"] },
+  { header: "Prospecting", keys: ["dashboard", "workspace", "new-search"] },
   { header: "Pipeline", keys: ["pipeline", "leads"] },
   { header: "Intelligence", keys: ["agents", "analytics"] },
   { header: "Account", keys: ["settings"] },

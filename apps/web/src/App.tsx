@@ -13,6 +13,7 @@ import {
 } from "@/features/live/useWorkspaceLive";
 import { AgentsView } from "@/views/AgentsView";
 import { AnalyticsView } from "@/views/AnalyticsView";
+import { DashboardView } from "@/views/DashboardView";
 import { LeadsView } from "@/views/LeadsView";
 import { NewSearchView } from "@/views/NewSearchView";
 import { PipelineView } from "@/views/PipelineView";
@@ -22,8 +23,8 @@ import type { ViewKey } from "@/views/views";
 
 export function App() {
   const { auth, signOut } = useAuth();
-  // Workspace is the primary page (Sprint 4).
-  const [view, setView] = useState<ViewKey>("workspace");
+  // Dashboard is the default post-login landing (S5.5).
+  const [view, setView] = useState<ViewKey>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Submitting a search routes to the Workspace view for that id.
@@ -36,6 +37,16 @@ export function App() {
 
   function renderView(current: ViewKey) {
     switch (current) {
+      case "dashboard":
+        return (
+          <DashboardView
+            onNewSearch={() => setView("new-search")}
+            onOpenSearch={(searchId) => {
+              setActiveSearchId(searchId);
+              setView("workspace");
+            }}
+          />
+        );
       case "workspace":
         return (
           <WorkspaceView
