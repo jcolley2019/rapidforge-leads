@@ -11,7 +11,12 @@ import {
   Check,
   ChevronRight,
   Clock,
+  Copy,
+  FileText,
   Loader2,
+  PhoneCall,
+  RefreshCw,
+  Sparkles,
   X,
 } from "lucide-react";
 import {
@@ -32,9 +37,13 @@ import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import {
   fetchBusinessAudits,
+  generateBuilderBrief,
+  generateSalesSummary,
   resolveAssetUrl,
   updateLeadStatus,
+  type AnalystResult,
   type LeadView,
+  type SalesSummaryResult,
 } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import { spring } from "@/lib/motion";
@@ -50,11 +59,20 @@ const STATUS_LABELS: Record<LeadStatus, string> = {
   dead: "Dead",
 };
 
-type TabKey = "overview" | "audit" | "history" | "notes" | "screenshots";
+type TabKey =
+  | "overview"
+  | "audit"
+  | "brief"
+  | "sales"
+  | "history"
+  | "notes"
+  | "screenshots";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "audit", label: "Audit" },
+  { key: "brief", label: "Builder Brief" },
+  { key: "sales", label: "Sales Script" },
   { key: "history", label: "History" },
   { key: "notes", label: "Notes" },
   { key: "screenshots", label: "Screenshots" },
@@ -166,6 +184,8 @@ function DrawerBody({ lead, onClose }: { lead: LeadView; onClose: () => void }) 
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {tab === "overview" && <OverviewTab lead={lead} />}
         {tab === "audit" && <AuditTab audit={lead.audit} />}
+        {tab === "brief" && <BuilderBriefTab lead={lead} />}
+        {tab === "sales" && <SalesScriptTab lead={lead} />}
         {tab === "history" && <HistoryTab businessId={lead.business.id} />}
         {tab === "notes" && <NotesTab lead={lead} />}
         {tab === "screenshots" && <ScreenshotsTab audit={lead.audit} />}
@@ -209,6 +229,7 @@ function OverviewTab({ lead }: { lead: LeadView }) {
 
   const audit = lead.audit;
   const issues = audit?.issues ?? [];
+  const analyst = (audit?.analyst_output as AnalystResult | null) ?? null;
 
   return (
     <div className="space-y-6">
@@ -250,6 +271,20 @@ function OverviewTab({ lead }: { lead: LeadView }) {
           stars={audit?.star_grade ?? null}
         />
       </section>
+
+      {analyst && (
+        <section>
+          <SectionTitle>Analyst verdict</SectionTitle>
+          <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+            <p className="text-sm font-medium leading-snug">
+              {analyst.one_line_verdict}
+            </p>
+            <p className="mt-1.5 font-mono text-[11px] uppercase tracking-wider text-primary">
+              {analyst.verdict.replace(/_/g, " ")} · {analyst.sales_lead_priority}
+            </p>
+          </div>
+        </section>
+      )}
 
       <section>
         <SectionTitle>What&rsquo;s wrong</SectionTitle>
@@ -788,6 +823,225 @@ function ScreenshotFigure({
         <img src={src} alt={alt} loading="lazy" className="block w-full" />
       </a>
     </figure>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Builder Brief (PRD 6.12) — on-demand Fable 5 markdown, generate/copy/regen
+// ---------------------------------------------------------------------------
+
+/** A completed audit is required before either money deliverable can run. */
+function auditReadyFor(lead: LeadView): boolean {
+  return lead.audit !== null && lead.audit.status === "completed";
+}
+
+function DeliverableLocked({ kind }: { kind: "brief" | "script" }) {
+  return (
+    <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border text-center text-muted-foreground">
+      {kind === "brief" ? (
+        <FileText className="h-6 w-6" aria-hidden />
+      ) : (
+        <PhoneCall className="h-6 w-6" aria-hidden />
+      )}
+      <p className="text-sm">Audit this lead first.</p>
+      <p className="text-xs">
+        The {kind === "brief" ? "Builder Brief" : "sales script"} is generated
+        from a completed audit.
+      </p>
+    </div>
+  );
+}
+
+function BuilderBriefTab({ lead }: { lead: LeadView }) {
+  const [markdown, setMarkdown] = useState<string | null>(
+    lead.audit?.builder_brief_md ?? null,
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setMarkdown(lead.audit?.builder_brief_md ?? null);
+    setError(null);
+  }, [lead.result.id, lead.audit?.builder_brief_md]);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await generateBuilderBrief(lead.business.id);
+      setMarkdown(r.markdown);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy() {
+    if (!markdown) return;
+    await navigator.clipboard.writeText(markdown);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  if (!auditReadyFor(lead)) return <DeliverableLocked kind="brief" />;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <SectionTitle>Builder Brief</SectionTitle>
+        <div className="flex items-center gap-1.5">
+          {markdown && (
+            <Button variant="outline" size="sm" onClick={() => void copy()}>
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-agent-complete" aria-hidden />
+              ) : (
+                <Copy className="h-3.5 w-3.5" aria-hidden />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          )}
+          <Button
+            variant={markdown ? "outline" : "default"}
+            size="sm"
+            onClick={() => void run()}
+            disabled={busy}
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : markdown ? (
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            )}
+            {busy ? "Generating…" : markdown ? "Regenerate" : "Generate brief"}
+          </Button>
+        </div>
+      </div>
+      {error && <p className="text-xs text-agent-error">{error}</p>}
+      {markdown ? (
+        <div className="rounded-xl border border-border bg-card">
+          <pre className="max-h-[62vh] overflow-auto whitespace-pre-wrap p-4 font-mono text-[11px] leading-relaxed">
+            {markdown}
+          </pre>
+        </div>
+      ) : (
+        !busy && (
+          <p className="text-sm text-muted-foreground">
+            Generate a paste-ready rebuild brief (Fable 5) from this audit —
+            competitors, keywords, pages, SEO, conversion, and deploy steps a
+            developer can scaffold from directly.
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sales Script (PRD 6.13) — on-demand Sonnet talk track + objections
+// ---------------------------------------------------------------------------
+
+function SalesScriptTab({ lead }: { lead: LeadView }) {
+  const [script, setScript] = useState<SalesSummaryResult | null>(
+    (lead.audit?.sales_summary as SalesSummaryResult | null) ?? null,
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setScript((lead.audit?.sales_summary as SalesSummaryResult | null) ?? null);
+    setError(null);
+  }, [lead.result.id, lead.audit?.sales_summary]);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      setScript(await generateSalesSummary(lead.business.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy() {
+    if (!script) return;
+    await navigator.clipboard.writeText(script.full_talk_track);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  if (!auditReadyFor(lead)) return <DeliverableLocked kind="script" />;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <SectionTitle>Sales script</SectionTitle>
+        <div className="flex items-center gap-1.5">
+          {script && (
+            <Button variant="outline" size="sm" onClick={() => void copy()}>
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-agent-complete" aria-hidden />
+              ) : (
+                <Copy className="h-3.5 w-3.5" aria-hidden />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          )}
+          <Button
+            variant={script ? "outline" : "default"}
+            size="sm"
+            onClick={() => void run()}
+            disabled={busy}
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : script ? (
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            )}
+            {busy ? "Generating…" : script ? "Regenerate" : "Generate script"}
+          </Button>
+        </div>
+      </div>
+      {error && <p className="text-xs text-agent-error">{error}</p>}
+      {script ? (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border bg-card p-4">
+            <SectionTitle>Talk track · ~60s</SectionTitle>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">
+              {script.full_talk_track}
+            </p>
+          </div>
+          <div>
+            <SectionTitle>Anticipated objections</SectionTitle>
+            <ul className="space-y-2">
+              {script.anticipated_objections.map((o, i) => (
+                <li
+                  key={i}
+                  className="rounded-xl border border-border/70 px-3.5 py-2.5 text-xs"
+                >
+                  <p className="font-medium">&ldquo;{o.objection}&rdquo;</p>
+                  <p className="mt-1 text-muted-foreground">{o.response}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : (
+        !busy && (
+          <p className="text-sm text-muted-foreground">
+            Generate a ~60-second cold-call talk track (Sonnet) that opens with
+            a specific audit finding, plus 2–3 objections and responses.
+          </p>
+        )
+      )}
+    </div>
   );
 }
 

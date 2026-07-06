@@ -168,3 +168,78 @@ export async function saveConfig(
   );
   return config;
 }
+
+// ---------------------------------------------------------------------------
+// Sprint 7: on-demand money agents (PRD 6.11–6.13). These mint the deliverable
+// on the worker (Fable 5 / Sonnet) and persist it on the latest audit.
+// ---------------------------------------------------------------------------
+
+export interface AnalystResult {
+  verdict: string;
+  sales_lead_priority: string;
+  top_3_improvements: Array<{
+    priority: number;
+    improvement: string;
+    rationale: string;
+    estimated_impact: string;
+  }>;
+  reasoning: string;
+  one_line_verdict: string;
+}
+
+export interface SalesSummaryResult {
+  opener: string;
+  earned_observation: string;
+  pain_hypothesis: string;
+  offer: string;
+  soft_close: string;
+  full_talk_track: string;
+  anticipated_objections: Array<{ objection: string; response: string }>;
+}
+
+export interface BuilderBriefResult {
+  markdown: string;
+  word_count: number;
+  sections: string[];
+}
+
+/** Run (or re-run) the Analyst for a business (PRD 6.11). */
+export async function generateAnalyst(
+  businessId: string,
+): Promise<AnalystResult> {
+  const { analyst } = await apiFetch<{ analyst: AnalystResult }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/analyst`,
+    { method: "POST" },
+  );
+  return analyst;
+}
+
+/** Run (or re-run) the Builder Brief for a business (PRD 6.12). */
+export async function generateBuilderBrief(
+  businessId: string,
+): Promise<BuilderBriefResult> {
+  const res = await apiFetch<{
+    builder_brief_md: string;
+    word_count: number;
+    sections: string[];
+  }>(`/api/businesses/${encodeURIComponent(businessId)}/builder-brief`, {
+    method: "POST",
+  });
+  return {
+    markdown: res.builder_brief_md,
+    word_count: res.word_count,
+    sections: res.sections,
+  };
+}
+
+/** Run (or re-run) the Sales Summary for a business (PRD 6.13). */
+export async function generateSalesSummary(
+  businessId: string,
+): Promise<SalesSummaryResult> {
+  const { sales_summary } = await apiFetch<{
+    sales_summary: SalesSummaryResult;
+  }>(`/api/businesses/${encodeURIComponent(businessId)}/sales-summary`, {
+    method: "POST",
+  });
+  return sales_summary;
+}
