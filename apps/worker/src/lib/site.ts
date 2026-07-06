@@ -28,6 +28,12 @@ export interface SiteFetcher {
   readonly mode: "real" | "fixture";
   /** Fetch the homepage. Null = request failed (agents treat as unknown). */
   fetchHomepage(url: string): Promise<FetchedSite | null>;
+  /**
+   * Does a root-relative path exist on the site (SEO agent: /sitemap.xml,
+   * /robots.txt)? Null = could not determine (agents treat as unknown,
+   * never as missing — CLAUDE.md 6.3).
+   */
+  checkPath(siteUrl: string, path: string): Promise<boolean | null>;
 }
 
 export const SITE_FETCH_TIMEOUT_MS = 15_000;
@@ -68,6 +74,29 @@ export class RealSiteFetcher implements SiteFetcher {
       return null;
     }
   }
+
+  async checkPath(siteUrl: string, path: string): Promise<boolean | null> {
+    let target: string;
+    try {
+      target = new URL(path, siteUrl).toString();
+    } catch {
+      return null;
+    }
+    try {
+      // GET, not HEAD — some hosts (builders especially) reject HEAD.
+      const res = await fetch(target, {
+        method: "GET",
+        redirect: "follow",
+        signal: AbortSignal.timeout(SITE_FETCH_TIMEOUT_MS),
+        headers: { "User-Agent": "RapidForge-Audit/1.0" },
+      });
+      // Drain nothing — status is the answer; cancel the body politely.
+      await res.body?.cancel().catch(() => {});
+      return res.status >= 200 && res.status < 400;
+    } catch {
+      return null; // network failure = unknown, never "missing"
+    }
+  }
 }
 
 export class FixtureSiteFetcher implements SiteFetcher {
@@ -92,6 +121,22 @@ export class FixtureSiteFetcher implements SiteFetcher {
       sslValid: url.startsWith("https://"),
       headers: fixture.headers,
     };
+  }
+
+  async checkPath(siteUrl: string, path: string): Promise<boolean | null> {
+    let host: string;
+    try {
+      host = new URL(siteUrl).hostname;
+    } catch {
+      return null;
+    }
+    const fixture =
+      SITE_FIXTURES[host] ??
+      SITE_FIXTURES[host.replace(/^www\./, "")] ??
+      fallbackSiteFixture(host);
+    if (path === "/sitemap.xml") return fixture.hasSitemap ?? false;
+    if (path === "/robots.txt") return fixture.hasRobots ?? false;
+    return false;
   }
 }
 

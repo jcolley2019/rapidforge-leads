@@ -22,6 +22,10 @@ export interface SiteFixture {
   headers: Record<string, string>;
   responseMs: number;
   httpStatus: number;
+  /** SEO agent (S6): /sitemap.xml exists. Absent = false. Builders auto-generate one. */
+  hasSitemap?: boolean;
+  /** SEO agent (S6): /robots.txt exists. Absent = false. */
+  hasRobots?: boolean;
 }
 
 export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
@@ -29,6 +33,8 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
   "snakeriverplumbing.com": {
     responseMs: 310,
     httpStatus: 200,
+    hasSitemap: true,
+    hasRobots: true,
     headers: { server: "nginx", "last-modified": "Sat, 20 Jun 2026 08:12:00 GMT" },
     html: `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -52,6 +58,8 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
   "boisedrainpros.wixsite.com": {
     responseMs: 2400,
     httpStatus: 200,
+    hasSitemap: true, // Wix auto-generates one — the SEO problems live in the markup
+    hasRobots: true,
     headers: { server: "Pepyaka", "x-wix-request-id": "abc123" },
     html: `<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -71,6 +79,8 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
   "www.rotorooter.com": {
     responseMs: 280,
     httpStatus: 200,
+    hasSitemap: true,
+    hasRobots: true,
     headers: { server: "cloudflare", "last-modified": "Wed, 01 Jul 2026 04:00:00 GMT" },
     html: `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -92,6 +102,8 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
   "boiseplumbingco.com": {
     responseMs: 940,
     httpStatus: 200,
+    hasSitemap: true,
+    hasRobots: true,
     headers: { server: "apache", "x-powered-by": "PHP/8.1", "last-modified": "Mon, 10 Nov 2025 16:40:00 GMT" },
     html: `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -112,6 +124,8 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
   "meridiancomfort.godaddysites.com": {
     responseMs: 2100,
     httpStatus: 200,
+    hasSitemap: true,
+    hasRobots: true,
     headers: { server: "DPS/2.0" },
     html: `<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -131,6 +145,8 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
   "kunaelectric.squarespace.com": {
     responseMs: 620,
     httpStatus: 200,
+    hasSitemap: true,
+    hasRobots: true,
     headers: { server: "Squarespace" },
     html: `<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -148,6 +164,8 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
   "starplumbingidaho.wordpress.com": {
     responseMs: 1350,
     httpStatus: 200,
+    hasSitemap: true,
+    hasRobots: true,
     headers: { server: "nginx", "x-powered-by": "WordPress.com" },
     html: `<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -166,6 +184,8 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
   "pipedreamidaho.webflow.io": {
     responseMs: 240,
     httpStatus: 200,
+    hasSitemap: true,
+    hasRobots: true,
     headers: { server: "Webflow" },
     html: `<!doctype html><html data-wf-domain="pipedreamidaho.webflow.io" data-wf-page="abc"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -256,6 +276,8 @@ Copyright 2013 Meridian Water Heater Repair. All rights reserved.</font>
   "precisionplumbingidaho.com": {
     responseMs: 350,
     httpStatus: 200,
+    hasSitemap: true,
+    hasRobots: true,
     headers: { server: "cloudflare", "last-modified": "Fri, 26 Jun 2026 19:05:00 GMT" },
     html: `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
