@@ -318,6 +318,33 @@ function websiteLabel(lead: LeadView): string | null {
 // Audit — per-agent raw findings, expandable
 // ---------------------------------------------------------------------------
 
+/** Sprint 6 agent findings persisted by the Scorer in score_breakdown. */
+interface V15Agents {
+  design?: {
+    modernity_0_100?: number;
+    feels_like_year?: number;
+    used_vision?: boolean;
+    critical_issues?: Array<{ issue: string; evidence: string }>;
+  };
+  reputation?: {
+    google_rating?: number | null;
+    review_count?: number | null;
+    volume_band?: string;
+    review_velocity_per_month?: number | null;
+    rating_divergence?: number | null;
+    summary?: { verdict?: string; reasoning?: string };
+  };
+  seo?: {
+    title?: { found: boolean; value: string | null };
+    meta_description?: { found: boolean };
+    h1_count?: number;
+    schema_types?: string[];
+    has_sitemap?: boolean | null;
+    has_robots_txt?: boolean | null;
+    summary?: { local_fit_score_1_5?: number; gaps?: string[] };
+  };
+}
+
 function AuditTab({ audit }: { audit: Audit | null }) {
   if (!audit) {
     return (
@@ -326,6 +353,9 @@ function AuditTab({ audit }: { audit: Audit | null }) {
       </p>
     );
   }
+  const v15 =
+    (audit.score_breakdown as { v15_agents?: V15Agents } | null)?.v15_agents ??
+    {};
   const groups: Array<{ title: string; rows: Array<[string, ReactNode]> }> = [
     {
       title: "Health — PageSpeed + availability",
@@ -367,6 +397,103 @@ function AuditTab({ audit }: { audit: Audit | null }) {
     {
       title: "Traffic — real-user data",
       rows: [["CrUX field data", bool(audit.has_crux_data)]],
+    },
+    {
+      title: "Design — visual critique",
+      rows: [
+        ["Modernity", num(v15.design?.modernity_0_100 ?? null)],
+        ["Feels like year", num(v15.design?.feels_like_year ?? null)],
+        [
+          "Vision critique",
+          v15.design === undefined ? dash() : bool(v15.design.used_vision ?? false),
+        ],
+        [
+          "Critical issues",
+          v15.design?.critical_issues?.length ? (
+            <ul className="mt-1 space-y-1 text-left">
+              {v15.design.critical_issues.map((item) => (
+                <li key={item.issue} className="font-sans">
+                  <span className="text-foreground">{item.issue}</span>
+                  <span className="block text-muted-foreground">
+                    {item.evidence}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : v15.design ? (
+            "none"
+          ) : (
+            dash()
+          ),
+        ],
+      ],
+    },
+    {
+      title: "Reputation — Google signals",
+      rows: [
+        ["Google rating", num(v15.reputation?.google_rating ?? null)],
+        ["Reviews", num(v15.reputation?.review_count ?? null)],
+        ["Verdict", v15.reputation?.summary?.verdict ?? dash()],
+        ["Review volume", v15.reputation?.volume_band ?? dash()],
+        [
+          "Review velocity",
+          v15.reputation?.review_velocity_per_month != null
+            ? `${v15.reputation.review_velocity_per_month}/mo`
+            : dash(),
+        ],
+        [
+          "Yelp divergence",
+          v15.reputation?.rating_divergence != null
+            ? String(v15.reputation.rating_divergence)
+            : "v1.5",
+        ],
+      ],
+    },
+    {
+      title: "SEO — on-page + local fit",
+      rows: [
+        [
+          "Local fit",
+          v15.seo?.summary?.local_fit_score_1_5 != null
+            ? `${v15.seo.summary.local_fit_score_1_5}/5`
+            : dash(),
+        ],
+        [
+          "Title",
+          v15.seo?.title
+            ? v15.seo.title.found
+              ? (v15.seo.title.value ?? "present")
+              : "missing"
+            : dash(),
+        ],
+        [
+          "Meta description",
+          v15.seo ? bool(v15.seo.meta_description?.found ?? false) : dash(),
+        ],
+        ["H1 count", num(v15.seo?.h1_count ?? null)],
+        [
+          "Schema types",
+          v15.seo?.schema_types
+            ? v15.seo.schema_types.join(", ") || "none"
+            : dash(),
+        ],
+        ["sitemap.xml", bool(v15.seo?.has_sitemap ?? null)],
+        ["robots.txt", bool(v15.seo?.has_robots_txt ?? null)],
+        [
+          "Gaps",
+          v15.seo?.summary?.gaps?.length ? (
+            <ul className="mt-1 space-y-0.5 text-left font-sans">
+              {v15.seo.summary.gaps.map((gap) => (
+                <li key={gap}>{gap}</li>
+              ))}
+            </ul>
+          ) : v15.seo ? (
+            "none"
+          ) : (
+            dash()
+          ),
+        ],
+      ],
     },
     {
       title: "Scorer — breakdown",
