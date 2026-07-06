@@ -243,3 +243,37 @@ export async function generateSalesSummary(
   });
   return sales_summary;
 }
+
+/**
+ * Fetch the 2-page audit report and trigger a browser download. The worker
+ * returns a PDF when Chrome is available, else printable HTML; either way the
+ * Content-Disposition filename is honored.
+ */
+export async function downloadReport(businessId: string): Promise<void> {
+  const res = await fetch(
+    `${WORKER_URL}/api/businesses/${encodeURIComponent(businessId)}/report`,
+    { headers: { Authorization: `Bearer ${await bearerToken()}` } },
+  );
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch {
+      // non-JSON error body — keep the status message
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const filename =
+    disposition.match(/filename="([^"]+)"/)?.[1] ?? "audit-report";
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}

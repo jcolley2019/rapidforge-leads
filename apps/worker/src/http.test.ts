@@ -432,6 +432,30 @@ describe("POST /api/businesses/:id/builder-brief", () => {
   });
 });
 
+describe("GET /api/businesses/:id/report", () => {
+  it("409s when the business has no completed audit", async () => {
+    const { business } = await seedLead();
+    const res = await fetch(`${base}/api/businesses/${business.id}/report`, {
+      headers: { authorization: "Bearer dev-offline" },
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("renders a report (HTML in fixture mode) with the key facts", async () => {
+    const { business } = await seedLead();
+    await seedCompletedAudit(business.id);
+    const res = await fetch(`${base}/api/businesses/${business.id}/report`, {
+      headers: { authorization: "Bearer dev-offline" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("content-disposition")).toContain("audit-report");
+    const body = await res.text();
+    expect(body).toContain("Boise Drain Pros");
+    expect(body).toContain("RAPIDFORGE");
+  });
+});
+
 describe("GET /api/usage", () => {
   it("rolls up this month's events by type", async () => {
     await store.logUsageEvent({

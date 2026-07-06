@@ -17,8 +17,15 @@ import { runAnalyst } from "./agents/analyst";
 import { runBuilderBrief } from "./agents/builder-brief";
 import { runOnDemandAgent } from "./agents/on-demand";
 import { runSalesSummary } from "./agents/sales-summary";
+import { AnalystOutputSchema } from "./agents/prompts/analyst";
 import type { CompetitorSummary } from "./agents/prompts/builder-brief";
 import { aiSummaryMode } from "./lib/ai";
+import {
+  buildReportHtml,
+  getReportRenderer,
+  reportFileStem,
+  type ReportAnalyst,
+} from "./lib/pdf-report";
 import {
   FIXTURE_SCREENSHOT_DIR,
   FIXTURE_SCREENSHOT_ROUTE,
@@ -492,6 +499,49 @@ export function createApp(
     } catch (err) {
       console.error("[api] POST /api/businesses/:id/builder-brief failed:", err);
       res.status(500).json({ error: "Failed to run builder brief" });
+    }
+  });
+
+  /** GET /api/businesses/:id/report → 2-page audit report (PDF or HTML). */
+  app.get("/api/businesses/:id/report", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const business = await deps.store.getBusiness(req.params.id);
+      if (!business || business.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Business not found" });
+        return;
+      }
+      const audit = await deps.store.getLatestCompletedAuditForBusiness(
+        business.id,
+      );
+      if (!audit) {
+        res.status(409).json({ error: "No completed audit to report on" });
+        return;
+      }
+      const parsedAnalyst = AnalystOutputSchema.safeParse(audit.analyst_output);
+      const analyst: ReportAnalyst | null = parsedAnalyst.success
+        ? parsedAnalyst.data
+        : null;
+      const html = buildReportHtml({
+        business,
+        audit,
+        analyst,
+        generatedAt: new Date(),
+      });
+      const out = await getReportRenderer().render(html);
+      res.setHeader("Content-Type", out.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${reportFileStem(business)}.${out.extension}"`,
+      );
+      res.status(200).send(out.bytes);
+    } catch (err) {
+      console.error("[api] GET /api/businesses/:id/report failed:", err);
+      res.status(500).json({ error: "Failed to render report" });
     }
   });
 

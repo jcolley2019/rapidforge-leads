@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  Download,
   FileText,
   Loader2,
   PhoneCall,
@@ -36,6 +37,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import {
+  downloadReport,
   fetchBusinessAudits,
   generateBuilderBrief,
   generateSalesSummary,
@@ -333,7 +335,49 @@ function OverviewTab({ lead }: { lead: LeadView }) {
           />
         </dl>
       </section>
+
+      {audit && audit.status === "completed" && (
+        <DownloadReportButton businessId={lead.business.id} />
+      )}
     </div>
+  );
+}
+
+/** 2-page client-ready audit report (PDF, or printable HTML without Chrome). */
+function DownloadReportButton({ businessId }: { businessId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function download() {
+    setBusy(true);
+    setError(null);
+    try {
+      await downloadReport(businessId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => void download()}
+        disabled={busy}
+      >
+        {busy ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+        ) : (
+          <Download className="h-3.5 w-3.5" aria-hidden />
+        )}
+        {busy ? "Preparing report…" : "Download audit report"}
+      </Button>
+      {error && <p className="mt-1.5 text-xs text-agent-error">{error}</p>}
+    </section>
   );
 }
 
