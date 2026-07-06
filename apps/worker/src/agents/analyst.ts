@@ -1,17 +1,18 @@
 /**
- * Analyst — PRD 6.11 (v1.5, Fable 5 → Opus 4.8 fallback).
+ * Analyst — PRD 6.11 (v1.5). Runs on **Opus 4.8** (Sprint 8 — the stack no
+ * longer depends on Fable 5's availability), at effort "low" for cost.
  *
  * Narrative synthesis over the deterministic scores: an executive verdict,
  * top-3 improvements, and reasoning that cites the audit agents by name and
- * value. It NEVER re-scores (CLAUDE.md 4.2). Fable 5 refusals fall back to
- * Opus 4.8 inside lib/ai.ts; a hard AI failure or a twice-failed guardrail
- * falls back to the deterministic template so a job never stalls.
+ * value. It NEVER re-scores (CLAUDE.md 4.2). A hard AI failure or a
+ * twice-failed guardrail falls back to the deterministic template so a job
+ * never stalls.
  *
  * Auto-runs after Scorer for sellability >= 60 (CLAUDE.md 8); on-demand
  * otherwise via POST /api/businesses/:id/analyst.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_FABLE } from "../lib/ai";
+import { generateJsonSummary, MODEL_OPUS } from "../lib/ai";
 import { makeAnalystGuardrail } from "./guardrails/analyst";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
 import {
@@ -28,8 +29,8 @@ import {
   type Improvement,
 } from "./prompts/analyst";
 
-/** Fable 5 adaptive-thinking effort — medium balances cost vs. synthesis. */
-const ANALYST_EFFORT = "medium" as const;
+/** Opus effort — "low" keeps cost down; raise later if verdict depth needs it. */
+const ANALYST_EFFORT = "low" as const;
 
 export interface AnalystContext {
   business: Business;
@@ -210,7 +211,7 @@ export async function runAnalyst(
     const vars: CascadingVars = resolveConfigVars(ctx.config);
 
     const outcome = await generateJsonSummary<AnalystOutput>({
-      model: MODEL_FABLE,
+      model: MODEL_OPUS,
       effort: ANALYST_EFFORT,
       system: ANALYST_SYSTEM,
       prompt: buildAnalystPrompt(facts, vars),

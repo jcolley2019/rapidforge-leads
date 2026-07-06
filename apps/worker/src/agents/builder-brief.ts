@@ -1,5 +1,6 @@
 /**
- * Builder Brief — PRD 6.12 (v1.5, Fable 5 → Opus 4.8 fallback, MARKDOWN).
+ * Builder Brief — PRD 6.12 (v1.5, MARKDOWN). Runs on **Opus 4.8** (Sprint 8),
+ * at effort "low" for cost.
  *
  * A paste-ready rebuild brief a developer (or Claude Code) can scaffold from,
  * built over the measured audit + fresh local competitors + target keywords.
@@ -7,7 +8,7 @@
  * twice-failed guardrail falls back to a complete deterministic template.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
-import { generateMarkdown, MODEL_FABLE } from "../lib/ai";
+import { generateMarkdown, MODEL_OPUS } from "../lib/ai";
 import { builderBriefGuardrail } from "./guardrails/builder-brief";
 import { countWords } from "./guardrails/analyst";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
@@ -21,8 +22,9 @@ import {
   type CompetitorSummary,
 } from "./prompts/builder-brief";
 
-/** Fable 5 effort — high; the Brief is the premium on-demand deliverable. */
-const BRIEF_EFFORT = "high" as const;
+/** Opus effort — "low" keeps cost down; the strengthened prompt carries the
+ * section structure. Raise later if section completeness ever regresses. */
+const BRIEF_EFFORT = "low" as const;
 
 export interface BuilderBriefOutput extends Record<string, unknown> {
   markdown: string;
@@ -137,7 +139,7 @@ export async function runBuilderBrief(
     const keywords = deriveKeywords(facts);
 
     const outcome = await generateMarkdown({
-      model: MODEL_FABLE,
+      model: MODEL_OPUS,
       effort: BRIEF_EFFORT,
       system: BUILDER_BRIEF_SYSTEM,
       prompt: buildBuilderBriefPrompt(

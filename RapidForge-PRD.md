@@ -44,7 +44,7 @@ The differentiator is a crew of specialized agents — each measuring one dimens
 
 ### 2.2 In scope for v1.5 (Sprints 6–7)
 - Design Agent (Claude vision on screenshots), Reputation Agent, SEO Agent.
-- Analyst Agent (Fable 5 narrative synthesis), Builder Brief Agent (Fable 5), Sales Summary Agent (talk track).
+- Analyst Agent (Opus 4.8 narrative synthesis), Builder Brief Agent (Opus 4.8), Sales Summary Agent (talk track).
 - Puppeteer screenshots; PDF audit report (sales collateral); before/after client deliverable.
 - Keyword search mode ("HVAC companies in Boise with fewer than 50 reviews") and map-draw mode.
 
@@ -86,8 +86,8 @@ Dev runs web + worker together via `concurrently`. npm workspaces monorepo: `app
 | Design | v1.5 | LLM (vision) | Sonnet 4.6 | Screenshot modernity scoring, specific visual critique |
 | Reputation | v1.5 | deterministic + LLM | Sonnet 4.6 | Google vs. Yelp/BBB/Facebook divergence |
 | SEO | v1.5 | deterministic + LLM | Sonnet 4.6 | Schema markup, title/meta/H1, local keywords, sitemap |
-| Analyst | v1.5 | LLM synthesis | **Fable 5** → Opus 4.8 fallback | Narrative verdict, top-3 improvements, enriched issues — FROM deterministic data |
-| Builder Brief | v1.5 | LLM synthesis | **Fable 5** → Opus 4.8 fallback | Claude Code–ready rebuild prompt |
+| Analyst | v1.5 | LLM synthesis | **Opus 4.8** (Fable 5 optional) | Narrative verdict, top-3 improvements, enriched issues — FROM deterministic data |
+| Builder Brief | v1.5 | LLM synthesis | **Opus 4.8** (Fable 5 optional) | Claude Code–ready rebuild prompt |
 | Sales Summary | v1.5 | LLM | Sonnet 4.6 | 60-second cold-call talk track + objection handling |
 | Keyword Parser | v1.5 | LLM | Sonnet 4.6 | Natural-language search → structured query |
 
@@ -104,8 +104,8 @@ Dev runs web + worker together via `concurrently`. npm workspaces monorepo: `app
 
 ### 3.4 Model + AI integration rules
 - **All AI calls go through RapidForge AI Core** (`github.com/jcolley2019/rapidforge-ai-core`). App code never imports the Anthropic SDK or calls providers directly.
-- Models: `claude-haiku-4-5` (Filter edge-pass, cheap classification), `claude-sonnet-4-6` (audit summaries, Design, Sales Summary, Keyword Parser), `claude-fable-5` (Analyst + Builder Brief only).
-- **Fable 5 specifics:** $10/M input, $50/M output. Adaptive thinking always on (`effort` controls depth). Temperature 1.0 or unset. A refusal returns HTTP 200 with `stop_reason: "refusal"` — retry the identical request on `claude-opus-4-8`. Never let a refusal stall a job.
+- Models: `claude-haiku-4-5` (Filter edge-pass, cheap classification), `claude-sonnet-4-6` (audit summaries, Design, Sales Summary, Keyword Parser), `claude-opus-4-8` (Analyst + Builder Brief primary, `effort: low` — Sprint 8). Fable 5 is optional.
+- **Top-tier specifics (Sprint 8):** Analyst + Builder Brief run on `claude-opus-4-8` so the stack is Fable-independent; adaptive-thinking depth is controlled via AI Core `output_config.effort` (currently `low`). **Fable 5 (optional):** if ever selected, a refusal returns HTTP 200 with `stop_reason: "refusal"` → retry the identical request on `claude-opus-4-8` (safety path retained in `lib/ai.ts`, dormant). Never let a refusal stall a job.
 - **Sprint 0 task:** verify RapidForge AI Core supports `claude-fable-5` + refusal fallback; add if missing (raw-fetch adapters, small change). Run its test suite.
 - Every AI call logs `tokens_used` + `cost_cents` to `agent_runs` and `usage_events`.
 
@@ -414,7 +414,7 @@ Yelp Fusion + BBB + Facebook cross-reference vs. Google rating; divergence flags
 ### 6.10 SEO (v1.5, deterministic + Sonnet)
 Worker checks sitemap.xml/robots.txt, extracts title/meta/H1s/schema types deterministically; Sonnet evaluates quality + local keyword presence for `{city} + {category}`. Guardrails: reject found=true with null value; reject score 5 with missing title/meta/H1.
 
-### 6.11 Analyst (v1.5, **Fable 5** → Opus 4.8 fallback)
+### 6.11 Analyst (v1.5, **Opus 4.8** (Fable 5 optional))
 The narrative synthesis layer on top of deterministic scores. Runs automatically after Scorer for leads with sellability ≥ 60 (config), on demand otherwise.
 ```
 SYSTEM: You are a senior consultant synthesizing a website audit into an
@@ -432,7 +432,7 @@ Return: {
 ```
 Guardrails: reject <3 improvements; reject reasoning citing <3 agents; reject one-liner >20 words; reject verdict inconsistent with star grade (e.g., "excellent" with 2★).
 
-### 6.12 Builder Brief (v1.5, **Fable 5** → Opus 4.8 fallback, markdown output)
+### 6.12 Builder Brief (v1.5, **Opus 4.8** (Fable 5 optional), markdown output)
 Inputs: full audit + screenshots + existing-site HTML content + GBP data + top-3 local competitors (pulled fresh at brief time) + target keywords.
 Output: paste-ready markdown per this structure — Project overview · Business details · Target audience · Pages to build with per-page content outline (H1s, sections, CTAs) · Design direction (palette, type, vibe, reference sites) · SEO requirements (per-page titles/metas, LocalBusiness + Service + FAQPage schema, canonicals, alt text, internal linking) · **AEO requirements** (FAQ as direct Q-A pairs, entity definitions, structured data for AI citations) · Conversion requirements (sticky click-to-call header, booking embed, ≤3-field form, trust bar, review carousel) · Performance requirements (Lighthouse mobile >90, LCP <2.5s, CLS <0.1, WebP, lazy load) · Content to migrate (with rewrite notes) · Assets (hero image prompt, icons) · Deploy instructions.
 Client-site stack: Vite or Next.js per client need + Tailwind + shadcn/ui (Joey's call per project; brief states one).
@@ -561,7 +561,7 @@ Scope separately when Sprints 1–7 produce revenue: Stripe, tiers/quotas, BYOK,
 | Puppeteer unreliability | Adequate memory locally/Railway; fallback ScreenshotOne (~$17/mo) if it keeps failing |
 | Bad early rankings | Joey reviews first 100 leads, tunes weights (constants in shared/scoring.ts) |
 | Places ToS for SaaS | v1 internal = fine; v2 BYOK on paid tiers; never resell raw Places data |
-| Fable 5 refusals/availability | Automatic Opus 4.8 fallback in AI Core; pipeline never stalls |
+| Fable 5 refusals/availability | Opus 4.8 is now the PRIMARY for Analyst/Builder Brief (Sprint 8) — no Fable dependency; the refusal→Opus retry stays as a dormant safety path |
 | Worker cold starts | Persistent process (local/Railway), health checks |
 | OneDrive sync corruption | Repo lives at `C:\dev\rapidforge`, outside OneDrive |
 

@@ -18,9 +18,19 @@ import { forceFixtures } from "./env";
 export const MODEL_HAIKU = "claude-haiku-4-5";
 /** Audit summaries, Design (vision), Reputation, SEO, Sales Summary, Keyword Parser. */
 export const MODEL_SONNET = "claude-sonnet-4-6";
-/** Analyst + Builder Brief ONLY. Adaptive thinking always on; temperature 1.0 or unset. */
+/**
+ * Top-tier synthesis — Analyst + Builder Brief (Sprint 8). Opus is the
+ * PRIMARY so the stack never depends on Fable 5's availability. Thinking is
+ * tuned via output_config.effort (we run these at effort "low").
+ */
+export const MODEL_OPUS = "claude-opus-4-8";
+/**
+ * Fable 5 — an OPTIONAL alternative for Analyst/Builder Brief (not selected by
+ * default since Sprint 8). If ever used, a stop_reason "refusal" retries the
+ * identical request on Opus (below). Adaptive thinking always on; temp unset.
+ */
 export const MODEL_FABLE = "claude-fable-5";
-/** Automatic fallback when Fable 5 returns stop_reason "refusal". */
+/** Refusal fallback for Fable 5 — the same model id as MODEL_OPUS. */
 export const MODEL_FABLE_FALLBACK = "claude-opus-4-8";
 
 /** Image input for vision calls (Design agent, PRD 6.8). */
@@ -34,6 +44,7 @@ export interface AiCallOptions {
   model:
     | typeof MODEL_HAIKU
     | typeof MODEL_SONNET
+    | typeof MODEL_OPUS
     | typeof MODEL_FABLE
     | typeof MODEL_FABLE_FALLBACK;
   system?: string;
@@ -42,10 +53,10 @@ export interface AiCallOptions {
   images?: AiImage[];
   maxTokens?: number;
   /**
-   * Fable 5 adaptive-thinking effort — controls cost, not a temperature.
-   * Forwarded to AI Core as output_config.effort (v0.3.0+); the Anthropic
-   * adapter emits it and leaves temperature unset for the thinking model.
-   * Inert for Sonnet/Haiku, which ignore output_config.
+   * Adaptive-thinking effort for the thinking models (Opus, Fable 5) —
+   * controls cost, not a temperature. Forwarded to AI Core as
+   * output_config.effort (v0.3.0+); the Anthropic adapter emits it and leaves
+   * temperature unset. Inert for Sonnet/Haiku, which ignore output_config.
    */
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
 }

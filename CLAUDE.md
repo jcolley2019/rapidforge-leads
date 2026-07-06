@@ -61,10 +61,10 @@
 |---|---|---|
 | Claude Haiku 4.5 | `claude-haiku-4-5` | Filter edge-pass; cheap classification |
 | Claude Sonnet 4.6 | `claude-sonnet-4-6` | Audit summaries, Design (vision), Reputation, SEO, Sales Summary, Keyword Parser |
-| Claude Fable 5 | `claude-fable-5` | Analyst + Builder Brief ONLY |
-| Claude Opus 4.8 | `claude-opus-4-8` | Automatic fallback when Fable 5 returns a refusal |
+| Claude Opus 4.8 | `claude-opus-4-8` | **Analyst + Builder Brief (primary top tier — Sprint 8)**, at `effort: "low"` |
+| Claude Fable 5 | `claude-fable-5` | Optional alternative for Analyst/Builder Brief; not selected by default |
 
-**Fable 5 rules:** adaptive thinking always on (`effort` controls cost) · temperature 1.0 or unset · `stop_reason: "refusal"` arrives as HTTP 200 — retry the identical request on `claude-opus-4-8`, never crash, never stall a job. "Opus 4.7" and "GPT-5.5" are not real model IDs — if you see them in any doc, flag it.
+**Top-tier rule (Sprint 8):** the stack runs fully on **Opus/Sonnet/Haiku** and does NOT depend on Fable 5's availability. Analyst + Builder Brief call `claude-opus-4-8` directly, with adaptive-thinking `effort` controlled via AI Core `output_config` (currently `low`; raise later for depth). **Fable 5 is optional:** if a call ever specifies `claude-fable-5`, its `stop_reason: "refusal"` (HTTP 200) still retries the identical request on `claude-opus-4-8` — that safety path stays wired in `lib/ai.ts` but is dormant. Never crash, never stall a job. "Opus 4.7" and "GPT-5.5" are not real model IDs — flag them if seen.
 
 ### 4.2 Scoring Doctrine
 Scores are **deterministic math** (PRD Section 4; constants in `packages/shared/scoring.ts`). LLMs never assign Health, star, or Sellability scores — they interpret, critique, and write narrative on top of measured data. **Deterministic before AI:** if the worker can measure it, the worker measures it and the model receives it as fact.
