@@ -84,6 +84,20 @@ export class SupabaseStore implements DataStore {
     return (data as Search | null) ?? null;
   }
 
+  async listRecentSearches(
+    workspaceId: string,
+    limit: number,
+  ): Promise<Search[]> {
+    const { data, error } = await this.db
+      .from("searches")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(`[store] listRecentSearches: ${error.message}`);
+    return (data ?? []) as Search[];
+  }
+
   async updateSearch(
     id: string,
     patch: Partial<Pick<Search, "status" | "results_count" | "completed_at">>,

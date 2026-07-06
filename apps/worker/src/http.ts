@@ -104,6 +104,26 @@ export function createApp(
     }
   });
 
+  /** GET /api/searches → recent searches, newest first (S5.5 dashboard). */
+  app.get("/api/searches", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+    try {
+      const searches = await deps.store.listRecentSearches(
+        auth.workspaceId,
+        limit,
+      );
+      res.json({ searches });
+    } catch (err) {
+      console.error("[api] GET /api/searches failed:", err);
+      res.status(500).json({ error: "Failed to load searches" });
+    }
+  });
+
   /** GET /api/searches/:id → search + leads + agent_states (polling fallback). */
   app.get("/api/searches/:id", async (req, res) => {
     const auth = req.auth;

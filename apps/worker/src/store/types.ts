@@ -201,6 +201,8 @@ export interface DataStore {
   // searches
   createSearch(input: CreateSearchInput): Promise<Search>;
   getSearch(id: string): Promise<Search | null>;
+  /** Recent searches, newest first (S5.5 dashboard). */
+  listRecentSearches(workspaceId: string, limit: number): Promise<Search[]>;
   updateSearch(
     id: string,
     patch: Partial<

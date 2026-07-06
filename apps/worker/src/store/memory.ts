@@ -76,6 +76,16 @@ export class MemoryStore implements DataStore {
     return this.searches.get(id) ?? null;
   }
 
+  async listRecentSearches(
+    workspaceId: string,
+    limit: number,
+  ): Promise<Search[]> {
+    return [...this.searches.values()]
+      .filter((s) => s.workspace_id === workspaceId)
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
+      .slice(0, limit);
+  }
+
   async updateSearch(
     id: string,
     patch: Partial<Pick<Search, "status" | "results_count" | "completed_at">>,

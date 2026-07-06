@@ -213,6 +213,32 @@ describe("POST /api/leads/:id/status", () => {
   });
 });
 
+describe("GET /api/searches", () => {
+  it("lists recent workspace searches newest first, respecting limit", async () => {
+    await seedLead();
+    await seedLead();
+    await store.createSearch({
+      workspace_id: "00000000-0000-4000-8000-00000000ffff",
+      created_by: DEV_USER_ID,
+      mode: "zip_radius",
+      params: { zip: "99999", radius_miles: 5 },
+      category: "spy",
+    });
+
+    const res = await api("GET", "/api/searches?limit=2");
+    expect(res.status).toBe(200);
+    expect(res.json.searches).toHaveLength(2);
+    const [a, b] = res.json.searches;
+    expect((a.created_at ?? "") >= (b.created_at ?? "")).toBe(true);
+    // Foreign workspace searches never leak.
+    expect(
+      res.json.searches.every(
+        (s: { category: string }) => s.category !== "spy",
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("GET /api/leads", () => {
   it("returns workspace leads across searches", async () => {
     const { result } = await seedLead();
