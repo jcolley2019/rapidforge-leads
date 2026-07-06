@@ -14,8 +14,10 @@ import {
   type WorkspaceConfig,
 } from "@rapidforge/shared";
 import { runAnalyst } from "./agents/analyst";
+import { runBuilderBrief } from "./agents/builder-brief";
 import { runOnDemandAgent } from "./agents/on-demand";
 import { runSalesSummary } from "./agents/sales-summary";
+import type { CompetitorSummary } from "./agents/prompts/builder-brief";
 import { aiSummaryMode } from "./lib/ai";
 import {
   FIXTURE_SCREENSHOT_DIR,
@@ -24,8 +26,41 @@ import {
 import { createRequireSupabaseJwt } from "./middleware/auth";
 import type { OrchestratorDeps } from "./orchestrator";
 import { POLL_INTERVAL_MS, type QueuePoller } from "./queue";
+import type { DataStore } from "./store";
 import { currentMonthStartIso } from "./store/usage";
 import type { UpdateSearchResultPatch } from "./store/types";
+
+/** HTML → a compact plain-text excerpt for the Builder Brief prompt. */
+function htmlToExcerpt(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1500);
+}
+
+/** Top-3 fresh local competitors from the same workspace + category. */
+async function fetchCompetitors(
+  store: DataStore,
+  workspaceId: string,
+  businessId: string,
+  category: string | null,
+): Promise<CompetitorSummary[]> {
+  const leads = await store.listWorkspaceLeads(workspaceId);
+  return leads
+    .map((l) => l.business)
+    .filter((b) => b.id !== businessId && b.category === category)
+    .sort((a, b) => (b.review_count ?? 0) - (a.review_count ?? 0))
+    .slice(0, 3)
+    .map((b) => ({
+      name: b.name,
+      google_rating: b.google_rating,
+      review_count: b.review_count,
+      website_url: b.website_url,
+    }));
+}
 
 /** POST /api/businesses/:id/reaudit body. force bypasses the 30-day cache. */
 const ReauditRequestSchema = z.object({
@@ -384,6 +419,79 @@ export function createApp(
     } catch (err) {
       console.error("[api] POST /api/businesses/:id/sales-summary failed:", err);
       res.status(500).json({ error: "Failed to run sales summary" });
+    }
+  });
+
+  /** POST /api/businesses/:id/builder-brief → on-demand rebuild brief (PRD 6.12). */
+  app.post("/api/businesses/:id/builder-brief", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const business = await deps.store.getBusiness(req.params.id);
+      if (!business || business.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Business not found" });
+        return;
+      }
+      const audit = await deps.store.getLatestCompletedAuditForBusiness(
+        business.id,
+      );
+      if (!audit) {
+        res.status(409).json({ error: "No completed audit for a brief" });
+        return;
+      }
+      const config = await deps.store.getWorkspaceConfig(auth.workspaceId);
+      const competitors = await fetchCompetitors(
+        deps.store,
+        auth.workspaceId,
+        business.id,
+        business.category,
+      );
+      let siteHtmlExcerpt: string | null = null;
+      if (business.website_url) {
+        try {
+          const site = await deps.site.fetchHomepage(business.website_url);
+          if (site) siteHtmlExcerpt = htmlToExcerpt(site.html);
+        } catch {
+          siteHtmlExcerpt = null; // best-effort; the brief handles null
+        }
+      }
+      const result = await runOnDemandAgent({
+        store: deps.store,
+        workspaceId: auth.workspaceId,
+        agentName: "builder-brief",
+        businessId: business.id,
+        auditId: audit.id,
+        run: () =>
+          runBuilderBrief({
+            business,
+            audit,
+            config,
+            competitors,
+            siteHtmlExcerpt,
+          }),
+        persist: (auditId, output) =>
+          deps.store.updateAudit(auditId, {
+            builder_brief_md: output.markdown,
+          }),
+      });
+      if (result.status !== "completed" || !result.output) {
+        res.status(502).json({ error: result.error ?? "Builder brief failed" });
+        return;
+      }
+      res.json({
+        builder_brief_md: result.output.markdown,
+        word_count: result.output.word_count,
+        sections: result.output.sections,
+        guardrail_passed: result.guardrailPassed,
+        guardrail_notes: result.guardrailNotes,
+        model_used: result.modelUsed,
+      });
+    } catch (err) {
+      console.error("[api] POST /api/businesses/:id/builder-brief failed:", err);
+      res.status(500).json({ error: "Failed to run builder brief" });
     }
   });
 

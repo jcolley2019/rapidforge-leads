@@ -407,6 +407,31 @@ describe("POST /api/businesses/:id/sales-summary", () => {
   });
 });
 
+describe("POST /api/businesses/:id/builder-brief", () => {
+  it("409s when the business has no completed audit", async () => {
+    const { business } = await seedLead();
+    const res = await api(
+      "POST",
+      `/api/businesses/${business.id}/builder-brief`,
+    );
+    expect(res.status).toBe(409);
+  });
+
+  it("returns a complete markdown brief and persists it", async () => {
+    const { business } = await seedLead();
+    await seedCompletedAudit(business.id);
+    const res = await api(
+      "POST",
+      `/api/businesses/${business.id}/builder-brief`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.json.sections.length).toBe(12);
+    expect(res.json.builder_brief_md).toContain("## Deploy instructions");
+    const reloaded = await store.getLatestCompletedAuditForBusiness(business.id);
+    expect(reloaded?.builder_brief_md).toBeTruthy();
+  });
+});
+
 describe("GET /api/usage", () => {
   it("rolls up this month's events by type", async () => {
     await store.logUsageEvent({

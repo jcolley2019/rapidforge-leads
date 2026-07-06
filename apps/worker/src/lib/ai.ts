@@ -317,3 +317,123 @@ export async function generateJsonSummary<T>(
     guardrailNotes: `Fell back to deterministic template — ${lastFailure}`,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Markdown deliverable seam — the Builder Brief (PRD 6.12) is the one agent
+// whose output is markdown, not strict JSON. Same guardrail protocol as
+// generateJsonSummary, minus the JSON parse.
+// ---------------------------------------------------------------------------
+
+export interface MarkdownSpec {
+  model: AiCallOptions["model"];
+  system: string;
+  prompt: string;
+  images?: AiImage[];
+  maxTokens?: number;
+  effort?: AiCallOptions["effort"];
+  guardrail: (markdown: string) => GuardrailResult;
+  /** Deterministic fallback — template mode AND terminal AI failures. */
+  template: () => string;
+}
+
+export interface MarkdownOutcome {
+  value: string;
+  modelUsed: string | null;
+  tokensUsed: number;
+  costCents: number;
+  guardrailPassed: boolean;
+  guardrailNotes: string | null;
+}
+
+/** Remove a wrapping ```markdown … ``` fence if the whole reply is fenced. */
+export function stripMarkdownFence(raw: string): string {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i);
+  const inner = match?.[1];
+  return inner !== undefined ? inner.trim() : trimmed;
+}
+
+/**
+ * Guardrail protocol (CLAUDE.md 6.2) for a markdown deliverable: run → fail →
+ * re-run once → on the second failure persist flagged; any hard AI failure
+ * falls back to the deterministic template so the deliverable always exists.
+ */
+export async function generateMarkdown(
+  spec: MarkdownSpec,
+): Promise<MarkdownOutcome> {
+  if (aiSummaryMode() === "template") {
+    const value = spec.template();
+    const verdict = spec.guardrail(value);
+    return {
+      value,
+      modelUsed: null,
+      tokensUsed: 0,
+      costCents: 0,
+      guardrailPassed: verdict.passed,
+      guardrailNotes: verdict.notes,
+    };
+  }
+
+  let tokensUsed = 0;
+  let costCents = 0;
+  let lastFailure = "";
+  let flagged: { value: string; modelUsed: string; notes: string } | null = null;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let result: AiCallResult;
+    try {
+      result = await callModel({
+        model: spec.model,
+        system: spec.system,
+        prompt: spec.prompt,
+        ...(spec.images ? { images: spec.images } : {}),
+        ...(spec.maxTokens ? { maxTokens: spec.maxTokens } : {}),
+        ...(spec.effort ? { effort: spec.effort } : {}),
+      });
+    } catch (err) {
+      lastFailure = `AI call failed: ${err instanceof Error ? err.message : String(err)}`;
+      break;
+    }
+    tokensUsed += result.tokensUsed;
+    costCents += result.costCents;
+    const value = stripMarkdownFence(result.text);
+    const verdict = spec.guardrail(value);
+    if (verdict.passed) {
+      return {
+        value,
+        modelUsed: result.modelUsed,
+        tokensUsed,
+        costCents,
+        guardrailPassed: true,
+        guardrailNotes: null,
+      };
+    }
+    lastFailure = verdict.notes ?? "guardrail failed";
+    flagged = {
+      value,
+      modelUsed: result.modelUsed,
+      notes: `Guardrail failed twice: ${lastFailure}`,
+    };
+  }
+
+  if (flagged) {
+    return {
+      value: flagged.value,
+      modelUsed: flagged.modelUsed,
+      tokensUsed,
+      costCents,
+      guardrailPassed: false,
+      guardrailNotes: flagged.notes,
+    };
+  }
+
+  const value = spec.template();
+  return {
+    value,
+    modelUsed: null,
+    tokensUsed,
+    costCents,
+    guardrailPassed: false,
+    guardrailNotes: `Fell back to deterministic template — ${lastFailure}`,
+  };
+}
