@@ -16,6 +16,7 @@ import {
   Gauge,
   Globe,
   HeartPulse,
+  List,
   MapPin,
   MessageSquareText,
   MousePointerClick,
@@ -47,14 +48,6 @@ const POLL_MS = 2000;
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
 
 type TabKey = "all" | (typeof AGENTS)[number];
-
-const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: "all", label: "All" },
-  ...AGENTS.map((a) => ({
-    key: a as TabKey,
-    label: a.charAt(0).toUpperCase() + a.slice(1),
-  })),
-];
 
 export interface WorkspaceViewProps {
   searchId: string | null;
@@ -184,65 +177,28 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
         </Button>
       </div>
 
-      {/* Signature element: floating glass agent tab strip with live dots */}
-      <div
-        className="card-panel flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full p-1.5"
-        role="tablist"
-        aria-label="Agents"
-      >
-        {TABS.map(({ key, label }) => {
-          const active = tab === key;
-          const agentStatus = key !== "all" ? live.statuses[key] : undefined;
-          return (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTab(key)}
-              className={cn(
-                "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] transition-colors",
-                active
-                  ? "font-medium text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {active && (
-                <motion.span
-                  layoutId="agent-tab-pill"
-                  transition={spring.default}
-                  className="absolute inset-0 rounded-full bg-accent shadow-card"
-                  aria-hidden
-                />
-              )}
-              <span className="relative flex items-center gap-1.5">
-                {agentStatus && <StatusDot status={agentStatus} />}
-                {label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
       {error && (
         <p className="rounded-xl border border-agent-error/40 bg-agent-error/10 px-4 py-2.5 text-xs text-agent-error">
           {error} — retrying; Realtime {connection}.
         </p>
       )}
 
+      {/* Single selector: the pipeline chip bar filters the view below.
+          "All" → results table; an agent chip → that agent's activity feed. */}
+      <AgentPipelineBar
+        statuses={live.statuses}
+        scored={live.scored.length}
+        queued={jobs?.queued ?? 0}
+        activeTab={tab}
+        onSelect={setTab}
+      />
+
       {tab === "all" ? (
-        <div className="space-y-6">
-          <AgentPipelineBar
-            statuses={live.statuses}
-            scored={live.scored.length}
-            queued={jobs?.queued ?? 0}
-            onSelect={(agent) => setTab(agent)}
-          />
-          <ResultsTable
-            leads={detail?.leads ?? []}
-            terminal={TERMINAL_STATUSES.has(status) || !searchId}
-            onSelect={openLead}
-          />
-        </div>
+        <ResultsTable
+          leads={detail?.leads ?? []}
+          terminal={TERMINAL_STATUSES.has(status) || !searchId}
+          onSelect={openLead}
+        />
       ) : (
         <AgentDetail
           agent={tab}
@@ -313,22 +269,29 @@ const AGENT_ICONS: Record<(typeof AGENTS)[number], LucideIcon> = {
   scorer: Gauge,
 };
 
+const CHIP_ACTIVE =
+  "bg-primary/10 text-foreground ring-1 ring-inset ring-primary/40";
+const CHIP_IDLE = "text-foreground hover:bg-accent/60";
+
 /**
- * Single-row pipeline bar (S7): ten compact chips in pipeline order replace
- * the old two-row card grid. One row at ≥1280 (xl:grid-cols-10); wraps to
- * 2×5 below that. A chip click drills into that agent's feed — identical to
- * the tab strip. The summary line reads the same live state.
+ * The pipeline chip bar (S8): the SINGLE view selector — a leading "All" chip
+ * (→ results table) plus the ten agents in pipeline order (→ that agent's
+ * feed). Replaces both the S7 card grid AND the old rounded pill strip. One
+ * flex row at ≥1280/1600; the active chip carries a clear selected state. The
+ * summary line reads the live pipeline state.
  */
 function AgentPipelineBar({
   statuses,
   scored,
   queued,
+  activeTab,
   onSelect,
 }: {
   statuses: Record<string, AgentStatus>;
   scored: number;
   queued: number;
-  onSelect: (agent: (typeof AGENTS)[number]) => void;
+  activeTab: TabKey;
+  onSelect: (tab: TabKey) => void;
 }) {
   // "complete" = finished ≥1 run and not currently working; "running" = in
   // flight now. Both are pipeline-level readings over the live statuses.
@@ -351,16 +314,37 @@ function AgentPipelineBar({
         running
       </p>
       <div
-        className="card-panel grid grid-cols-5 gap-1 p-1.5 xl:grid-cols-10"
+        className="card-panel flex items-stretch gap-1 overflow-x-auto p-1.5"
         role="tablist"
         aria-label="Agent pipeline"
       >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "all"}
+          onClick={() => onSelect("all")}
+          title="All results"
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] font-medium transition-colors",
+            activeTab === "all" ? CHIP_ACTIVE : CHIP_IDLE,
+          )}
+        >
+          <List
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              activeTab === "all" ? "text-primary" : "text-muted-foreground",
+            )}
+            aria-hidden
+          />
+          All
+        </button>
         {AGENTS.map((agent) => (
           <PipelineChip
             key={agent}
             agent={agent}
             status={statuses[agent]}
             queued={agent === "scout" ? 0 : queued}
+            active={activeTab === agent}
             onSelect={() => onSelect(agent)}
           />
         ))}
@@ -373,11 +357,13 @@ function PipelineChip({
   agent,
   status,
   queued,
+  active,
   onSelect,
 }: {
   agent: (typeof AGENTS)[number];
   status: AgentStatus | undefined;
   queued: number;
+  active: boolean;
   onSelect: () => void;
 }) {
   const Icon = AGENT_ICONS[agent];
@@ -387,17 +373,18 @@ function PipelineChip({
     <button
       type="button"
       role="tab"
+      aria-selected={active}
       onClick={onSelect}
       title={`${agent} — ${done} done${queued > 0 ? `, ${queued} queued` : ""}`}
       className={cn(
-        "flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-accent/60",
-        working && "bg-accent/40",
+        "flex min-w-0 flex-1 items-center gap-1.5 rounded-xl px-2 py-1.5 text-left transition-colors",
+        active ? CHIP_ACTIVE : CHIP_IDLE,
       )}
     >
       <Icon
         className={cn(
           "h-3.5 w-3.5 shrink-0",
-          working ? "text-primary" : "text-muted-foreground",
+          active || working ? "text-primary" : "text-muted-foreground",
         )}
         aria-hidden
       />
