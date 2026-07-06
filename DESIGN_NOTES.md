@@ -102,6 +102,28 @@ No gold anywhere. Glass fill stays white/0.88; glass border and shadows are
 slate-tinted (`#0f172a`-based rgba) instead of espresso; the ambient wash is
 a faint blue radial instead of gold.
 
+## 0.2 Light-mode contrast pass (S7, 2026-07-06 — Joey's review of S6)
+
+S6's white-on-`#f3f4f6` read as one flat field — cards didn't separate from
+the canvas. S7 darkens the canvas and lets a soft border + shadow do the
+popping, so a squint test shows distinct rectangles. **Dark mode is
+unchanged.**
+
+| Role | S6 | S7 | Notes |
+|---|---|---|---|
+| Canvas (`--background`) | `#f3f4f6` (96% L) | **`#EEF1F5`** (95% L, cooler) | one step darker so white lifts off it |
+| Sidebar (`--sidebar`, new) | (= canvas) | **`#E9EDF2`** | rail sits one step deeper than canvas |
+| Card | `#ffffff` | `#ffffff` | unchanged — cards stay pure white |
+| Card border (`--card-border`, new) | (= `--border` `#d1d5db`) | **`#DCE1E8`** | soft edge; canvas contrast + shadow carry the separation |
+| Card shadow (`--shadow-card`) | `0 1px 2px /0.05` | **`0 1px 2px /0.06, 0 4px 12px /0.07`** | a real soft lift |
+| `--border` / `--input` | `#d1d5db` | `#d1d5db` | **kept** — table dividers and form fields stay crisp |
+
+`--card-border` is a NEW token distinct from `--border`: only `.card-panel`
+uses it, so lightening the card edge never softens the S5.5 full-opacity
+table dividers or input outlines (those keep `#d1d5db`). In dark mode both
+`--card-border` and `--sidebar` are set to the existing dark values, so the
+dark theme renders identically to S6.
+
 ---
 
 # RapidForge visual language v3.1 — JoeyC brand (S5.5 rebrand + S6 refinements, 2026-07-05)
@@ -122,9 +144,12 @@ a faint blue radial instead of gold.
   marketing-strength elements may keep `#1a8fff`. The accent does ALL
   accent work: primary buttons, active nav, focus rings, live pulses,
   hot-lead badges.
-- **Light (neutral gray + blue, S6):** `#f3f4f6` soft gray canvas
-  (deliberately not bright white) · **white** cards · `#d1d5db` gray
-  borders (`#9ca3af` emphasis/hover) · dark slate text `#1e293b` /
+- **Light (neutral gray + blue, S6 → contrast pass S7 §0.2):** `#EEF1F5`
+  soft gray canvas (deliberately not bright white; darker than S6's
+  `#f3f4f6` so white cards pop) · `#E9EDF2` sidebar (one step deeper) ·
+  **white** cards with a `#DCE1E8` edge + soft lift shadow · `#d1d5db` gray
+  borders on dividers/inputs (`#9ca3af` emphasis/hover) · dark slate text
+  `#1e293b` /
   `#475569` · the same blue family as dark using the deeper brand tones —
   primary `#1a8fff` (hover `#0077e6`), `#0a3aad` for small accent text
   where contrast on white demands it. `#f3f4f6` serves as secondary/muted

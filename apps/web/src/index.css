@@ -16,10 +16,12 @@
  */
 @layer base {
   :root {
-    /* Light — neutral gray canvas, white cards, brand blue (S6). */
-    --background: 220 14% 96%; /* #f3f4f6 soft gray, deliberately not white */
+    /* Light — neutral gray canvas, white cards, brand blue (S6/S7). */
+    --background: 214 26% 95%; /* #EEF1F5 — darker soft gray so white cards pop (S7) */
+    --sidebar: 213 26% 93%; /* #E9EDF2 — rail sits one step deeper than canvas (S7) */
     --foreground: 217 33% 17%; /* #1e293b dark slate */
     --card: 0 0% 100%; /* white cards on gray */
+    --card-border: 215 21% 89%; /* #DCE1E8 — soft card edge (canvas contrast + shadow do the popping, S7) */
     --card-foreground: 217 33% 17%;
     --popover: 0 0% 100%;
     --popover-foreground: 217 33% 17%;
@@ -35,7 +37,7 @@
     --accent-deep: 222 89% 36%; /* #0a3aad — small accent text on white */
     --destructive: 0 84% 60%; /* #ef4444 */
     --destructive-foreground: 0 0% 100%;
-    --border: 216 12% 84%; /* #d1d5db gray border */
+    --border: 216 12% 84%; /* #d1d5db gray border — dividers/inputs stay crisp */
     --input: 216 12% 84%;
     --ring: 209 100% 55%;
     --radius: 0.75rem;
@@ -46,7 +48,8 @@
     /* Glass recipe — OVERLAYS ONLY (drawer, cmd-K). */
     --glass-fill: 0 0% 100% / 0.88;
     --glass-border: 217 33% 17% / 0.12;
-    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --shadow-card:
+      0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.07); /* S7: soft lift so cards read as distinct rectangles */
     --shadow-float:
       0 2px 4px rgba(15, 23, 42, 0.06), 0 16px 48px rgba(15, 23, 42, 0.16);
     --ambient: radial-gradient(
@@ -57,10 +60,12 @@
   }
 
   .dark {
-    /* Core brand dark (default). */
+    /* Core brand dark (default) — unchanged in S7. */
     --background: 240 20% 5%; /* #0a0a0f */
+    --sidebar: 240 20% 5%; /* rail == canvas in dark (unchanged) */
     --foreground: 217 39% 94%; /* #e8edf5 */
     --card: 228 45% 9%; /* #0c1020 */
+    --card-border: 222 55% 13%; /* #0f1a33 — same as --border (dark unchanged) */
     --card-foreground: 217 39% 94%;
     --popover: 227 47% 6%; /* #080b16 section — solid overlay base */
     --popover-foreground: 217 39% 94%;
@@ -143,7 +148,8 @@
    * floats on bare canvas). Border does the separation; shadow is minimal.
    */
   .card-panel {
-    @apply rounded-2xl border border-border bg-card;
+    @apply rounded-2xl border bg-card;
+    border-color: hsl(var(--card-border));
     box-shadow: var(--shadow-card);
   }
 
