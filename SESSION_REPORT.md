@@ -642,3 +642,114 @@ commits, acceptance evidence, live spend, BLOCKED, and the Sprint 8 prompt.
 ---
 
 *Session executed by Claude Code (Fable 5 → Opus 4.8 for this leg) under CLAUDE.md v1.2 — Sprint 6, 2026-07-05.*
+
+---
+
+# SESSION_REPORT — Sprint 7 (the money features + design fixes)
+
+Autonomous Session Mode · 2026-07-06 · scope: Prompt S7 — Part A design fixes
+(light-mode contrast + agent pipeline bar) + the v1.5 "money" agents (Analyst,
+Builder Brief, Sales Summary), on-demand routes, drawer tabs, and a PDF audit
+report. Fixture stack throughout; one authorized live smoke ($0.53). **This
+completes v1 (Sprints 0–7).**
+
+## S7-0. Part A — design fixes (Joey's review of S6)
+
+- **Light-mode contrast (commit `03516df`).** S6's white cards on `#f3f4f6`
+  read as one flat field. The canvas is now the darker **`#EEF1F5`** (hsl
+  `214 26% 94.7%` — the `.7` matters: `95%` rounds to `#EFF2F6`, one bit off;
+  `94.7%` renders `#EEF1F5` exactly, asserted in the E2E), the sidebar sits one
+  step deeper at **`#E9EDF2`** (new `--sidebar` token), and white cards keep a
+  soft **`#DCE1E8`** edge (new `--card-border` token, distinct from `--border`)
+  plus a stronger card shadow so they visibly pop. A dedicated `--card-border`
+  means the S5.5 table dividers and form inputs keep their crisp `#d1d5db`.
+  **Dark mode is byte-identical** (its `--card-border`/`--sidebar` are set to the
+  existing dark values). DESIGN_NOTES §0.2 documents the pass.
+- **Agent pipeline bar (commit `7368955`).** The two-row grid of 10 agent cards
+  is replaced by a single horizontal bar of 10 compact chips (per-stage icon,
+  name, live status dot, done/queued count) in pipeline order, one row at 1280
+  and 1600 (`xl:grid-cols-10`). A one-line summary above it reads
+  **"N of 10 complete · M scored · K running"**. A chip click drills into that
+  agent's feed, identical to the existing tab strip.
+
+## S7-1. What was built (by commit)
+
+| Commit | What |
+|---|---|
+| `03516df` | **Part A.1 light contrast** — index.css darker canvas + `--sidebar`/`--card-border` tokens + stronger card shadow; DESIGN_NOTES §0.2. |
+| `7368955` | **Part A.2 pipeline bar** — `WorkspaceView` single-row 10-chip bar + summary line replaces the card grid. |
+| `b5f9e4e` | **Worker effort wiring** — `lib/ai.ts` forwards `AiCallOptions.effort` as AI Core `outputConfig.effort`; `SummarySpec.effort` threads it through. Depends on ai-core v0.3.0 (below). |
+| `42e3922` | **Analyst (PRD 6.11, Fable 5→Opus)** — narrative verdict / top-3 improvements / reasoning citing ≥3 agents by name & value, never re-scoring. Auto-runs after Scorer at sellability ≥ 60 (persists `analyst_output`, logs `ai_call`); on-demand `POST /api/businesses/:id/analyst`. Guardrails (≥3 improvements, ≥3 agents cited, one-liner ≤20 words, verdict↔star consistency) + deterministic template. Adds the shared cascading-variable resolver (CLAUDE.md 6.4), a shared audit-facts builder, and an on-demand run helper (agent_runs + usage + Realtime). +12 tests. |
+| `2fd9f6a` | **Sales Summary (PRD 6.13, Sonnet)** — ~60s talk track + 2-3 objections, opening on a SPECIFIC measured detail, voice from `{sales_tone}`. Guardrails (specific observation, ≤150 words, banned-word list, ≥2 objections) + template. `POST /api/businesses/:id/sales-summary` → `sales_summary`. +11 tests. |
+| `acac43d` | **Builder Brief (PRD 6.12, Fable 5, MARKDOWN)** — adds `generateMarkdown()` to lib/ai.ts (same guardrail protocol, no JSON parse). All 12 PRD sections over the audit + fresh local competitors (free, from the same search — no Places call) + homepage excerpt + `{city}+{category}` keywords. Guardrails (missing-section, placeholder, ≤2000 words) + complete template. `POST /api/businesses/:id/builder-brief` → `builder_brief_md`. +11 tests. |
+| `d33da10` | **Drawer Builder Brief + Sales Script tabs (PRD 7.4)** — generate/copy/regenerate, reading the value persisted on the audit; Overview surfaces the auto-run Analyst verdict; 3 api.ts client helpers. |
+| `04d8ad7` | **PDF audit report (Sprint 7 collateral)** — pure branded 2-page A4 HTML builder + a renderer seam mirroring screenshots (puppeteer-core → PDF with local Chrome, or printable HTML without it). `GET /api/businesses/:id/report` streams it; drawer Overview gets a Download button. +8 tests. |
+| `_pending_` | **Acceptance harness** — `scripts/sprint7-e2e.mjs` (11 checks), `apps/worker/scripts/money-smoke.ts` (live Fable/Sonnet smoke), canvas precision fix (`94.7%`), `docs/design/s7-*` screenshots. |
+| `_pending_` | **This report.** |
+
+**No new migration.** The `audits.analyst_output` / `builder_brief_md` /
+`sales_summary` columns already exist (migration **0002**, written Sprint 1) —
+the money outputs land in their dedicated columns, no schema change needed.
+
+**Companion repo — `rapidforge-ai-core` (local commit `42af65d`, v0.3.0):**
+adds optional `outputConfig.effort` (`low|medium|high|xhigh|max`) to the
+universal request; the Anthropic adapter maps it to the Messages API
+`output_config` and, because effort implies an always-on thinking model
+(Fable 5), omits `temperature` even if passed. The `stop_reason:"refusal"` →
+`finishReason:"content_filter"` mapping (which the worker's fable-5→opus-4-8
+retry depends on) is now pinned by a test. `npm run verify` green — **65 tests**
+(was 62). **Local + UNPUSHED** — see S7-4.
+
+## S7-2. Acceptance results
+
+1. **tsc clean** — shared, worker, web, and ai-core. ✔
+2. **All tests pass** — shared **61**, worker **217** (was 176; +12 analyst, +11 sales, +11 brief, +8 pdf, +offsets), web **49**. **327 total** (was 286). ai-core **65**. New coverage: analyst guardrails + template + verdict↔star, sales specificity/banned-words/length/objections + template, brief missing-section/placeholder/word-count + full 12-section template, `generateMarkdown` fence-strip, PDF html builder (2-page, escaping) + renderer, all three on-demand routes (200/409/404), Analyst auto-run in the pipeline. ✔
+3. **Fixture E2E — `scripts/sprint7-e2e.mjs`, 11/11** on a fresh offline stack: pipeline bar renders 10 chips in one row + the "N of 10 complete · scored · running" summary · **Analyst auto-ran** (agent_runs shows 11 distinct incl. `analyst`; `analyst_output` persisted) · drawer Overview shows the Analyst verdict · Builder Brief + Sales Script tabs generate a complete brief (all sections) and a talk track · `GET …/report` returns 200 `text/html` with the business · light canvas is exactly `rgb(238,241,245)` (`#EEF1F5`) · dark accent stays `#3da0ff`. Rerun: `node scripts/sprint7-e2e.mjs` against the offline stack. ✔
+4. **LIVE money smoke** (`money-smoke.ts`, real models, ONE fixture lead — a dated Wix plumber): **Analyst** (`claude-fable-5`, 7¢) → verdict `actively_losing_business`/hot, one-liner *"Strong 4.5-star reputation trapped behind a slow, dated Wix site…"*, reasoning citing health/conversion/design/reputation/seo by value, guardrail **passed**. **Sales Summary** (`claude-sonnet-4-6`, 2¢) → 145-word talk track opening on "mobile speed 32/100", 3 objections, guardrail **passed**. **Builder Brief** (`claude-fable-5`, 44¢) → 1463 words of real, on-target content but the model emitted only 7/12 H2 sections, so the guardrail correctly **flagged** it (`guardrail_passed:false`, notes list the 5 missing sections) — the protocol working end-to-end; a human reviews the flag, and the deterministic template (used by the fixture stack) always produces the complete 12 sections. **Total spend 53¢ ($0.53)** — well under the $2 cap. ✔
+5. **Lighthouse mobile (production build, `vite preview`)** — **Performance 95** (FCP 2.0s · LCP 2.6s · TBT 10ms · **CLS 0** · SI 2.0s), up from 94 at S6. Bundle 747 kB JS / 215 kB gzip (was 733; drawer tabs + report client). Code-split remains the standing pre-Vercel item. ✔ (≥ 85 required)
+6. **Screenshots** — `docs/design/s7-{workspace,drawer-brief,drawer-sales,dashboard}-{dark,light}.png` (visually verified: single-row pipeline bar, white cards popping off the darker canvas, the drawer's Builder Brief tab rendering the full brief). ✔
+
+## S7-3. Decisions made (and why)
+
+- **Sprint 0 was done in the OneDrive ai-core, not `C:\dev\rapidforge-ai-core`.** The kickoff said "check `C:\dev` first," but that copy is a **stale v0.1.0 clone missing the S6 vision commit (`b1a16de`)**; the worker's `file:` dependency and CLAUDE.md §4 both point at the OneDrive copy (v0.2.0). Building v0.3.0 there keeps the one repo the worker actually resolves — building in the stale clone would have regressed vision and the worker wouldn't have seen it. Joey should consolidate to a single canonical ai-core (S7-4).
+- **`effort` is now really forwarded** (Analyst medium, Builder Brief high). AI Core v0.3.0's `output_config.effort` closes the S6 gap; Sonnet/Haiku ignore it.
+- **Analyst auto-runs inline in the audit job** (via the same `withAgentRun` lifecycle), gated on the deterministic `sellability_score ≥ 60` — so it appears in `agent_runs`/Realtime, its cost logs as `ai_call`, and a refusal/failure can't stall the job (template answers). It is deliberately NOT one of the 10 pipeline chips (it's a narrative layer downstream of the Scorer).
+- **Money outputs ride their dedicated 0002 columns**, not `score_breakdown` — no migration, and the drawer/report read them directly.
+- **Builder Brief competitors come free from the same search** (top-3 same-category workspace leads by review count), not a fresh Places call — honest ("they were in this search") and zero cost. Homepage excerpt is a best-effort `SiteFetcher` fetch.
+- **A guardrail-flagged deliverable is persisted flagged, not silently replaced by the template** (CLAUDE.md 6.2) — the template fallback is for *hard* failures (AI down / unparseable). The live Brief flag (S7-2.4) is that contract working as intended.
+- **PDF renderer degrades to HTML** when Chrome is absent (CI/fixture), so tests need no browser and the deliverable still exists (openable, printable). Real Chrome → real PDF, same channel as the screenshot capturer.
+- **Report/brief HTML escapes business-controlled fields** (name/address) — a defense against a poisoned Places name breaking the layout.
+
+## S7-4. What Joey must do
+
+1. **`rapidforge-ai-core` v0.3.0 is LOCAL and UNPUSHED** (commit `42af65d` in `C:\Users\jcoll\OneDrive\Desktop\rapidforge-ai-core`). To reproduce the worker anywhere else: `git push` it, then before Railway swap the worker's `file:` dependency for a git/npm reference (`github.com/jcolley2019/rapidforge-ai-core`). **Recommended:** consolidate the two ai-core copies — the `C:\dev\rapidforge-ai-core` clone is a stale v0.1.0 and should be removed or fast-forwarded to avoid future confusion (ideally move ai-core to `C:\dev` out of OneDrive and repoint the worker dep).
+2. **No new migration this sprint.** Still open from S5/S6 (unchanged), needed only for the **live** stack: paste **0005** (RLS update policies) and **0006** (`screenshots` bucket). Fixture mode needs neither.
+3. Optional: add `http://localhost:5175/*` to the Maps browser-key referrer allowlist (carryover; only for the live-map E2E).
+
+## S7-5. BLOCKED
+
+Nothing. Sprint 0's repo was found (OneDrive) so the effort-param work was done rather than skipped. The live smoke ran (`ANTHROPIC_API_KEY` present). The one live-Brief guardrail flag is expected behavior, not a blocker.
+
+## S7-6. v1 is complete (Sprints 0–7)
+
+The full PRD v2.1 pipeline is built and green on the fixture stack: Scout →
+Filter (with special routing) → Health/Conversion/Presence/Traffic/Design/
+Reputation/SEO → deterministic Scorer → Analyst → on-demand Builder Brief /
+Sales Summary, plus screenshots, the Realtime dashboard, lead drawer, pipeline
+kanban, Leads/Settings/Analytics, cmd-K, map search, and a PDF report. Deter-
+ministic scoring throughout; every LLM call routes through RapidForge AI Core;
+327 app tests + 65 ai-core tests; Lighthouse 95.
+
+**To take v1 live** (all Joey-side, none code): push ai-core v0.3.0 + repoint
+the worker dep; paste migrations 0005 + 0006; the Places/PSI/Maps/Anthropic
+keys are already in `apps/worker/.env`. Then `npm run dev`, sign in, and run a
+real search — the whole pipeline runs against live data with no code changes.
+
+**Sprint 8+ (SaaS launch, PRD 11) is scope-separately-on-revenue:** Stripe,
+tiers/quotas, BYOK, marketing site, teams, Reply Classifier, the Keyword Parser
+(PRD 6.14, the one v1.5 agent intentionally deferred — keyword search mode).
+Build on a paying demand signal, not before.
+
+---
+
+*Session executed by Claude Code (Opus 4.8, 1M context) under CLAUDE.md v1.2 — Sprint 7, 2026-07-06.*
