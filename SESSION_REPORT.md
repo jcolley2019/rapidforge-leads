@@ -417,3 +417,86 @@ the recommended Sprint 7 prompt.
 ---
 
 *Session executed by Claude Code (Fable 5) under CLAUDE.md v1.2 — Sprint 5, 2026-07-05.*
+
+---
+
+# SESSION_REPORT — Sprint 5.5 (JoeyC rebrand + containers + fixes + dashboard)
+
+Autonomous Session Mode · 2026-07-05 (night) · scope: Joey's UI-revision prompt (rebrand, sidebar groups, table density, dedupe, map fixes, dashboard)
+
+## S5.5-0. The final palette (extracted Step 0, governs everything)
+
+All values verified identical across the brand guide (`public/brand.html` in
+`C:\dev\CLAUDE CODE MC`), `BrandGuide.tsx`, the site's Tailwind `@theme`, and
+the **live** joeyc.ai stylesheet — full per-value source table in
+DESIGN_NOTES.md §0.
+
+- **Dark (default):** canvas `#0a0a0f` · cards `#0c1020` · borders `#0f1a33`
+  → `#1a3366` · text `#e8edf5` / `#8892a4` · **accent `#1a8fff`** (hover
+  `#3da0ff`) · deep blue `#0a3aad` · status `#22c55e` / `#ef4444` / `#eab308`.
+- **Light (luxe):** canvas `#faf6f0` · white cards (guide allows white or
+  `#f5efe6`; white chosen for data contrast) · borders `#d4c5a9` · text
+  `#1a1008` / `#3d2b1f` · **gold `#b8860b`** (hover `#d4a017`).
+- **High-contrast dark data variant** (`.dense-surface`, tables/feeds only):
+  text `#ffffff` / `#94a3b8`, borders `#1e2a4a`.
+- The old prototype's cyan `#00CFFF`/`#00d9ff` system is retired everywhere.
+- **Typography (Joey's decision):** Space Grotesk UI/body · JetBrains Mono
+  data/numeric · Orbitron ONLY the top-bar logotype.
+
+## S5.5-1. What was built (by commit)
+
+| Commit | What |
+|---|---|
+| `a5b8709` | **Step 0 palette** documented at the top of DESIGN_NOTES.md with per-value sources; prototype cyan flagged as superseded. |
+| `a2991eb` | **Rebrand foundation** — index.css tokens rewritten to the brand HSL values (dark default + luxe light), all cyan removed (form accents now follow `--primary` per theme), `glass-card` → solid bordered `.card-panel` everywhere, glass restricted to the drawer + cmd-K, top bar/rail solid chrome, Orbitron logotype, `.dense-surface` scope, DESIGN_NOTES rewritten to v3. |
+| `9aad9e8` | **Sidebar groups + density** — PROSPECTING/PIPELINE/INTELLIGENCE/ACCOUNT micro-headers; tables to `py-[7px]` cells (~40% less padding, rows 51px), full 1px dividers, dense-surface on both tables. |
+| `54d89b8` | **Dedupe** — `lib/dedupe.ts`: one row/card per business across searches (grouping key = business.id, the google_place_id upsert identity); a worked row (non-null last_contacted_at) always beats newer unworked rows so re-searching never resets pipeline state; latest audit wins for scores; `×N` chip ("Seen in N searches"). Leads + Pipeline deduped; Workspace per-search table intentionally not. 8 tests. **No migration needed — dedupe is a client-side view over the existing schema, so 0006 was not required.** |
+| `3293786` | **Map fixes** — Google's default basemap in both themes (map-styles.ts deleted); pin drag moves the circle live, circle-body drag pans the marker live (`center_changed`) with state on dragend, edge handle only resizes (0.1-mile snap), slider synced both ways. Snap math in `lib/map-sync.ts`, 8 geometry tests. |
+| `53e6747` | **`GET /api/searches`** — `listRecentSearches` in both stores, newest first, limit-capped; route test covers ordering + workspace isolation. |
+| `a772c1f` | **Dashboard** — default post-login view: five KPI cards (total leads, hot ≥90, searches this UTC month, calls made = called/interested/sold, month API spend), recent-searches list (click → that search's Workspace), New Search CTA. KPI math pure (`lib/kpis.ts`) + tested; counts computed over DEDUPED leads so they match Pipeline/Leads. |
+| `4d250cc` | **Font self-hosting fix** — the Google Fonts link was render-blocking (Lighthouse 84); fonts now ship via @fontsource packages (same-origin woff2). Lighthouse back to 87. Correction: the rebrand commit note claimed Inter never loaded — wrong; it loaded via `@fontsource-variable` imports in main.tsx (now removed). |
+| `66258e3` | **Acceptance harness** — `scripts/sprint55-e2e.mjs` (16 assertions) + light/dark screenshot pairs. |
+
+## S5.5-2. Acceptance results
+
+1. **tsc clean** — shared, worker, web. ✔
+2. **All tests pass** — shared **58**, worker **123** (+1 recent-searches route), web **49** (+8 dedupe, +8 map geometry, +3 KPI). **230 total.** ✔
+3. **Browser E2E (offline stack) — 16/16 S5.5 checks**: dashboard is the landing view · rail shows the four grouped micro-headers · Space Grotesk body + Orbitron logotype computed live · canvas exactly `rgb(10,10,15)` dark and `rgb(250,246,240)` light · compact tables (51px rows, 1px dividers, phone/state single-line at 1280 AND 1600) · **dedupe verified: two fixture searches → 50 raw lead rows render as 25 (exact distinct-business count) with 25 "Seen in 2 searches" chips** in Leads and kanban · deduped kanban drag persists `status=called` · **dashboard KPIs recomputed independently from `/api/leads` + `/api/searches` and matched exactly (25/25 total, 9/9 hot, 2/2 month, 1/1 calls, spend = usage endpoint)** · map placeholder graceful. ✔
+4. **Sprint 5 regression — 15/15** on a clean store (drawer notes reload persistence, CSV contents, cmd-K jumps, status walk — all intact under the rebrand). ✔
+5. **Lighthouse mobile (production build)** — **87** (FCP 2.9s · LCP 3.2s · TBT 40ms · CLS 0.067) after the font self-hosting fix; the interim Google-Fonts approach measured 84 and was replaced. ✔ (≥ 85 required)
+6. **Screenshots** — `docs/design/s5.5-{dashboard,workspace,leads,map,kanban}-{dark,light}.png` (10) plus refreshed `s5-*` from the regression run. ✔
+
+## S5.5-3. Decisions made (and why)
+
+- **White cards in luxe light** (guide permits white or `#f5efe6`): white wins for data-table contrast; `#f5efe6`/`#ede5d8` serve as secondary and hover fills so the cream system still reads.
+- **`.dense-surface` as a CSS-variable scope** — the high-contrast variant overrides `--foreground/--muted-foreground/--border` inside table containers only; Tailwind utilities pick it up with zero component changes. Dark mode only (luxe text is already high-contrast).
+- **Dedupe representative favors worked rows** — dragging a card to Called then re-searching must not resurface it as New. Kickoff specified "latest audit wins" for scores; status/notes needed a rule and this is the one that protects pipeline state.
+- **No migration 0006** — dedupe never needed schema; it's a pure client-side grouping over existing rows.
+- **Dashboard "calls made" counts called/interested/sold** — Dead is terminal but not evidence of a call; noted here in case Joey wants it counted.
+- **Fonts self-hosted, not Google-linked** — the brand guide specifies typefaces, not delivery; a render-blocking third-party stylesheet cost 3 Lighthouse points and an offline-stack dependency. @fontsource keeps first paint local.
+- **`s5-*` screenshots were regenerated by the regression run** and now show the rebranded UI; the Glass-era look survives in git history at `deafa18`.
+- Bundle: 729 kB JS — code-split before the Vercel deploy remains the standing item.
+
+## S5.5-4. What Joey must do
+
+Nothing new this sprint. Still open from Sprint 5: paste migration **0005**
+(update RLS policies) in the Supabase SQL editor, and optionally add
+`http://localhost:5175/*` to the Maps browser key's referrer allowlist so the
+automated harness can exercise the live map (it works in your 5173 session
+already; the map E2E remains BLOCKED on that allowlist entry).
+
+## S5.5-5. BLOCKED
+
+Nothing new. Carried over: live-map pin-drop E2E (referrer allowlist, above).
+
+## S5.5-6. Next sprint
+
+**The Sprint 6 prompt in §S5-6 remains next** (Puppeteer screenshots →
+Storage, Design vision agent, Reputation Google-first + Yelp seam, SEO
+agent). One addition worth folding in: screenshots will look best in the
+drawer's Screenshots tab against the new `#0c1020` card surfaces — no prompt
+change needed, just context.
+
+---
+
+*Session executed by Claude Code (Fable 5) under CLAUDE.md v1.2 — Sprint 5.5, 2026-07-05.*
