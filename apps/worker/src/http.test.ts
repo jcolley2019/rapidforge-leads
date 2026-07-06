@@ -383,6 +383,30 @@ describe("POST /api/businesses/:id/analyst", () => {
   });
 });
 
+describe("POST /api/businesses/:id/sales-summary", () => {
+  it("409s when the business has no completed audit", async () => {
+    const { business } = await seedLead();
+    const res = await api("POST", `/api/businesses/${business.id}/sales-summary`);
+    expect(res.status).toBe(409);
+  });
+
+  it("runs the Sales Summary and persists sales_summary", async () => {
+    const { business } = await seedLead();
+    await seedCompletedAudit(business.id);
+    const res = await api(
+      "POST",
+      `/api/businesses/${business.id}/sales-summary`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.json.sales_summary.full_talk_track).toBeTruthy();
+    expect(
+      res.json.sales_summary.anticipated_objections.length,
+    ).toBeGreaterThanOrEqual(2);
+    const reloaded = await store.getLatestCompletedAuditForBusiness(business.id);
+    expect(reloaded?.sales_summary).not.toBeNull();
+  });
+});
+
 describe("GET /api/usage", () => {
   it("rolls up this month's events by type", async () => {
     await store.logUsageEvent({

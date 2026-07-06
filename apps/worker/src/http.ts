@@ -15,6 +15,7 @@ import {
 } from "@rapidforge/shared";
 import { runAnalyst } from "./agents/analyst";
 import { runOnDemandAgent } from "./agents/on-demand";
+import { runSalesSummary } from "./agents/sales-summary";
 import { aiSummaryMode } from "./lib/ai";
 import {
   FIXTURE_SCREENSHOT_DIR,
@@ -336,6 +337,53 @@ export function createApp(
     } catch (err) {
       console.error("[api] POST /api/businesses/:id/analyst failed:", err);
       res.status(500).json({ error: "Failed to run analyst" });
+    }
+  });
+
+  /** POST /api/businesses/:id/sales-summary → on-demand talk track (PRD 6.13). */
+  app.post("/api/businesses/:id/sales-summary", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const business = await deps.store.getBusiness(req.params.id);
+      if (!business || business.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Business not found" });
+        return;
+      }
+      const audit = await deps.store.getLatestCompletedAuditForBusiness(
+        business.id,
+      );
+      if (!audit) {
+        res.status(409).json({ error: "No completed audit to summarize" });
+        return;
+      }
+      const config = await deps.store.getWorkspaceConfig(auth.workspaceId);
+      const result = await runOnDemandAgent({
+        store: deps.store,
+        workspaceId: auth.workspaceId,
+        agentName: "sales-summary",
+        businessId: business.id,
+        auditId: audit.id,
+        run: () => runSalesSummary({ business, audit, config }),
+        persist: (auditId, output) =>
+          deps.store.updateAudit(auditId, { sales_summary: output }),
+      });
+      if (result.status !== "completed" || !result.output) {
+        res.status(502).json({ error: result.error ?? "Sales summary failed" });
+        return;
+      }
+      res.json({
+        sales_summary: result.output,
+        guardrail_passed: result.guardrailPassed,
+        guardrail_notes: result.guardrailNotes,
+        model_used: result.modelUsed,
+      });
+    } catch (err) {
+      console.error("[api] POST /api/businesses/:id/sales-summary failed:", err);
+      res.status(500).json({ error: "Failed to run sales summary" });
     }
   });
 
