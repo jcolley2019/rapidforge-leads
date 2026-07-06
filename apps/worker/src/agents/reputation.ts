@@ -1,14 +1,245 @@
-import type { AgentResult } from "@rapidforge/shared";
-import { notImplemented } from "./stub";
+/**
+ * Reputation — PRD 6.9 (v1.5, deterministic + Sonnet 4.6). GOOGLE-FIRST
+ * per the Sprint 6 decision: every number comes from data already held.
+ *
+ * Deterministic signals (worker-measured, CLAUDE.md 4.2):
+ *   - Google rating + review count (Places data on the business row)
+ *   - volume band (fixed thresholds; "high" requires >=50 reviews)
+ *   - review VELOCITY across audits: each audit snapshots review_count;
+ *     when a previous completed audit carries a snapshot, velocity =
+ *     (current - previous) / months elapsed. First audit = unknown.
+ *   - review recency: UNKNOWN in v1 — Places review timestamps are not
+ *     fetched; never invented (CLAUDE.md 6.3).
+ *   - Yelp cross-reference/divergence: stubbed behind lib/yelp.ts with a
+ *     YELP_API_KEY check, clearly marked v1.5 — divergence stays null.
+ *
+ * Sonnet writes the verdict narrative; themes come only from provided
+ * review text (none in v1), so guardrails reject any invented quote.
+ */
+import type { AgentResult, Audit, Business } from "@rapidforge/shared";
+import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
+import { getYelpClient } from "../lib/yelp";
+import { makeReputationSummaryGuardrail } from "./guardrails/reputation-summary";
+import {
+  buildReputationSummaryPrompt,
+  REPUTATION_SUMMARY_SYSTEM,
+  ReputationSummarySchema,
+  type ReputationSummary,
+  type ReputationVerdict,
+  type VolumeBand,
+} from "./prompts/reputation";
+
+/** Volume bands (fixed thresholds — "high" starts at 50, PRD 6.9). */
+export const VOLUME_BAND_THRESHOLDS = {
+  low: 1,
+  moderate: 10,
+  high: 50,
+  veryHigh: 200,
+} as const;
+
+export function volumeBandFor(reviewCount: number | null): VolumeBand {
+  const count = reviewCount ?? 0;
+  if (count >= VOLUME_BAND_THRESHOLDS.veryHigh) return "very_high";
+  if (count >= VOLUME_BAND_THRESHOLDS.high) return "high";
+  if (count >= VOLUME_BAND_THRESHOLDS.moderate) return "moderate";
+  if (count >= VOLUME_BAND_THRESHOLDS.low) return "low";
+  return "none";
+}
+
+/** Deterministic verdict for the template path (never from the LLM). */
+export function templateVerdictFor(
+  rating: number | null,
+  reviewCount: number | null,
+): ReputationVerdict {
+  const count = reviewCount ?? 0;
+  if (rating === null || count === 0) return "unknown";
+  if (rating >= 4.6 && count >= 50) return "strong";
+  if (rating >= 4.2 && count >= 20) return "solid";
+  if (rating >= 3.5) return "mixed";
+  return "weak";
+}
+
+/** Reputation snapshot persisted with each audit (in score_breakdown). */
+export interface ReputationSnapshot {
+  review_count_at_audit: number | null;
+}
 
 /**
- * Reputation — PRD 6.9 (v1.5, deterministic + Sonnet 4.6).
- *
- * Google vs. Yelp/BBB/Facebook divergence.
- *
- * TODO(Sprint 6): implement per PRD 6.9 — Yelp Fusion cross-reference,
- * divergence flags.
+ * Read the previous audit's reputation snapshot (persisted by the Scorer
+ * under score_breakdown.v15_agents.reputation). Null = no usable history.
  */
-export async function runReputation(): Promise<AgentResult> {
-  return notImplemented("reputation", "6.9");
+export function readPreviousSnapshot(
+  previousAudit: Audit | null,
+): { reviewCount: number; completedAt: string } | null {
+  if (!previousAudit?.completed_at) return null;
+  const breakdown = previousAudit.score_breakdown as {
+    v15_agents?: { reputation?: { review_count_at_audit?: unknown } };
+  } | null;
+  const count = breakdown?.v15_agents?.reputation?.review_count_at_audit;
+  if (typeof count !== "number") return null;
+  return { reviewCount: count, completedAt: previousAudit.completed_at };
+}
+
+const DAYS_PER_MONTH = 30.44;
+/** Below this window a velocity number would be noise, not a measurement. */
+export const MIN_VELOCITY_WINDOW_MONTHS = 0.25;
+
+export function computeReviewVelocityPerMonth(
+  currentCount: number | null,
+  previous: { reviewCount: number; completedAt: string } | null,
+  now: Date,
+): { velocity: number | null; monthsSincePrevious: number | null } {
+  if (currentCount === null || previous === null) {
+    return { velocity: null, monthsSincePrevious: null };
+  }
+  const elapsedMs = now.getTime() - Date.parse(previous.completedAt);
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) {
+    return { velocity: null, monthsSincePrevious: null };
+  }
+  const months = elapsedMs / (DAYS_PER_MONTH * 86_400_000);
+  if (months < MIN_VELOCITY_WINDOW_MONTHS) {
+    return { velocity: null, monthsSincePrevious: Math.round(months * 100) / 100 };
+  }
+  return {
+    velocity: Math.round(((currentCount - previous.reviewCount) / months) * 10) / 10,
+    monthsSincePrevious: Math.round(months * 100) / 100,
+  };
+}
+
+export interface ReputationOutput extends Record<string, unknown> {
+  google_rating: number | null;
+  review_count: number | null;
+  volume_band: VolumeBand;
+  /** Reviews gained per month since the previous audit (null = unknown). */
+  review_velocity_per_month: number | null;
+  months_since_previous_audit: number | null;
+  /** Snapshot the NEXT audit's velocity computation reads. */
+  review_count_at_audit: number | null;
+  /** Always null in v1 — recency data is not held (never invented). */
+  last_review_at: null;
+  /** Yelp cross-reference — stub v1.5; divergence stays null. */
+  yelp_rating: number | null;
+  yelp_review_count: number | null;
+  rating_divergence: number | null;
+  summary: ReputationSummary;
+}
+
+export interface ReputationContext {
+  business: Business;
+  /** Latest completed audit BEFORE this run — the velocity baseline. */
+  previousAudit: Audit | null;
+  /** Injected for determinism. */
+  now: Date;
+}
+
+function buildTemplateSummary(
+  rating: number | null,
+  reviewCount: number | null,
+  volumeBand: VolumeBand,
+  velocity: number | null,
+): ReputationSummary {
+  const verdict = templateVerdictFor(rating, reviewCount);
+  const bits = [
+    rating === null
+      ? "No Google rating on record."
+      : `Google rating ${rating} across ${reviewCount ?? 0} reviews (${volumeBand} volume).`,
+    velocity === null
+      ? "Review velocity unknown (first audit or no baseline)."
+      : `Gaining ${velocity} reviews/month since the previous audit.`,
+    "Review text and recency are not collected in v1; Yelp cross-reference is v1.5.",
+  ];
+  return {
+    verdict,
+    volume_band: volumeBand,
+    themes: [], // no review text held — nothing to theme (CLAUDE.md 6.3)
+    reasoning: bits.join(" "),
+  };
+}
+
+export async function runReputation(
+  ctx: ReputationContext,
+): Promise<AgentResult<ReputationOutput>> {
+  const startedAt = Date.now();
+  try {
+    const { business, now } = ctx;
+    const rating = business.google_rating;
+    const reviewCount = business.review_count;
+    const volumeBand = volumeBandFor(reviewCount);
+    const previous = readPreviousSnapshot(ctx.previousAudit);
+    const { velocity, monthsSincePrevious } = computeReviewVelocityPerMonth(
+      reviewCount,
+      previous,
+      now,
+    );
+
+    // v1.5 seam: stub always answers null; divergence therefore unknown.
+    const yelp = await getYelpClient().fetchBusinessSignals(
+      business.name,
+      business.address,
+    );
+    const yelpRating = yelp?.rating ?? null;
+    const ratingDivergence =
+      rating !== null && yelpRating !== null
+        ? Math.round((rating - yelpRating) * 10) / 10
+        : null;
+
+    const signals = {
+      google_rating: rating,
+      review_count: reviewCount,
+      volume_band: volumeBand,
+      review_velocity_per_month: velocity,
+      months_since_previous_audit: monthsSincePrevious,
+      last_review_at: null,
+      yelp_available: yelp !== null,
+      review_text_available: false, // v1 holds no review text
+    };
+
+    const summary = await generateJsonSummary({
+      model: MODEL_SONNET,
+      system: REPUTATION_SUMMARY_SYSTEM,
+      prompt: buildReputationSummaryPrompt(signals),
+      parse: (raw) => ReputationSummarySchema.parse(JSON.parse(raw)),
+      guardrail: makeReputationSummaryGuardrail(volumeBand, false),
+      template: () =>
+        buildTemplateSummary(rating, reviewCount, volumeBand, velocity),
+    });
+
+    return {
+      agent: "reputation",
+      status: "completed",
+      output: {
+        google_rating: rating,
+        review_count: reviewCount,
+        volume_band: volumeBand,
+        review_velocity_per_month: velocity,
+        months_since_previous_audit: monthsSincePrevious,
+        review_count_at_audit: reviewCount,
+        last_review_at: null,
+        yelp_rating: yelpRating,
+        yelp_review_count: yelp?.review_count ?? null,
+        rating_divergence: ratingDivergence,
+        summary: summary.value,
+      },
+      error: null,
+      modelUsed: summary.modelUsed,
+      tokensUsed: summary.tokensUsed,
+      costCents: summary.costCents,
+      durationMs: Date.now() - startedAt,
+      guardrailPassed: summary.guardrailPassed,
+      guardrailNotes: summary.guardrailNotes,
+    };
+  } catch (err) {
+    return {
+      agent: "reputation",
+      status: "failed",
+      output: null,
+      error: err instanceof Error ? err.message : String(err),
+      modelUsed: null,
+      tokensUsed: 0,
+      costCents: 0,
+      durationMs: Date.now() - startedAt,
+      guardrailPassed: true,
+      guardrailNotes: null,
+    };
+  }
 }
