@@ -13,6 +13,8 @@ import {
   UpdateWorkspaceConfigRequestSchema,
   type WorkspaceConfig,
 } from "@rapidforge/shared";
+import { runAnalyst } from "./agents/analyst";
+import { runOnDemandAgent } from "./agents/on-demand";
 import { aiSummaryMode } from "./lib/ai";
 import {
   FIXTURE_SCREENSHOT_DIR,
@@ -287,6 +289,53 @@ export function createApp(
     } catch (err) {
       console.error("[api] POST /api/businesses/:id/reaudit failed:", err);
       res.status(500).json({ error: "Failed to enqueue re-audit" });
+    }
+  });
+
+  /** POST /api/businesses/:id/analyst → on-demand Analyst (PRD 6.11). */
+  app.post("/api/businesses/:id/analyst", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const business = await deps.store.getBusiness(req.params.id);
+      if (!business || business.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Business not found" });
+        return;
+      }
+      const audit = await deps.store.getLatestCompletedAuditForBusiness(
+        business.id,
+      );
+      if (!audit) {
+        res.status(409).json({ error: "No completed audit to analyze" });
+        return;
+      }
+      const config = await deps.store.getWorkspaceConfig(auth.workspaceId);
+      const result = await runOnDemandAgent({
+        store: deps.store,
+        workspaceId: auth.workspaceId,
+        agentName: "analyst",
+        businessId: business.id,
+        auditId: audit.id,
+        run: () => runAnalyst({ business, audit, config }),
+        persist: (auditId, output) =>
+          deps.store.updateAudit(auditId, { analyst_output: output }),
+      });
+      if (result.status !== "completed" || !result.output) {
+        res.status(502).json({ error: result.error ?? "Analyst failed" });
+        return;
+      }
+      res.json({
+        analyst: result.output,
+        guardrail_passed: result.guardrailPassed,
+        guardrail_notes: result.guardrailNotes,
+        model_used: result.modelUsed,
+      });
+    } catch (err) {
+      console.error("[api] POST /api/businesses/:id/analyst failed:", err);
+      res.status(500).json({ error: "Failed to run analyst" });
     }
   });
 

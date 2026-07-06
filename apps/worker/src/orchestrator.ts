@@ -16,6 +16,7 @@
  * (CLAUDE.md 6.5) — done here so agents stay pure.
  */
 import type { AgentResult, Business, Job, Search } from "@rapidforge/shared";
+import { runAnalyst } from "./agents/analyst";
 import { runConversion } from "./agents/conversion";
 import { runDesign } from "./agents/design";
 import { runFilter } from "./agents/filter";
@@ -327,6 +328,40 @@ async function runAuditPipeline(
     healthScore: scorer.output.health_score,
     sellabilityScore: scorer.output.sellability_score,
   });
+
+  // Sprint 7 (PRD 6.11): the Analyst auto-runs for sellable leads, synthesizing
+  // the just-finalized audit into a narrative verdict. It rides the same
+  // agent_runs/events lifecycle; a refusal or failure never stalls the job
+  // (the deterministic template answers), and its cost is logged as ai_call.
+  if (scorer.output.sellability_score >= ANALYST_SELLABILITY_THRESHOLD) {
+    const auditForAnalyst = await store.getLatestCompletedAuditForBusiness(
+      business.id,
+    );
+    if (auditForAnalyst) {
+      const config = await store.getWorkspaceConfig(search.workspace_id);
+      const analyst = await withAgentRun(
+        deps,
+        { job, search, agent: "analyst", targetId: business.id },
+        () => runAnalyst({ business, audit: auditForAnalyst, config }),
+      );
+      if (analyst.status === "completed" && analyst.output) {
+        await store.updateAudit(auditForAnalyst.id, {
+          analyst_output: analyst.output,
+        });
+        await store.logUsageEvent({
+          workspace_id: search.workspace_id,
+          event_type: "ai_call",
+          cost_cents: analyst.costCents,
+          metadata: {
+            agent: "analyst",
+            business_id: business.id,
+            audit_id: auditForAnalyst.id,
+            model: analyst.modelUsed,
+          },
+        });
+      }
+    }
+  }
 }
 
 /**

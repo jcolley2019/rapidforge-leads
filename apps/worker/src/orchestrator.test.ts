@@ -122,18 +122,22 @@ describe("audit pipeline on fixture data", () => {
     expect(lead.audit?.website_health_score).toBeGreaterThanOrEqual(85);
     expect(lead.audit?.star_grade).toBe(5);
     expect(lead.audit?.sellability_score).toBeLessThanOrEqual(70);
+    expect(lead.audit?.sellability_score).toBeGreaterThanOrEqual(60); // ≥60 → Analyst auto-runs (S7)
     expect(lead.audit?.platform).toBe("custom");
     expect(lead.audit?.has_crux_data).toBe(true);
     expect(
       (lead.audit?.score_breakdown as { provisional?: boolean }).provisional,
     ).toBeUndefined(); // no more "est"
     expect(lead.audit?.issues ?? []).toEqual([]); // nothing wrong
+    // Sprint 7: Analyst auto-ran (sellability ≥ 60) and persisted a verdict.
+    expect(lead.audit?.analyst_output).not.toBeNull();
 
     // agent_runs: filter + the seven-agent fan-out (S6 adds design/
-    // reputation/seo) + scorer.
+    // reputation/seo) + scorer + the S7 Analyst auto-run (sellability ≥ 60).
     const detail = await harness.store.getSearchDetail(harness.search.id);
     const agents = detail!.agent_states.map((r) => r.agent_name).sort();
     expect(agents).toEqual([
+      "analyst",
       "conversion",
       "design",
       "filter",

@@ -125,6 +125,10 @@ export interface UpdateAuditPatch {
   sellability_score?: number | null;
   score_breakdown?: Record<string, unknown> | null;
   issues?: Issue[] | null;
+  /** Sprint 7 money features (PRD 6.11–6.13) — dedicated columns (0002). */
+  analyst_output?: Record<string, unknown> | null;
+  builder_brief_md?: string | null;
+  sales_summary?: Record<string, unknown> | null;
   status?: string;
   error_message?: string | null;
   completed_at?: string | null;

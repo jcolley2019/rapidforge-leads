@@ -322,6 +322,67 @@ describe("GET /api/businesses/:id/audits", () => {
   });
 });
 
+async function seedCompletedAudit(businessId: string) {
+  return store.insertAudit({
+    workspace_id: DEV_WORKSPACE_ID,
+    business_id: businessId,
+    website_url: "https://boisedrainpros.wixsite.com/home",
+    http_status: 200,
+    response_ms: 800,
+    ssl_valid: true,
+    website_health_score: 36,
+    star_grade: 2,
+    sellability_score: 82,
+    score_breakdown: {
+      v15_agents: {
+        design: {
+          modernity_0_100: 40,
+          feels_like_year: 2016,
+          critical_issues: ["dated hero"],
+        },
+        seo: {
+          title: { found: true },
+          meta_description: { found: false },
+          has_sitemap: false,
+          summary: { local_fit_score_1_5: 2 },
+        },
+      },
+    },
+    issues: [
+      { severity: "high", label: "Slow on mobile" },
+      { severity: "high", label: "No click-to-call" },
+      { severity: "medium", label: "Dated design" },
+    ],
+    status: "completed",
+    error_message: null,
+    completed_at: "2026-07-05T00:00:00.000Z",
+  });
+}
+
+describe("POST /api/businesses/:id/analyst", () => {
+  it("409s when the business has no completed audit", async () => {
+    const { business } = await seedLead();
+    const res = await api("POST", `/api/businesses/${business.id}/analyst`);
+    expect(res.status).toBe(409);
+  });
+
+  it("runs the Analyst and persists analyst_output", async () => {
+    const { business } = await seedLead();
+    await seedCompletedAudit(business.id);
+    const res = await api("POST", `/api/businesses/${business.id}/analyst`);
+    expect(res.status).toBe(200);
+    expect(res.json.analyst.verdict).toBeTruthy();
+    expect(res.json.analyst.top_3_improvements.length).toBeGreaterThanOrEqual(3);
+    const reloaded = await store.getLatestCompletedAuditForBusiness(business.id);
+    expect(reloaded?.analyst_output).not.toBeNull();
+  });
+
+  it("404s a foreign business", async () => {
+    const res = await api("POST", "/api/businesses/nope/analyst");
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("GET /api/usage", () => {
   it("rolls up this month's events by type", async () => {
     await store.logUsageEvent({
