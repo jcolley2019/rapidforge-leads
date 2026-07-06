@@ -12,10 +12,21 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   CheckCircle2,
   CircleDashed,
+  Filter,
+  Gauge,
+  Globe,
+  HeartPulse,
+  MapPin,
   MessageSquareText,
+  MousePointerClick,
+  Palette,
   Play,
+  Radar,
   Search,
+  Star,
+  TrendingUp,
   XCircle,
+  type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MapDrawParams, ZipRadiusParams } from "@rapidforge/shared";
@@ -220,18 +231,12 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
 
       {tab === "all" ? (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-            {AGENTS.map((agent) => (
-              <AgentSummaryCard
-                key={agent}
-                status={live.statuses[agent]}
-                agent={agent}
-                queued={agent === "scout" ? 0 : (jobs?.queued ?? 0)}
-                nameById={nameById}
-                onOpen={() => setTab(agent)}
-              />
-            ))}
-          </div>
+          <AgentPipelineBar
+            statuses={live.statuses}
+            scored={live.scored.length}
+            queued={jobs?.queued ?? 0}
+            onSelect={(agent) => setTab(agent)}
+          />
           <ResultsTable
             leads={detail?.leads ?? []}
             terminal={TERMINAL_STATUSES.has(status) || !searchId}
@@ -294,49 +299,124 @@ function formatMs(ms: number | null): string {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-function AgentSummaryCard({
+/** One icon per pipeline stage — scannable at a glance (DESIGN_NOTES v3). */
+const AGENT_ICONS: Record<(typeof AGENTS)[number], LucideIcon> = {
+  scout: Radar,
+  filter: Filter,
+  health: HeartPulse,
+  conversion: MousePointerClick,
+  presence: MapPin,
+  traffic: TrendingUp,
+  design: Palette,
+  reputation: Star,
+  seo: Globe,
+  scorer: Gauge,
+};
+
+/**
+ * Single-row pipeline bar (S7): ten compact chips in pipeline order replace
+ * the old two-row card grid. One row at ≥1280 (xl:grid-cols-10); wraps to
+ * 2×5 below that. A chip click drills into that agent's feed — identical to
+ * the tab strip. The summary line reads the same live state.
+ */
+function AgentPipelineBar({
+  statuses,
+  scored,
+  queued,
+  onSelect,
+}: {
+  statuses: Record<string, AgentStatus>;
+  scored: number;
+  queued: number;
+  onSelect: (agent: (typeof AGENTS)[number]) => void;
+}) {
+  // "complete" = finished ≥1 run and not currently working; "running" = in
+  // flight now. Both are pipeline-level readings over the live statuses.
+  const running = AGENTS.filter((a) => statuses[a]?.state === "working").length;
+  const complete = AGENTS.filter(
+    (a) => (statuses[a]?.done ?? 0) > 0 && statuses[a]?.state !== "working",
+  ).length;
+
+  return (
+    <div className="space-y-2">
+      <p className="font-mono text-[11px] text-muted-foreground">
+        <span className="text-foreground">{complete}</span> of {AGENTS.length}{" "}
+        complete
+        <span className="mx-1.5 text-muted-foreground/50">·</span>
+        <span className="text-foreground">{scored}</span> scored
+        <span className="mx-1.5 text-muted-foreground/50">·</span>
+        <span className={running > 0 ? "text-primary" : "text-foreground"}>
+          {running}
+        </span>{" "}
+        running
+      </p>
+      <div
+        className="card-panel grid grid-cols-5 gap-1 p-1.5 xl:grid-cols-10"
+        role="tablist"
+        aria-label="Agent pipeline"
+      >
+        {AGENTS.map((agent) => (
+          <PipelineChip
+            key={agent}
+            agent={agent}
+            status={statuses[agent]}
+            queued={agent === "scout" ? 0 : queued}
+            onSelect={() => onSelect(agent)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PipelineChip({
   agent,
   status,
   queued,
-  nameById,
-  onOpen,
+  onSelect,
 }: {
-  agent: string;
+  agent: (typeof AGENTS)[number];
   status: AgentStatus | undefined;
   queued: number;
-  nameById: Map<string, string>;
-  onOpen: () => void;
+  onSelect: () => void;
 }) {
+  const Icon = AGENT_ICONS[agent];
   const working = status?.state === "working";
-  const target = status?.currentTarget
-    ? (nameById.get(status.currentTarget) ?? "…")
-    : null;
+  const done = status?.done ?? 0;
   return (
     <button
       type="button"
-      onClick={onOpen}
+      role="tab"
+      onClick={onSelect}
+      title={`${agent} — ${done} done${queued > 0 ? `, ${queued} queued` : ""}`}
       className={cn(
-        "card-panel group flex flex-col items-start gap-1.5 p-3.5 text-left transition-transform duration-150 hover:-translate-y-0.5",
-        working && "pulse-live",
+        "flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-accent/60",
+        working && "bg-accent/40",
       )}
     >
-      <span className="flex w-full items-center justify-between">
-        <span className="text-[13px] font-medium capitalize">{agent}</span>
-        {status && <StatusDot status={status} />}
-      </span>
-      <span className="min-h-4 w-full truncate text-[11px] text-muted-foreground">
-        {working ? (target ?? "working…") : "idle"}
-      </span>
-      <span className="font-mono text-[11px] text-muted-foreground">
-        <span className="text-foreground">{status?.done ?? 0}</span> done
-        {queued > 0 && (
-          <>
-            {" · "}
-            <span className="text-agent-waiting">{queued}</span> queued
-          </>
+      <Icon
+        className={cn(
+          "h-3.5 w-3.5 shrink-0",
+          working ? "text-primary" : "text-muted-foreground",
         )}
-        {" · "}
-        {formatMs(status?.avgRuntimeMs ?? null)}
+        aria-hidden
+      />
+      <span className="min-w-0 flex-1 leading-tight">
+        <span className="flex items-center gap-1">
+          <span className="truncate text-[11px] font-medium capitalize">
+            {agent}
+          </span>
+          {status && <StatusDot status={status} />}
+        </span>
+        <span className="block font-mono text-[10px] text-muted-foreground">
+          <span className="text-foreground">{done}</span>
+          {queued > 0 && (
+            <>
+              {" / "}
+              <span className="text-agent-waiting">{queued}</span>
+            </>
+          )}
+        </span>
       </span>
     </button>
   );
