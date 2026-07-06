@@ -19,6 +19,7 @@ import {
   updateLeadStatus,
   type LeadView,
 } from "@/lib/api";
+import { dedupeLeads, type DedupedLead } from "@/lib/dedupe";
 import { relativeTime } from "@/lib/format";
 import { spring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -56,10 +57,11 @@ export function PipelineView() {
     void load();
   }, [load, leadsVersion]);
 
+  // One card per business across all searches (S5.5 dedupe).
   const filtered = useMemo(() => {
     if (!leads) return [];
     const q = query.trim().toLowerCase();
-    return leads.filter((lead) => {
+    return dedupeLeads(leads).filter((lead) => {
       if (q && !lead.business.name.toLowerCase().includes(q)) return false;
       if (hotOnly && (lead.audit?.sellability_score ?? 0) < 90) return false;
       return true;
@@ -67,8 +69,8 @@ export function PipelineView() {
   }, [leads, query, hotOnly]);
 
   const byColumn = useMemo(() => {
-    const map = new Map<LeadStatus, LeadView[]>(
-      COLUMNS.map((c) => [c, [] as LeadView[]]),
+    const map = new Map<LeadStatus, DedupedLead[]>(
+      COLUMNS.map((c) => [c, [] as DedupedLead[]]),
     );
     for (const lead of filtered) {
       map.get(lead.result.status ?? "new")?.push(lead);
@@ -206,7 +208,7 @@ export function PipelineView() {
   );
 }
 
-function LeadCard({ lead, onOpen }: { lead: LeadView; onOpen: () => void }) {
+function LeadCard({ lead, onOpen }: { lead: DedupedLead; onOpen: () => void }) {
   const sell = lead.audit?.sellability_score ?? null;
   const lastAction =
     relativeTime(lead.result.last_contacted_at) ??
@@ -231,6 +233,14 @@ function LeadCard({ lead, onOpen }: { lead: LeadView; onOpen: () => void }) {
           <p className="min-w-0 flex-1 truncate text-sm font-medium">
             {lead.business.name}
           </p>
+          {lead.seenIn > 1 && (
+            <span
+              className="shrink-0 rounded-full border border-border px-1.5 font-mono text-[10px] text-muted-foreground"
+              title={`Seen in ${lead.seenIn} searches`}
+            >
+              ×{lead.seenIn}
+            </span>
+          )}
           {sell !== null && (
             <span
               className={cn(

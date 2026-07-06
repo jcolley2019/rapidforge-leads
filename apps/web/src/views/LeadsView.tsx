@@ -18,6 +18,7 @@ import {
   type LeadView,
 } from "@/lib/api";
 import { downloadCsv, leadsToCsv } from "@/lib/csv";
+import { dedupeLeads, type DedupedLead } from "@/lib/dedupe";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +40,7 @@ interface SortState {
   dir: 1 | -1;
 }
 
-function sortValue(lead: LeadView, key: SortKey): string | number | null {
+function sortValue(lead: DedupedLead, key: SortKey): string | number | null {
   switch (key) {
     case "name":
       return lead.business.name.toLowerCase();
@@ -115,7 +116,8 @@ export function LeadsView() {
       healthMin: healthMin === "" ? null : Number(healthMin),
       healthMax: healthMax === "" ? null : Number(healthMax),
     };
-    const rows = leads.filter((lead) => {
+    // One row per business across all searches (S5.5 dedupe).
+    const rows = dedupeLeads(leads).filter((lead) => {
       const kind = lead.business.website_kind ?? "unknown";
       if (website === "has" && kind !== "real") return false;
       if (website === "none" && kind !== "none" && kind !== "social_only")
@@ -466,7 +468,7 @@ function LeadRow({
   onCheck,
   onOpen,
 }: {
-  lead: LeadView;
+  lead: DedupedLead;
   checked: boolean;
   onCheck: () => void;
   onOpen: () => void;
@@ -492,7 +494,17 @@ function LeadRow({
         />
       </td>
       <td className="px-3 py-[7px]">
-        <div className="truncate font-medium">{business.name}</div>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium">{business.name}</span>
+          {lead.seenIn > 1 && (
+            <span
+              className="shrink-0 rounded-full border border-border px-1.5 font-mono text-[10px] text-muted-foreground"
+              title={`Seen in ${lead.seenIn} searches`}
+            >
+              ×{lead.seenIn}
+            </span>
+          )}
+        </div>
         <div className="truncate font-mono text-[11px] text-muted-foreground">
           {business.phone ?? "no phone"}
         </div>
