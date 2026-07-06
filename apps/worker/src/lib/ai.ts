@@ -6,6 +6,11 @@
  * RapidForge AI Core (github.com/jcolley2019/rapidforge-ai-core, local at
  * C:\Users\jcoll\OneDrive\Desktop\rapidforge-ai-core).
  */
+import {
+  AnthropicProvider,
+  type ContentPart,
+  type Message,
+} from "@rapidforge/ai-core";
 import { forceFixtures } from "./env";
 
 // Model assignments (CLAUDE.md 4.1 — retired names appear nowhere).
@@ -18,6 +23,13 @@ export const MODEL_FABLE = "claude-fable-5";
 /** Automatic fallback when Fable 5 returns stop_reason "refusal". */
 export const MODEL_FABLE_FALLBACK = "claude-opus-4-8";
 
+/** Image input for vision calls (Design agent, PRD 6.8). */
+export interface AiImage {
+  mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+  /** Base64-encoded bytes — no data: prefix, no newlines. */
+  dataBase64: string;
+}
+
 export interface AiCallOptions {
   model:
     | typeof MODEL_HAIKU
@@ -26,8 +38,14 @@ export interface AiCallOptions {
     | typeof MODEL_FABLE_FALLBACK;
   system?: string;
   prompt: string;
+  /** Vision inputs — placed before the prompt text (Sonnet vision, PRD 6.8). */
+  images?: AiImage[];
   maxTokens?: number;
-  /** Fable 5 adaptive-thinking effort — controls cost, not a temperature. */
+  /**
+   * Fable 5 adaptive-thinking effort — controls cost, not a temperature.
+   * NOT forwarded yet: AI Core v0.2 has no output_config support (Sprint 0
+   * item in that repo, needed before the Sprint 7 Analyst).
+   */
   effort?: "low" | "medium" | "high";
 }
 
@@ -41,21 +59,111 @@ export interface AiCallResult {
 }
 
 /**
- * Call a Claude model via RapidForge AI Core.
- *
- * TODO(Sprint 2+): wire to the AI Core client once Sprint 0 confirms
- *   fable-5 support in that repo. Every call must log tokens_used +
- *   cost_cents to agent_runs and usage_events (CLAUDE.md 6.5).
- *
- * TODO(refusal-retry): Fable 5 refusals arrive as HTTP 200 with
- *   stop_reason "refusal" — retry the IDENTICAL request on
- *   claude-opus-4-8 (MODEL_FABLE_FALLBACK). Never crash, never stall a
- *   job on a refusal (CLAUDE.md 4.1).
+ * Model pricing in CENTS PER MILLION TOKENS (input / output) — used to
+ * compute cost_cents on every call (CLAUDE.md 6.5/8). Values from the
+ * Claude API pricing table, 2026-06. Matched by model-id prefix; unknown
+ * models bill at the Fable rate so cost is never understated.
  */
-export async function callModel(_options: AiCallOptions): Promise<AiCallResult> {
-  throw new Error(
-    "RapidForge AI Core wrapper is not wired yet (Sprint 0 pending). No agent may call Anthropic directly — see TODOs in lib/ai.ts.",
+const MODEL_PRICING_CENTS_PER_MTOK: ReadonlyArray<
+  [prefix: string, input: number, output: number]
+> = [
+  [MODEL_HAIKU, 100, 500],
+  [MODEL_SONNET, 300, 1_500],
+  [MODEL_FABLE, 1_000, 5_000],
+  [MODEL_FABLE_FALLBACK, 500, 2_500],
+];
+
+/** Integer cents (agent_runs/usage_events columns are int), rounded UP. */
+export function computeCostCents(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  const row = MODEL_PRICING_CENTS_PER_MTOK.find(([prefix]) =>
+    model.startsWith(prefix),
   );
+  const [, inRate, outRate] = row ?? ["", 1_000, 5_000];
+  return Math.ceil((inputTokens * inRate + outputTokens * outRate) / 1_000_000);
+}
+
+/** Default output budget — strict-JSON agent replies, not essays. */
+const DEFAULT_MAX_TOKENS = 2048;
+
+/** One retry on transient provider failures is handled by AI Core itself. */
+const provider = new AnthropicProvider();
+
+function buildMessages(options: AiCallOptions): Message[] {
+  const messages: Message[] = [];
+  if (options.system) messages.push({ role: "system", content: options.system });
+  if (options.images && options.images.length > 0) {
+    const parts: ContentPart[] = [
+      ...options.images.map((image) => ({
+        type: "image" as const,
+        mediaType: image.mediaType,
+        data: image.dataBase64,
+      })),
+      { type: "text" as const, text: options.prompt },
+    ];
+    messages.push({ role: "user", content: parts });
+  } else {
+    messages.push({ role: "user", content: options.prompt });
+  }
+  return messages;
+}
+
+/**
+ * Call a Claude model via RapidForge AI Core (the ONLY Anthropic path —
+ * CLAUDE.md Section 4). Fable 5 refusals arrive as HTTP 200 with
+ * stop_reason "refusal" (AI Core maps it to finishReason
+ * "content_filter") — the IDENTICAL request retries on claude-opus-4-8
+ * per CLAUDE.md 4.1; tokens/cost of both attempts are summed.
+ */
+export async function callModel(options: AiCallOptions): Promise<AiCallResult> {
+  const runOnce = async (model: AiCallOptions["model"]) => {
+    const response = await provider.complete({
+      messages: buildMessages(options),
+      model,
+      maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+    });
+    const inputTokens = response.usage?.inputTokens ?? 0;
+    const outputTokens = response.usage?.outputTokens ?? 0;
+    return {
+      text: response.text,
+      modelUsed: response.model,
+      tokensUsed: response.usage?.totalTokens ?? 0,
+      costCents: computeCostCents(response.model, inputTokens, outputTokens),
+      stopReason: mapStopReason(response.finishReason),
+    } satisfies AiCallResult;
+  };
+
+  const first = await runOnce(options.model);
+  if (options.model === MODEL_FABLE && first.stopReason === "refusal") {
+    console.warn(
+      "[ai] fable-5 refusal — retrying identical request on claude-opus-4-8 (CLAUDE.md 4.1)",
+    );
+    const second = await runOnce(MODEL_FABLE_FALLBACK);
+    return {
+      ...second,
+      tokensUsed: first.tokensUsed + second.tokensUsed,
+      costCents: first.costCents + second.costCents,
+    };
+  }
+  return first;
+}
+
+function mapStopReason(
+  finishReason: "stop" | "length" | "content_filter" | "other" | undefined,
+): string {
+  switch (finishReason) {
+    case "stop":
+      return "end_turn";
+    case "length":
+      return "max_tokens";
+    case "content_filter":
+      return "refusal";
+    default:
+      return "unknown";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +191,9 @@ export interface SummarySpec<T> {
   model: AiCallOptions["model"];
   system: string;
   prompt: string;
+  /** Vision inputs forwarded to callModel (Design agent, PRD 6.8). */
+  images?: AiImage[];
+  maxTokens?: number;
   /** Zod-parse the model's strict-JSON reply (CLAUDE.md 6.1). */
   parse: (raw: string) => T;
   guardrail: (value: T) => GuardrailResult;
@@ -144,6 +255,8 @@ export async function generateJsonSummary<T>(
         model: spec.model,
         system: spec.system,
         prompt: spec.prompt,
+        ...(spec.images ? { images: spec.images } : {}),
+        ...(spec.maxTokens ? { maxTokens: spec.maxTokens } : {}),
       });
     } catch (err) {
       lastFailure = `AI call failed: ${err instanceof Error ? err.message : String(err)}`;

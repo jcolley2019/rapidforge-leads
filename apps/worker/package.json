@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@rapidforge/ai-core": "file:../../../../Users/jcoll/OneDrive/Desktop/rapidforge-ai-core",
     "@rapidforge/shared": "*",
     "@supabase/supabase-js": "^2.47.10",
     "dotenv": "^16.4.7",
