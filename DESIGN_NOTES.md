@@ -115,7 +115,7 @@ unchanged.**
 | Sidebar (`--sidebar`, new) | (= canvas) | **`#E9EDF2`** | rail sits one step deeper than canvas |
 | Card | `#ffffff` | `#ffffff` | unchanged — cards stay pure white |
 | Card border (`--card-border`, new) | (= `--border` `#d1d5db`) | **`#DCE1E8`** | soft edge; canvas contrast + shadow carry the separation |
-| Card shadow (`--shadow-card`) | `0 1px 2px /0.05` | **`0 1px 2px /0.06, 0 4px 12px /0.07`** | a real soft lift |
+| Card shadow (`--shadow-card`) | `0 1px 2px /0.05` | **`0 1px 2px /0.07, 0 6px 16px /0.10`** (S8 deepened) | a clear soft lift so cards pop |
 | `--border` / `--input` | `#d1d5db` | `#d1d5db` | **kept** — table dividers and form fields stay crisp |
 
 `--card-border` is a NEW token distinct from `--border`: only `.card-panel`
