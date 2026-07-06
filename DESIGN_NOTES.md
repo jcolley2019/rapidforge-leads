@@ -1,4 +1,63 @@
-# DESIGN_NOTES.md — RapidForge visual language v2 ("Glass")
+# DESIGN_NOTES.md — RapidForge visual language
+
+## 0. JoeyC brand palette (extracted 2026-07-05 — Step 0 of the rebrand)
+
+> Canonical source of truth for every color below. Three sources were read
+> and reconciled; **all values verified identical** across (a) the JoeyC.ai
+> site source at `C:\dev\CLAUDE CODE MC` — `public/brand.html` (the brand
+> guide, stated verbatim), `src/components/command-center/BrandGuide.tsx`,
+> and the Tailwind v4 `@theme` in `src/index.css` — and (b) the **LIVE**
+> deployed stylesheet at `https://joeyc.ai/assets/index-DHeanrOX.css`.
+> The old static prototype (c) `C:\dev\joeyc-ai\index.html` uses a
+> superseded cyan system (`#00CFFF` on `#06080F`) — rejected per the
+> live-site-wins rule. No colors copied from third-party products.
+
+### Core system (dark — the brand's default)
+
+| Role | Hex | Source |
+|---|---|---|
+| Primary (electric blue) | `#1a8fff` | brand.html `--primary` = live CSS `--color-primary` |
+| Primary hover | `#3da0ff` | brand.html `--primary-hover` = live |
+| Accent (deep blue) | `#0a3aad` | brand.html `--accent` = live |
+| Background | `#0a0a0f` | brand.html `--bg` = live |
+| Card | `#0c1020` | brand.html `--bg-card` = live |
+| Section | `#080b16` | brand.html `--bg-section` = live |
+| Text primary | `#e8edf5` | brand.html `--text-primary` = live |
+| Text secondary | `#8892a4` | brand.html `--text-secondary` = live |
+| Border | `#0f1a33` | brand.html `--border` = live |
+| Border hover | `#1a3366` | brand.html `--border-hover` = live |
+| Glow | `#1a8fff` | brand.html `--glow` = live (same as primary) |
+| Success | `#22c55e` | brand.html `--success` (guide swatch) |
+| Error | `#ef4444` | brand.html `--error` (guide swatch) |
+| Warning | `#eab308` | brand.html `--warning` (guide swatch) |
+| Divider deep stop | `#04133d` | brand.html divider gradient + BrandGuide.tsx |
+
+### Luxe system (light — gold/cream, the brand's light flavor)
+
+| Role | Hex | Source |
+|---|---|---|
+| Primary (old gold) | `#b8860b` | brand.html `--luxe-primary` = live `.luxe-mode` |
+| Primary hover | `#d4a017` | brand.html `--luxe-hover` = live |
+| Accent | `#8b6914` | brand.html `--luxe-accent` = live |
+| Background (cream) | `#faf6f0` | brand.html `--luxe-bg` = live |
+| Card | `#f5efe6` | brand.html `--luxe-card` = live |
+| Section | `#ede5d8` | site + live `.luxe-mode --color-bg-section` (not in brand.html :root) |
+| Text | `#1a1008` | brand.html `--luxe-text` = live |
+| Text secondary | `#3d2b1f` | brand.html `--luxe-text-sec` = live |
+| Border | `#d4c5a9` | brand.html `--luxe-border` = live |
+| Border hover | `#b8a080` | site + live `.luxe-mode --color-border-hover` |
+| Glow | `#d4a017` | site + live `.luxe-mode --color-glow` |
+
+### High-contrast dark variant (page-scoped on the live site)
+
+`text #ffffff · text-secondary #94a3b8 · border #1e2a4a · border-hover
+#2a3d6a` — a secondary dark block in both source `index.css` (l.493) and
+the live CSS; same backgrounds as core. Use only if the core dark text
+tokens prove too soft on dense data screens.
+
+---
+
+# RapidForge visual language v2 ("Glass") — pre-rebrand baseline below
 
 > Sprint 4, 2026-07-05. Supersedes PRD 7.1 per Joey's design-direction change.
 > Governs every view. Apple-style modern product: generous whitespace, frosted
