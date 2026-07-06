@@ -17,7 +17,7 @@
 @layer base {
   :root {
     /* Light — neutral gray canvas, white cards, brand blue (S6/S7). */
-    --background: 214 26% 95%; /* #EEF1F5 — darker soft gray so white cards pop (S7) */
+    --background: 214 26% 94.7%; /* #EEF1F5 exactly — darker soft gray so white cards pop (S7) */
     --sidebar: 213 26% 93%; /* #E9EDF2 — rail sits one step deeper than canvas (S7) */
     --foreground: 217 33% 17%; /* #1e293b dark slate */
     --card: 0 0% 100%; /* white cards on gray */

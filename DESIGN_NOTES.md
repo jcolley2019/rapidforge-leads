@@ -111,7 +111,7 @@ unchanged.**
 
 | Role | S6 | S7 | Notes |
 |---|---|---|---|
-| Canvas (`--background`) | `#f3f4f6` (96% L) | **`#EEF1F5`** (95% L, cooler) | one step darker so white lifts off it |
+| Canvas (`--background`) | `#f3f4f6` (96% L) | **`#EEF1F5`** (hsl 214 26% 94.7%) | one step darker so white lifts off it |
 | Sidebar (`--sidebar`, new) | (= canvas) | **`#E9EDF2`** | rail sits one step deeper than canvas |
 | Card | `#ffffff` | `#ffffff` | unchanged — cards stay pure white |
 | Card border (`--card-border`, new) | (= `--border` `#d1d5db`) | **`#DCE1E8`** | soft edge; canvas contrast + shadow carry the separation |
