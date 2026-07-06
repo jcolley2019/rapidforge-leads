@@ -23,6 +23,17 @@ export const ISSUE_THRESHOLDS = {
   clsPoor: 0.25,
   /** Server response at/above this (ms) is a medium issue. */
   responseSlowMs: 2000,
+  // -- Sprint 6 (Design / Reputation / SEO agents) --------------------------
+  /** Design modernity below this reads as visibly dated (high severity). */
+  designDatedBelow: 40,
+  /** Design modernity below this is behind current standards (medium). */
+  designBehindBelow: 60,
+  /** Fewer Google reviews than this is a credibility issue (medium). */
+  reviewsFewBelow: 10,
+  /** Google rating below this (with enough reviews) is high severity. */
+  ratingPoorBelow: 3.5,
+  /** SEO local-fit score (1–5) at/below this is weak targeting (medium). */
+  seoWeakFitAtOrBelow: 2,
 } as const;
 
 /** Detected platform keys → sales-readable names for issue bullets. */
@@ -54,6 +65,15 @@ export interface IssueInputs {
   hasSchemaMarkup: boolean;
   hasCruxData: boolean | null;
   napConsistent: boolean | null;
+  // -- Sprint 6 (Design / Reputation / SEO agents). Null = agent didn't run.
+  designModernity: number | null;
+  designFeelsLikeYear: number | null;
+  googleRating: number | null;
+  reviewCount: number | null;
+  seoLocalFitScore: number | null;
+  seoHasTitle: boolean | null;
+  seoHasMetaDescription: boolean | null;
+  seoHasSitemap: boolean | null;
 }
 
 const SEVERITY_RANK: Record<Issue["severity"], number> = {
@@ -189,6 +209,75 @@ export function buildIssues(input: IssueInputs): Issue[] {
       "No real-user traffic data in the Chrome UX Report",
       "Likely very low site traffic",
     );
+  }
+
+  // -- design (Sprint 6, PRD 6.8) --------------------------------------------
+  if (
+    input.designModernity !== null &&
+    input.designModernity < ISSUE_THRESHOLDS.designDatedBelow
+  ) {
+    add(
+      "high",
+      input.designFeelsLikeYear !== null
+        ? `Site design looks dated — feels like ${input.designFeelsLikeYear}`
+        : "Site design looks dated",
+      `Design modernity ${input.designModernity}/100`,
+    );
+  } else if (
+    input.designModernity !== null &&
+    input.designModernity < ISSUE_THRESHOLDS.designBehindBelow
+  ) {
+    add(
+      "medium",
+      "Site design is behind current standards",
+      `Design modernity ${input.designModernity}/100`,
+    );
+  }
+
+  // -- reputation (Sprint 6, PRD 6.9) -----------------------------------------
+  if (
+    input.googleRating !== null &&
+    input.reviewCount !== null &&
+    input.reviewCount >= ISSUE_THRESHOLDS.reviewsFewBelow &&
+    input.googleRating < ISSUE_THRESHOLDS.ratingPoorBelow
+  ) {
+    add(
+      "high",
+      `Google rating is ${input.googleRating} — reputation is hurting conversions`,
+      `${input.reviewCount} reviews`,
+    );
+  }
+  if (
+    input.reviewCount !== null &&
+    input.reviewCount > 0 &&
+    input.reviewCount < ISSUE_THRESHOLDS.reviewsFewBelow
+  ) {
+    add(
+      "medium",
+      `Only ${input.reviewCount} Google review${input.reviewCount === 1 ? "" : "s"}`,
+      "Thin review volume undermines trust",
+    );
+  }
+
+  // -- seo (Sprint 6, PRD 6.10) -----------------------------------------------
+  if (input.seoHasTitle === false) {
+    add("high", "Homepage is missing a <title> tag");
+  }
+  if (input.seoHasMetaDescription === false) {
+    add("medium", "Homepage has no meta description");
+  }
+  if (
+    input.seoLocalFitScore !== null &&
+    input.seoLocalFitScore <= ISSUE_THRESHOLDS.seoWeakFitAtOrBelow
+  ) {
+    add(
+      "medium",
+      "Weak local SEO targeting",
+      `Local keyword fit ${input.seoLocalFitScore}/5`,
+    );
+  }
+  if (input.seoHasSitemap === false) {
+    add("low", "No sitemap.xml");
   }
 
   return issues.sort(

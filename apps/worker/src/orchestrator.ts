@@ -17,11 +17,14 @@
  */
 import type { AgentResult, Business, Job, Search } from "@rapidforge/shared";
 import { runConversion } from "./agents/conversion";
+import { runDesign } from "./agents/design";
 import { runFilter } from "./agents/filter";
 import { runHealth } from "./agents/health";
 import { runPresence } from "./agents/presence";
+import { runReputation } from "./agents/reputation";
 import { runScorer } from "./agents/scorer";
 import { runScout } from "./agents/scout";
+import { runSeo } from "./agents/seo";
 import { runTraffic } from "./agents/traffic";
 import { broadcastAgentEvent } from "./events";
 import type { PlacesClient } from "./lib/places";
@@ -145,14 +148,13 @@ async function handleAuditBusinessJob(
   if (!search) throw new Error(`search ${searchId} not found`);
   if (!business) throw new Error(`business ${businessId} not found`);
 
-  // 30-day audit cache lookup (PRD 5.5) — Filter short-circuits on it.
-  // force=true (Sprint 5 re-audit) skips the lookup for a fresh pipeline run.
+  // Latest completed audit serves two masters: the 30-day cache (PRD 5.5,
+  // ignored when force=true — Sprint 5 re-audit) and the Reputation agent's
+  // review-velocity baseline (Sprint 6, used in BOTH cases).
   const now = new Date();
-  const latest =
-    force === true
-      ? null
-      : await store.getLatestCompletedAuditForBusiness(business.id);
+  const latest = await store.getLatestCompletedAuditForBusiness(business.id);
   const cachedAudit =
+    force !== true &&
     latest?.completed_at != null &&
     isWithinDays(latest.completed_at, AUDIT_CACHE_DAYS, now)
       ? latest
@@ -178,14 +180,22 @@ async function handleAuditBusinessJob(
   // Only live real sites proceed to the audit agents (PRD 3.3 steps 4–5).
   // Hot leads / dead sites / skips / cache hits are complete after Filter.
   if (result.output.outcome !== "pending_audit") return;
-  await runAuditPipeline(job, search, business, result.output.audit_id, deps);
+  await runAuditPipeline(
+    job,
+    search,
+    business,
+    result.output.audit_id,
+    latest,
+    deps,
+  );
 }
 
 /**
- * PRD 3.3 steps 4–5: Health / Conversion / Presence / Traffic in parallel
- * on shared measured inputs (ONE homepage fetch, ONE mobile+desktop PSI
- * pair — Traffic reads CrUX off Health's PSI response, PRD 6.6), then the
- * deterministic Scorer finalizes the audit row and `lead.scored` fires.
+ * PRD 3.3 steps 4–5 (+ Sprint 6): Health / Conversion / Presence / Traffic /
+ * Design / Reputation / SEO in parallel on shared measured inputs (ONE
+ * homepage fetch, ONE mobile+desktop PSI pair, ONE screenshot capture, ONE
+ * sitemap/robots probe pair), then the deterministic Scorer finalizes the
+ * audit row and `lead.scored` fires.
  *
  * A single failed audit agent does NOT fail the job: its agent_runs row
  * records the failure and Scorer treats the missing fields as unmeasured.
@@ -195,6 +205,9 @@ async function runAuditPipeline(
   search: Search,
   business: Business,
   auditId: string,
+  previousAudit: Awaited<
+    ReturnType<DataStore["getLatestCompletedAuditForBusiness"]>
+  >,
   deps: OrchestratorDeps,
 ): Promise<void> {
   const { store } = deps;
@@ -211,12 +224,15 @@ async function runAuditPipeline(
     });
     return metrics;
   };
-  const [site, psiMobile, psiDesktop, screenshots] = await Promise.all([
-    deps.site.fetchHomepage(url),
-    runPsiLogged("mobile"),
-    runPsiLogged("desktop"),
-    deps.screenshotCapturer.capture(url),
-  ]);
+  const [site, psiMobile, psiDesktop, screenshots, hasSitemap, hasRobots] =
+    await Promise.all([
+      deps.site.fetchHomepage(url),
+      runPsiLogged("mobile"),
+      runPsiLogged("desktop"),
+      deps.screenshotCapturer.capture(url),
+      deps.site.checkPath(url, "/sitemap.xml"),
+      deps.site.checkPath(url, "/robots.txt"),
+    ]);
   // Store before the agent fan-out so the drawer's Screenshots tab has URLs
   // even if a later agent fails. Null anywhere = screenshots stay null.
   const screenshotUrls: ScreenshotUrls | null = screenshots
@@ -229,26 +245,40 @@ async function runAuditPipeline(
     : null;
 
   const runCtx = { job, search };
-  const [health, conversion, presence, traffic] = await Promise.all([
-    withAgentRun(deps, { ...runCtx, agent: "health", targetId: business.id }, () =>
-      runHealth({ business, site, psiDesktop, psiMobile, now }),
-    ),
-    withAgentRun(
-      deps,
-      { ...runCtx, agent: "conversion", targetId: business.id },
-      () => runConversion({ business, site }),
-    ),
-    withAgentRun(
-      deps,
-      { ...runCtx, agent: "presence", targetId: business.id },
-      () => runPresence({ business, site }),
-    ),
-    withAgentRun(
-      deps,
-      { ...runCtx, agent: "traffic", targetId: business.id },
-      () => runTraffic({ psiDesktop, psiMobile }),
-    ),
-  ]);
+  const [health, conversion, presence, traffic, design, reputation, seo] =
+    await Promise.all([
+      withAgentRun(deps, { ...runCtx, agent: "health", targetId: business.id }, () =>
+        runHealth({ business, site, psiDesktop, psiMobile, now }),
+      ),
+      withAgentRun(
+        deps,
+        { ...runCtx, agent: "conversion", targetId: business.id },
+        () => runConversion({ business, site }),
+      ),
+      withAgentRun(
+        deps,
+        { ...runCtx, agent: "presence", targetId: business.id },
+        () => runPresence({ business, site }),
+      ),
+      withAgentRun(
+        deps,
+        { ...runCtx, agent: "traffic", targetId: business.id },
+        () => runTraffic({ psiDesktop, psiMobile }),
+      ),
+      withAgentRun(
+        deps,
+        { ...runCtx, agent: "design", targetId: business.id },
+        () => runDesign({ business, site, screenshots, now }),
+      ),
+      withAgentRun(
+        deps,
+        { ...runCtx, agent: "reputation", targetId: business.id },
+        () => runReputation({ business, previousAudit, now }),
+      ),
+      withAgentRun(deps, { ...runCtx, agent: "seo", targetId: business.id }, () =>
+        runSeo({ business, site, hasSitemap, hasRobots }),
+      ),
+    ]);
 
   const scorer = await withAgentRun(
     deps,
@@ -262,6 +292,9 @@ async function runAuditPipeline(
         conversion: conversion.output,
         presence: presence.output,
         traffic: traffic.output,
+        design: design.output,
+        reputation: reputation.output,
+        seo: seo.output,
         screenshotUrls,
         now,
       }),
@@ -277,7 +310,10 @@ async function runAuditPipeline(
       health.costCents +
       conversion.costCents +
       presence.costCents +
-      traffic.costCents,
+      traffic.costCents +
+      design.costCents +
+      reputation.costCents +
+      seo.costCents,
     metadata: {
       business_id: business.id,
       audit_id: auditId,

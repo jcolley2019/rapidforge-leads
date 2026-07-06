@@ -25,8 +25,11 @@ import {
 import type { ScreenshotUrls } from "../lib/screenshots";
 import type { DataStore, UpdateAuditPatch } from "../store";
 import type { ConversionOutput } from "./conversion";
+import type { DesignOutput } from "./design";
 import type { HealthOutput } from "./health";
 import type { PresenceOutput } from "./presence";
+import type { ReputationOutput } from "./reputation";
+import type { SeoOutput } from "./seo";
 import type { TrafficOutput } from "./traffic";
 
 export interface ScorerContext {
@@ -38,6 +41,10 @@ export interface ScorerContext {
   conversion: ConversionOutput | null;
   presence: PresenceOutput | null;
   traffic: TrafficOutput | null;
+  /** Sprint 6 agents (PRD 6.8–6.10). Null = agent failed/unavailable. */
+  design: DesignOutput | null;
+  reputation: ReputationOutput | null;
+  seo: SeoOutput | null;
   /** Sprint 6: stored screenshot URLs (null = capture/storage unavailable). */
   screenshotUrls: ScreenshotUrls | null;
   /** Injected for determinism. */
@@ -53,15 +60,22 @@ export interface AssembledScores {
   scoreBreakdown: Record<string, unknown>;
 }
 
+export interface ScoreInputs {
+  business: Business;
+  health: HealthOutput | null;
+  conversion: ConversionOutput | null;
+  presence: PresenceOutput | null;
+  traffic: TrafficOutput | null;
+  design: DesignOutput | null;
+  reputation: ReputationOutput | null;
+  seo: SeoOutput | null;
+  now: Date;
+}
+
 /** Pure score assembly — exported for the pipeline unit tests. */
-export function assembleScores(
-  business: Business,
-  health: HealthOutput | null,
-  conversion: ConversionOutput | null,
-  presence: PresenceOutput | null,
-  traffic: TrafficOutput | null,
-  now: Date,
-): AssembledScores {
+export function assembleScores(inputs: ScoreInputs): AssembledScores {
+  const { business, health, conversion, presence, traffic, design, reputation, seo, now } =
+    inputs;
   const currentYear = now.getFullYear();
 
   const healthResult = computeHealthScore({
@@ -82,7 +96,8 @@ export function assembleScores(
     currentYear,
     hasRecentLastModified: health?.has_recent_last_modified ?? false,
     hasBrokenImages: false, // unmeasured in v1 (needs per-image fetches)
-    designScore: null, // stub 50 until the v1.5 Design agent (PRD 4.1)
+    // Sprint 6: the Design agent's modernity replaces the stub 50 (PRD 4.1).
+    designScore: design?.modernity_0_100 ?? null,
   });
 
   const sellabilityResult = computeSellabilityScore({
@@ -115,6 +130,15 @@ export function assembleScores(
     hasSchemaMarkup: conversion?.has_schema_markup ?? false,
     hasCruxData: traffic?.has_crux_data ?? null,
     napConsistent: presence?.nap.nap_consistent ?? null,
+    // Sprint 6 agents (null = agent didn't run — no bullet invented).
+    designModernity: design?.modernity_0_100 ?? null,
+    designFeelsLikeYear: design?.feels_like_year ?? null,
+    googleRating: reputation?.google_rating ?? null,
+    reviewCount: reputation?.review_count ?? null,
+    seoLocalFitScore: seo?.summary.local_fit_score_1_5 ?? null,
+    seoHasTitle: seo?.title.found ?? null,
+    seoHasMetaDescription: seo?.meta_description.found ?? null,
+    seoHasSitemap: seo?.has_sitemap ?? null,
   });
 
   const badge =
@@ -137,6 +161,17 @@ export function assembleScores(
         conversion: conversion !== null,
         presence: presence !== null,
         traffic: traffic !== null,
+        design: design !== null,
+        reputation: reputation !== null,
+        seo: seo !== null,
+      },
+      // Sprint 6 agent findings ride the audit row (jsonb, no migration) so
+      // the drawer's Audit tab can render them; the next audit's Reputation
+      // velocity also reads its snapshot from here.
+      v15_agents: {
+        ...(design ? { design } : {}),
+        ...(reputation ? { reputation } : {}),
+        ...(seo ? { seo } : {}),
       },
     },
   };
@@ -156,15 +191,18 @@ export async function runScorer(
 ): Promise<AgentResult<ScorerOutput>> {
   const startedAt = Date.now();
   try {
-    const { business, health, conversion, presence, traffic, now } = ctx;
-    const scores = assembleScores(
-      business,
-      health,
-      conversion,
-      presence,
-      traffic,
-      now,
-    );
+    const scores = assembleScores({
+      business: ctx.business,
+      health: ctx.health,
+      conversion: ctx.conversion,
+      presence: ctx.presence,
+      traffic: ctx.traffic,
+      design: ctx.design,
+      reputation: ctx.reputation,
+      seo: ctx.seo,
+      now: ctx.now,
+    });
+    const { health, conversion, presence, traffic, now } = ctx;
 
     const patch: UpdateAuditPatch = {
       ps_performance: health?.ps_performance ?? null,

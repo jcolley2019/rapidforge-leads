@@ -168,7 +168,7 @@ describe("template SEO summary + runSeo (fixture mode)", () => {
     expect(output.summary.local_fit_score_1_5).toBeLessThanOrEqual(2);
   });
 
-  it("scores the locally-targeted custom site high but never a hollow 5", async () => {
+  it("scores the fully-optimized local site a legitimate 5", async () => {
     const result = await runSeo({
       business: businessWith("1120 N Main St, Meridian, ID 83642", "plumber"),
       site: siteFor("snakeriverplumbing.com"),
@@ -176,7 +176,24 @@ describe("template SEO summary + runSeo (fixture mode)", () => {
       hasRobots: true,
     });
     const summary = result.output!.summary;
-    // Meta description is absent on this fixture, so 5 is unreachable.
+    // Title + meta description + H1 all present and locally targeted.
+    expect(summary.local_fit_score_1_5).toBe(5);
+    expect(summary.gaps).toEqual([]);
+  });
+
+  it("caps the score at 4 when the element set is incomplete (never a hollow 5)", async () => {
+    const site = siteFor("snakeriverplumbing.com");
+    const noMeta = {
+      ...site,
+      html: site.html.replace(/<meta name="description"[^>]*>/i, ""),
+    };
+    const result = await runSeo({
+      business: businessWith("1120 N Main St, Meridian, ID 83642", "plumber"),
+      site: noMeta,
+      hasSitemap: true,
+      hasRobots: true,
+    });
+    const summary = result.output!.summary;
     expect(summary.local_fit_score_1_5).toBe(4);
     expect(summary.gaps).toContain("Missing meta description");
   });

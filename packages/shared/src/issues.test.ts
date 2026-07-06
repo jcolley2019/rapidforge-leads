@@ -22,6 +22,15 @@ function healthyInputs(overrides: Partial<IssueInputs> = {}): IssueInputs {
     hasSchemaMarkup: true,
     hasCruxData: true,
     napConsistent: true,
+    // Sprint 6 agents — healthy defaults.
+    designModernity: 82,
+    designFeelsLikeYear: 2026,
+    googleRating: 4.7,
+    reviewCount: 120,
+    seoLocalFitScore: 4,
+    seoHasTitle: true,
+    seoHasMetaDescription: true,
+    seoHasSitemap: true,
     ...overrides,
   };
 }
@@ -162,9 +171,98 @@ describe("buildIssues thresholds", () => {
         copyrightYear: null,
         hasCruxData: null,
         napConsistent: null,
+        designModernity: null,
+        designFeelsLikeYear: null,
+        googleRating: null,
+        reviewCount: null,
+        seoLocalFitScore: null,
+        seoHasTitle: null,
+        seoHasMetaDescription: null,
+        seoHasSitemap: null,
       }),
     );
     expect(issues).toEqual([]);
+  });
+
+  it("flags dated design with the feels-like year (Sprint 6, PRD 6.8)", () => {
+    expect(
+      buildIssues(
+        healthyInputs({ designModernity: 25, designFeelsLikeYear: 2010 }),
+      ),
+    ).toContainEqual(
+      expect.objectContaining({
+        severity: "high",
+        label: "Site design looks dated — feels like 2010",
+        detail: "Design modernity 25/100",
+      }),
+    );
+    expect(
+      buildIssues(healthyInputs({ designModernity: 52 })),
+    ).toContainEqual(
+      expect.objectContaining({
+        severity: "medium",
+        label: "Site design is behind current standards",
+      }),
+    );
+    expect(
+      buildIssues(healthyInputs({ designModernity: 60 })).filter((i) =>
+        i.label.startsWith("Site design"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("flags poor rating and thin review volume (Sprint 6, PRD 6.9)", () => {
+    expect(
+      buildIssues(healthyInputs({ googleRating: 3.1, reviewCount: 40 })),
+    ).toContainEqual(
+      expect.objectContaining({
+        severity: "high",
+        label: "Google rating is 3.1 — reputation is hurting conversions",
+      }),
+    );
+    expect(
+      buildIssues(healthyInputs({ reviewCount: 4 })),
+    ).toContainEqual(
+      expect.objectContaining({
+        severity: "medium",
+        label: "Only 4 Google reviews",
+      }),
+    );
+    // A poor rating on 5 reviews is a volume problem, not a rating verdict.
+    expect(
+      buildIssues(
+        healthyInputs({ googleRating: 2.8, reviewCount: 5 }),
+      ).filter((i) => i.label.startsWith("Google rating")),
+    ).toEqual([]);
+  });
+
+  it("flags SEO gaps (Sprint 6, PRD 6.10)", () => {
+    expect(buildIssues(healthyInputs({ seoHasTitle: false }))).toContainEqual(
+      expect.objectContaining({
+        severity: "high",
+        label: "Homepage is missing a <title> tag",
+      }),
+    );
+    expect(
+      buildIssues(healthyInputs({ seoHasMetaDescription: false })),
+    ).toContainEqual(
+      expect.objectContaining({
+        severity: "medium",
+        label: "Homepage has no meta description",
+      }),
+    );
+    expect(
+      buildIssues(healthyInputs({ seoLocalFitScore: 2 })),
+    ).toContainEqual(
+      expect.objectContaining({
+        severity: "medium",
+        label: "Weak local SEO targeting",
+        detail: "Local keyword fit 2/5",
+      }),
+    );
+    expect(buildIssues(healthyInputs({ seoHasSitemap: false }))).toContainEqual(
+      expect.objectContaining({ severity: "low", label: "No sitemap.xml" }),
+    );
   });
 
   it("flags NAP mismatch and missing CrUX", () => {

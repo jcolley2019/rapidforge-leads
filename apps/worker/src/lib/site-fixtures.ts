@@ -39,6 +39,7 @@ export const SITE_FIXTURES: Readonly<Record<string, SiteFixture>> = {
     html: `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Snake River Plumbing Co | Meridian ID Plumber</title>
+<meta name="description" content="Licensed Meridian plumbers — 24/7 emergency plumbing, drain cleaning, and water heater service across the Treasure Valley.">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"LocalBusiness","name":"Snake River Plumbing Co","telephone":"(208) 555-0101","address":{"streetAddress":"1120 N Main St","addressLocality":"Meridian","addressRegion":"ID","postalCode":"83642"}}</script>
 </head><body>
 <header><a class="btn btn-primary" href="tel:+12085550101">Call (208) 555-0101</a>
@@ -282,6 +283,7 @@ Copyright 2013 Meridian Water Heater Repair. All rights reserved.</font>
     html: `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Precision Plumbing Idaho | Boise Plumbers</title>
+<meta name="description" content="Boise's highest-rated plumbing team — same-day service, upfront pricing, licensed and insured.">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Plumber","name":"Precision Plumbing Idaho","telephone":"(208) 555-0125","address":{"streetAddress":"980 S Capitol Blvd","addressLocality":"Boise","addressRegion":"ID","postalCode":"83702"}}</script>
 </head><body>
 <header><a href="tel:+12085550125" class="cta">Call (208) 555-0125</a>

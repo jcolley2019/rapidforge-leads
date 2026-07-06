@@ -129,12 +129,21 @@ describe("audit pipeline on fixture data", () => {
     ).toBeUndefined(); // no more "est"
     expect(lead.audit?.issues ?? []).toEqual([]); // nothing wrong
 
-    // agent_runs: filter + health + conversion + presence + traffic + scorer
+    // agent_runs: filter + the seven-agent fan-out (S6 adds design/
+    // reputation/seo) + scorer.
     const detail = await harness.store.getSearchDetail(harness.search.id);
     const agents = detail!.agent_states.map((r) => r.agent_name).sort();
-    expect(agents).toEqual(
-      ["conversion", "filter", "health", "presence", "scorer", "traffic"],
-    );
+    expect(agents).toEqual([
+      "conversion",
+      "design",
+      "filter",
+      "health",
+      "presence",
+      "reputation",
+      "scorer",
+      "seo",
+      "traffic",
+    ]);
     expect(detail!.agent_states.every((r) => r.status === "completed")).toBe(
       true,
     );
