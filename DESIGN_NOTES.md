@@ -55,28 +55,82 @@
 the live CSS; same backgrounds as core. In RapidForge this is the
 `.dense-surface` scope for dark-mode tables/feeds (see §4).
 
+## 0.1 RapidForge product-UI refinements (S6, 2026-07-05 — Joey's review of v3)
+
+The §0 tables above remain the canonical **brand** record. The product UI
+diverges from it in two deliberate ways as of Sprint 6:
+
+### Dark accent, brightened one step for UI legibility
+
+| Role | Was (brand) | Now (product UI) | Contrast on `#0a0a0f` / `#0c1020` |
+|---|---|---|---|
+| Primary | `#1a8fff` | **`#3da0ff`** (hsl 209 100% 62%) | 7.2:1 / 6.9:1 (was 6.0 / 5.8) |
+| Primary hover | `#3da0ff` | **`#66b5ff`** (hsl 209 100% 70%) | 9.1:1 / 8.7:1 |
+
+`#3da0ff` was chosen from the tested `#2e9bff–#4dabff` range (6.8:1 → 8.1:1
+on canvas): it's the strongest step up that is already a documented brand
+value (the old hover), so the palette stays coherent — the UI primary is
+the brand's hover tone, and one new lighter hover (`#66b5ff`, same
+209/100% hue-sat axis) is minted above it. **The logotype and
+marketing-strength elements may keep `#1a8fff`** (the TopBar logotype is
+foreground-colored and unaffected; map overlay pin/circle stays `#1a8fff`,
+which reads better on the pale default basemap).
+
+### Light mode: neutral gray + blue (cream/gold retired)
+
+The luxe gold/cream system is **retired from the product UI entirely** (it
+remains a joeyc.ai brand asset). Light mode is now a neutral gray canvas
+with white cards and the SAME blue family as dark, using the deeper brand
+tones where contrast on white demands it:
+
+| Role | Hex | Notes |
+|---|---|---|
+| Background | `#f3f4f6` | soft gray canvas — deliberately not bright white |
+| Card | `#ffffff` | white cards on gray |
+| Secondary / muted fill | `#f3f4f6` | fills inside white cards match the canvas |
+| Raised / hover fill | `#e5e7eb` | |
+| Text primary | `#1e293b` | dark slate |
+| Text secondary | `#475569` | 7.6:1 on white |
+| Border | `#d1d5db` | gray; borders still carry the structure |
+| Border hover / emphasis | `#9ca3af` | |
+| Primary | `#1a8fff` | deeper brand blue holds on white (buttons, active nav, rings) |
+| Primary hover | `#0077e6` | hover darkens on light (same 209/100% axis) |
+| Deep accent | `#0a3aad` | small accent text on white where 4.5:1+ is required (9.5:1) |
+| Status | `#22c55e` / `#ef4444` / `#eab308` | unchanged functional semantics |
+
+No gold anywhere. Glass fill stays white/0.88; glass border and shadows are
+slate-tinted (`#0f172a`-based rgba) instead of espresso; the ambient wash is
+a faint blue radial instead of gold.
+
 ---
 
-# RapidForge visual language v3 — JoeyC brand (S5.5, 2026-07-05)
+# RapidForge visual language v3.1 — JoeyC brand (S5.5 rebrand + S6 refinements, 2026-07-05)
 
 > Supersedes v2 "Glass". Governs every view. The product wears the JoeyC
-> brand: electric-blue dark by default, luxe cream/gold light, bordered
-> containers, glass only where something truly floats.
+> brand: electric-blue dark by default, neutral gray + blue light (§0.1),
+> bordered containers, glass only where something truly floats.
 
 ## 1. Color
 
-- Tokens are the §0 palette, exactly — CSS vars in `apps/web/src/index.css`
-  as HSL triplets (exact conversions of the brand hexes).
+- Tokens are the §0 palette as refined by §0.1 — CSS vars in
+  `apps/web/src/index.css` as HSL triplets (exact conversions of the
+  documented hexes).
 - **Dark (default):** `#0a0a0f` canvas · `#0c1020` cards · 1px blue-tinted
   borders (`#0f1a33` base, `#1a3366` emphasis/hover) · text `#e8edf5` /
-  `#8892a4` · accent `#1a8fff` (hover `#3da0ff`). The accent does ALL
+  `#8892a4` · accent `#3da0ff` (hover `#66b5ff`) — brightened one step from
+  the `#1a8fff` brand blue for UI legibility (§0.1); the logotype and
+  marketing-strength elements may keep `#1a8fff`. The accent does ALL
   accent work: primary buttons, active nav, focus rings, live pulses,
   hot-lead badges.
-- **Light (luxe):** `#faf6f0` canvas · **white** cards (guide permits white
-  or `#f5efe6`; white wins for data contrast — `#f5efe6` serves as
-  secondary/muted fills, `#ede5d8` as hover/accent fills) · `#d4c5a9`
-  borders · espresso text `#1a1008` / `#3d2b1f` · old-gold primary
-  `#b8860b` (hover `#d4a017`).
+- **Light (neutral gray + blue, S6):** `#f3f4f6` soft gray canvas
+  (deliberately not bright white) · **white** cards · `#d1d5db` gray
+  borders (`#9ca3af` emphasis/hover) · dark slate text `#1e293b` /
+  `#475569` · the same blue family as dark using the deeper brand tones —
+  primary `#1a8fff` (hover `#0077e6`), `#0a3aad` for small accent text
+  where contrast on white demands it. `#f3f4f6` serves as secondary/muted
+  fills inside white cards, `#e5e7eb` as hover/raised fills. **No gold
+  anywhere** — the luxe cream/gold system is retired from the product UI
+  (§0.1).
 - **Status (both themes, per guide):** success `#22c55e` · error `#ef4444`
   · warning `#eab308`. These are functional semantics, never palette.
 - **Dense data surfaces (dark only):** the `.dense-surface` scope flips
