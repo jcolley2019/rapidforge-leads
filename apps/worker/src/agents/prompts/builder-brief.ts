@@ -61,7 +61,7 @@ Output PASTE-READY MARKDOWN ONLY — no JSON, no code fences around the whole re
 
 Client stack: Vite + React + Tailwind + shadcn/ui (a fast static marketing site).
 
-Use exactly these H2 sections, in this order, each with real content (no placeholders, no "[INSERT ...]", no "{business_name}" tokens, no lorem ipsum):
+You MUST output ALL TWELVE of the H2 sections below, verbatim and in this exact order. Never merge, rename, skip, reorder, or combine them — every one must appear under its own \`## \` header with real content (no placeholders, no "[INSERT ...]", no "{business_name}" tokens, no lorem ipsum). Even a short section must still appear under its header. The twelve headers are:
 
 ## Project overview
 ## Business details
@@ -84,7 +84,7 @@ Use exactly these H2 sections, in this order, each with real content (no placeho
 (hero image prompt, icons)
 ## Deploy instructions
 
-Keep the whole brief under 2000 words.`;
+Before you finish, re-read your output and confirm all twelve \`## \` headers above are present, in order — if any is missing, add it. Keep the whole brief under 2000 words: be concise within each section rather than dropping any section.`;
 
 export function buildBuilderBriefPrompt(
   facts: AuditFacts,

@@ -8,7 +8,11 @@ import {
   placeholdersIn,
 } from "./guardrails/builder-brief";
 import { buildAuditFacts } from "./money-facts";
-import { deriveKeywords, parseCity } from "./prompts/builder-brief";
+import {
+  BRIEF_SECTIONS,
+  deriveKeywords,
+  parseCity,
+} from "./prompts/builder-brief";
 import { resolveConfigVars } from "./prompts/config-vars";
 
 function makeBusiness(overrides: Partial<Business> = {}): Business {
@@ -138,6 +142,15 @@ describe("buildTemplateBrief", () => {
     expect(countWords(md)).toBeLessThan(2000);
     expect(md).toContain("Boise Drain Pros");
     expect(md).toContain("## AEO requirements");
+  });
+
+  it("emits every one of the 12 PRD sections under its own H2 header", () => {
+    const md = templateBrief();
+    expect(BRIEF_SECTIONS).toHaveLength(12);
+    for (const section of BRIEF_SECTIONS) {
+      expect(md).toContain(`## ${section}`);
+    }
+    expect(missingSections(md)).toEqual([]);
   });
 });
 
