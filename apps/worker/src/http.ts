@@ -14,6 +14,10 @@ import {
   type WorkspaceConfig,
 } from "@rapidforge/shared";
 import { aiSummaryMode } from "./lib/ai";
+import {
+  FIXTURE_SCREENSHOT_DIR,
+  FIXTURE_SCREENSHOT_ROUTE,
+} from "./lib/screenshots";
 import { createRequireSupabaseJwt } from "./middleware/auth";
 import type { OrchestratorDeps } from "./orchestrator";
 import { POLL_INTERVAL_MS, type QueuePoller } from "./queue";
@@ -47,6 +51,13 @@ export function createApp(
   const app = express();
   app.use(express.json());
 
+  // Fixture screenshots (Sprint 6) — fixture-mode audits store relative URLs
+  // under this route; the web client resolves them against its API base.
+  app.use(
+    FIXTURE_SCREENSHOT_ROUTE,
+    express.static(FIXTURE_SCREENSHOT_DIR, { maxAge: "1h" }),
+  );
+
   app.get("/health", (_req, res) => {
     res.json({
       ok: true,
@@ -60,6 +71,8 @@ export function createApp(
       psi_mode: deps.psi.mode,
       site_mode: deps.site.mode,
       ai_mode: aiSummaryMode(),
+      screenshot_capture_mode: deps.screenshotCapturer.mode,
+      screenshot_storage_mode: deps.screenshotStorage.mode,
     });
   });
 

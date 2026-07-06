@@ -15,6 +15,10 @@ import { aiSummaryMode } from "./lib/ai";
 import { createPlacesClient } from "./lib/places";
 import { createWebProbe } from "./lib/probe";
 import { createPsiClient } from "./lib/psi";
+import {
+  createScreenshotCapturer,
+  createScreenshotStorage,
+} from "./lib/screenshots";
 import { createSiteFetcher } from "./lib/site";
 import type { OrchestratorDeps } from "./orchestrator";
 import { startQueuePoller } from "./queue";
@@ -29,6 +33,8 @@ const deps: OrchestratorDeps = {
   probe: createWebProbe(),
   psi: createPsiClient(),
   site: createSiteFetcher(),
+  screenshotCapturer: createScreenshotCapturer(),
+  screenshotStorage: createScreenshotStorage(),
 };
 console.log(
   `[ai] summary mode: ${aiSummaryMode()}${aiSummaryMode() === "template" ? " — ANTHROPIC_API_KEY absent; Sonnet summaries are deterministic templates" : ""}`,

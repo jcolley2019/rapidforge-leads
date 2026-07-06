@@ -10,6 +10,10 @@ import type { Business, Job, Search, UsageEvent } from "@rapidforge/shared";
 import { FixturePlacesClient } from "./lib/places/fixture-client";
 import { FixtureWebProbe } from "./lib/probe";
 import { FixturePsiClient } from "./lib/psi";
+import {
+  FixtureScreenshotCapturer,
+  FixtureScreenshotStorage,
+} from "./lib/screenshots";
 import { FixtureSiteFetcher } from "./lib/site";
 import { handleJob, type OrchestratorDeps } from "./orchestrator";
 import { DEV_USER_ID, DEV_WORKSPACE_ID } from "./store/types";
@@ -37,6 +41,8 @@ async function makeHarness(): Promise<Harness> {
     probe: new FixtureWebProbe(),
     psi: new FixturePsiClient(),
     site: new FixtureSiteFetcher(),
+    screenshotCapturer: new FixtureScreenshotCapturer(),
+    screenshotStorage: new FixtureScreenshotStorage(),
   };
   const search = await store.createSearch({
     workspace_id: DEV_WORKSPACE_ID,
@@ -163,6 +169,14 @@ describe("audit pipeline on fixture data", () => {
     );
     expect((audit.score_breakdown as { badge?: string }).badge).toBe(
       "Builder site",
+    );
+
+    // Sprint 6: the fixture screenshot pipeline stored both viewport URLs.
+    expect(audit.screenshot_desktop_url).toBe(
+      "/fixtures/screenshots/boisedrainpros-wixsite-com-desktop.jpg",
+    );
+    expect(audit.screenshot_mobile_url).toBe(
+      "/fixtures/screenshots/boisedrainpros-wixsite-com-mobile.jpg",
     );
   });
 

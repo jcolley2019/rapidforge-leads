@@ -27,6 +27,12 @@ import { broadcastAgentEvent } from "./events";
 import type { PlacesClient } from "./lib/places";
 import type { WebProbe } from "./lib/probe";
 import type { PsiClient, PsiStrategy } from "./lib/psi";
+import {
+  screenshotSlug,
+  type ScreenshotCapturer,
+  type ScreenshotStorage,
+  type ScreenshotUrls,
+} from "./lib/screenshots";
 import type { SiteFetcher } from "./lib/site";
 import type { DataStore } from "./store";
 
@@ -50,6 +56,9 @@ export interface OrchestratorDeps {
   probe: WebProbe;
   psi: PsiClient;
   site: SiteFetcher;
+  /** Sprint 6: homepage screenshot capture + storage (PRD 6.8 inputs). */
+  screenshotCapturer: ScreenshotCapturer;
+  screenshotStorage: ScreenshotStorage;
 }
 
 /** jobs.payload shape for 'scout' and 'audit_business' jobs. */
@@ -202,11 +211,22 @@ async function runAuditPipeline(
     });
     return metrics;
   };
-  const [site, psiMobile, psiDesktop] = await Promise.all([
+  const [site, psiMobile, psiDesktop, screenshots] = await Promise.all([
     deps.site.fetchHomepage(url),
     runPsiLogged("mobile"),
     runPsiLogged("desktop"),
+    deps.screenshotCapturer.capture(url),
   ]);
+  // Store before the agent fan-out so the drawer's Screenshots tab has URLs
+  // even if a later agent fails. Null anywhere = screenshots stay null.
+  const screenshotUrls: ScreenshotUrls | null = screenshots
+    ? await deps.screenshotStorage.store(
+        business.id,
+        auditId,
+        screenshots,
+        screenshotSlug(url),
+      )
+    : null;
 
   const runCtx = { job, search };
   const [health, conversion, presence, traffic] = await Promise.all([
@@ -242,6 +262,7 @@ async function runAuditPipeline(
         conversion: conversion.output,
         presence: presence.output,
         traffic: traffic.output,
+        screenshotUrls,
         now,
       }),
   );

@@ -22,6 +22,7 @@ import {
   type Business,
   type Issue,
 } from "@rapidforge/shared";
+import type { ScreenshotUrls } from "../lib/screenshots";
 import type { DataStore, UpdateAuditPatch } from "../store";
 import type { ConversionOutput } from "./conversion";
 import type { HealthOutput } from "./health";
@@ -37,6 +38,8 @@ export interface ScorerContext {
   conversion: ConversionOutput | null;
   presence: PresenceOutput | null;
   traffic: TrafficOutput | null;
+  /** Sprint 6: stored screenshot URLs (null = capture/storage unavailable). */
+  screenshotUrls: ScreenshotUrls | null;
   /** Injected for determinism. */
   now: Date;
 }
@@ -187,6 +190,8 @@ export async function runScorer(
       has_schema_markup: conversion?.has_schema_markup ?? null,
       gbp_photo_count: presence?.gbp_photo_count ?? null,
       has_crux_data: traffic?.has_crux_data ?? null,
+      screenshot_desktop_url: ctx.screenshotUrls?.desktop_url ?? null,
+      screenshot_mobile_url: ctx.screenshotUrls?.mobile_url ?? null,
       website_health_score: scores.healthScore,
       star_grade: scores.starGrade,
       sellability_score: scores.sellabilityScore,

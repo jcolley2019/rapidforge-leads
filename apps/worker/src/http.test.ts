@@ -11,6 +11,10 @@ import { createApp } from "./http";
 import { FixturePlacesClient } from "./lib/places/fixture-client";
 import { FixtureWebProbe } from "./lib/probe";
 import { FixturePsiClient } from "./lib/psi";
+import {
+  FixtureScreenshotCapturer,
+  FixtureScreenshotStorage,
+} from "./lib/screenshots";
 import { FixtureSiteFetcher } from "./lib/site";
 import type { OrchestratorDeps } from "./orchestrator";
 import type { QueuePoller } from "./queue";
@@ -34,6 +38,8 @@ function makeDeps(s: MemoryStore): OrchestratorDeps {
     probe: new FixtureWebProbe(),
     psi: new FixturePsiClient(),
     site: new FixtureSiteFetcher(),
+    screenshotCapturer: new FixtureScreenshotCapturer(),
+    screenshotStorage: new FixtureScreenshotStorage(),
   };
 }
 

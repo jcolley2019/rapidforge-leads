@@ -117,6 +117,9 @@ export interface UpdateAuditPatch {
   has_schema_markup?: boolean | null;
   gbp_photo_count?: number | null;
   has_crux_data?: boolean | null;
+  /** Sprint 6: absolute (Supabase) or relative (fixture-static) URLs. */
+  screenshot_desktop_url?: string | null;
+  screenshot_mobile_url?: string | null;
   website_health_score?: number | null;
   star_grade?: number | null;
   sellability_score?: number | null;
