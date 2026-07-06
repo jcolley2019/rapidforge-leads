@@ -1,7 +1,7 @@
 /**
- * Sprint 7 LIVE smoke — the money agents' real model paths on ONE fixture
- * lead (a dated Wix plumber). Analyst + Builder Brief run on Fable 5 (with
- * the refusal→Opus retry); Sales Summary on Sonnet.
+ * LIVE money smoke — the money agents' real model paths on ONE fixture lead
+ * (a dated Wix plumber). Analyst + Builder Brief run on **Opus 4.8** at effort
+ * "low" (Sprint 8 — Fable-independent); Sales Summary on Sonnet.
  *
  *   npx tsx scripts/money-smoke.ts
  *
@@ -119,7 +119,7 @@ async function main() {
 
   let spent = 0;
 
-  console.log(`\n=== Analyst (Fable 5) — ${business.name} ===`);
+  console.log(`\n=== Analyst (Opus 4.8) — ${business.name} ===`);
   const analyst = await runAnalyst({ business, audit, config: null });
   spent += analyst.costCents;
   if (analyst.output) {
@@ -157,7 +157,7 @@ async function main() {
   }
 
   if (spent < CAP_CENTS) {
-    console.log(`\n=== Builder Brief (Fable 5) — ${business.name} ===`);
+    console.log(`\n=== Builder Brief (Opus 4.8) — ${business.name} ===`);
     const brief = await runBuilderBrief({
       business,
       audit: auditWithAnalyst,
