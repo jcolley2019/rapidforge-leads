@@ -370,7 +370,9 @@ async function main() {
   );
   await shot("map");
 
-  // ---- 7. Light mode: luxe canvas + the same five screenshots ------------
+  // ---- 7. Light mode: neutral gray canvas (S6 palette) + the same five
+  // screenshots. S5.5 shipped luxe cream #faf6f0; Joey's S6 review replaced
+  // it with the gray+blue system (DESIGN_NOTES §0.1) — #f3f4f6 canvas.
   await page.evaluate(() => {
     const btn = [...document.querySelectorAll("header button")].find(
       (b) => b.getAttribute("aria-label") === "Toggle theme",
@@ -378,10 +380,14 @@ async function main() {
     btn?.click();
   });
   await sleep(500);
-  const luxe = await page.evaluate(
+  const lightCanvas = await page.evaluate(
     () => getComputedStyle(document.body).backgroundColor,
   );
-  record("light mode canvas is luxe #faf6f0", luxe === "rgb(250, 246, 240)", luxe);
+  record(
+    "light mode canvas is neutral gray #f3f4f6 (S6)",
+    lightCanvas === "rgb(243, 244, 246)",
+    lightCanvas,
+  );
   await shot("map");
   await clickNav("Dashboard");
   await shot("dashboard");

@@ -64,11 +64,11 @@
     --card-foreground: 217 39% 94%;
     --popover: 227 47% 6%; /* #080b16 section — solid overlay base */
     --popover-foreground: 217 39% 94%;
-    --primary: 209 100% 62%; /* #3da0ff — brightened one step for dark-UI
-       legibility (7.2:1 on canvas, 6.9:1 on card; #1a8fff measured 6.0/5.8).
-       The logotype keeps #1a8fff (marketing-strength brand blue). */
+    --primary: 209.4 100% 62%; /* #3da0ff exactly — brightened one step for
+       dark-UI legibility (7.2:1 on canvas, 6.9:1 on card; #1a8fff measured
+       6.0/5.8). The logotype keeps #1a8fff (marketing-strength brand blue). */
     --primary-foreground: 0 0% 100%;
-    --primary-hover: 209 100% 70%; /* #66b5ff */
+    --primary-hover: 209 100% 70%; /* #66b5ff exactly */
     --secondary: 227 47% 8%;
     --secondary-foreground: 217 39% 94%;
     --muted: 227 47% 8%;
