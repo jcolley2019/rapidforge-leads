@@ -43,10 +43,11 @@ export interface AiCallOptions {
   maxTokens?: number;
   /**
    * Fable 5 adaptive-thinking effort — controls cost, not a temperature.
-   * NOT forwarded yet: AI Core v0.2 has no output_config support (Sprint 0
-   * item in that repo, needed before the Sprint 7 Analyst).
+   * Forwarded to AI Core as output_config.effort (v0.3.0+); the Anthropic
+   * adapter emits it and leaves temperature unset for the thinking model.
+   * Inert for Sonnet/Haiku, which ignore output_config.
    */
-  effort?: "low" | "medium" | "high";
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
 }
 
 export interface AiCallResult {
@@ -124,6 +125,7 @@ export async function callModel(options: AiCallOptions): Promise<AiCallResult> {
       messages: buildMessages(options),
       model,
       maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+      ...(options.effort ? { outputConfig: { effort: options.effort } } : {}),
     });
     const inputTokens = response.usage?.inputTokens ?? 0;
     const outputTokens = response.usage?.outputTokens ?? 0;
@@ -194,6 +196,8 @@ export interface SummarySpec<T> {
   /** Vision inputs forwarded to callModel (Design agent, PRD 6.8). */
   images?: AiImage[];
   maxTokens?: number;
+  /** Fable 5 adaptive-thinking effort forwarded to callModel (Analyst/Brief). */
+  effort?: AiCallOptions["effort"];
   /** Zod-parse the model's strict-JSON reply (CLAUDE.md 6.1). */
   parse: (raw: string) => T;
   guardrail: (value: T) => GuardrailResult;
@@ -257,6 +261,7 @@ export async function generateJsonSummary<T>(
         prompt: spec.prompt,
         ...(spec.images ? { images: spec.images } : {}),
         ...(spec.maxTokens ? { maxTokens: spec.maxTokens } : {}),
+        ...(spec.effort ? { effort: spec.effort } : {}),
       });
     } catch (err) {
       lastFailure = `AI call failed: ${err instanceof Error ? err.message : String(err)}`;
