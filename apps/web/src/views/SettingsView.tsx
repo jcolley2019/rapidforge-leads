@@ -266,7 +266,7 @@ export function SettingsView() {
               onChange={(e) =>
                 updateDefaults(Number(e.target.value), defaultCategory)
               }
-              className="w-full accent-[#00d9ff]"
+              className="w-full accent-[hsl(var(--primary))]"
             />
           </div>
           <div className="space-y-2">

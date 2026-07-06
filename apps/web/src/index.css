@@ -3,99 +3,107 @@
 @tailwind utilities;
 
 /*
- * RapidForge visual language v2 — "Glass" (DESIGN_NOTES.md, Sprint 4).
- * Apple-style modern product: generous whitespace, frosted surfaces, soft
- * depth, cyan #00d9ff as the single accent. Dark default, light toggle.
+ * RapidForge visual language v3 — JoeyC brand (DESIGN_NOTES.md §0, S5.5).
+ * Dark default: #0a0a0f canvas, #0c1020 cards, blue-tinted 1px borders,
+ * electric blue #1a8fff as the single accent. Light = luxe cream/gold.
+ * Every content region sits in a bordered card; glass lives ONLY on
+ * overlays (drawer, cmd-K). HSL triplets below are exact conversions of
+ * the brand hex values documented in DESIGN_NOTES §0.
  */
 @layer base {
   :root {
-    --background: 220 30% 97%;
-    --foreground: 228 25% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 228 25% 10%;
+    /* Luxe light (brand guide) — cream canvas, white cards, old gold. */
+    --background: 36 50% 96%; /* #faf6f0 */
+    --foreground: 27 53% 7%; /* #1a1008 */
+    --card: 0 0% 100%; /* white cards on cream (guide allows either) */
+    --card-foreground: 27 53% 7%;
     --popover: 0 0% 100%;
-    --popover-foreground: 228 25% 10%;
-    --primary: 191 100% 34%;
+    --popover-foreground: 27 53% 7%;
+    --primary: 43 89% 38%; /* #b8860b old gold */
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 20% 93%;
-    --secondary-foreground: 228 25% 10%;
-    --muted: 220 20% 93%;
-    --muted-foreground: 220 12% 42%;
-    --accent: 220 20% 91%;
-    --accent-foreground: 228 25% 10%;
-    --destructive: 0 72% 48%;
+    --secondary: 36 43% 93%; /* #f5efe6 luxe card */
+    --secondary-foreground: 27 53% 7%;
+    --muted: 36 43% 93%;
+    --muted-foreground: 24 33% 18%; /* #3d2b1f */
+    --accent: 37 37% 89%; /* #ede5d8 luxe section */
+    --accent-foreground: 27 53% 7%;
+    --destructive: 0 84% 60%; /* #ef4444 */
     --destructive-foreground: 0 0% 100%;
-    --border: 220 16% 88%;
-    --input: 220 16% 85%;
-    --ring: 191 100% 34%;
+    --border: 39 33% 75%; /* #d4c5a9 */
+    --input: 39 33% 75%;
+    --ring: 43 89% 38%;
     --radius: 0.75rem;
-    --agent-active: 191 100% 34%;
-    --agent-waiting: 38 92% 47%;
-    --agent-complete: 142 70% 37%;
-    --agent-error: 0 84% 52%;
-    /* Glass recipe (light) */
-    --glass-fill: 0 0% 100% / 0.65;
-    --glass-border: 228 25% 10% / 0.06;
-    --shadow-card:
-      0 1px 2px rgba(16, 24, 40, 0.05), 0 8px 24px rgba(16, 24, 40, 0.08);
+    --agent-active: 43 89% 38%; /* gold in luxe mode */
+    --agent-waiting: 45 93% 47%; /* #eab308 */
+    --agent-complete: 142 71% 45%; /* #22c55e */
+    --agent-error: 0 84% 60%; /* #ef4444 */
+    /* Glass recipe — OVERLAYS ONLY (drawer, cmd-K). */
+    --glass-fill: 0 0% 100% / 0.88;
+    --glass-border: 27 53% 7% / 0.1;
+    --shadow-card: 0 1px 2px rgba(26, 16, 8, 0.05);
     --shadow-float:
-      0 2px 4px rgba(16, 24, 40, 0.06), 0 16px 48px rgba(16, 24, 40, 0.14);
-    /* Ambient background the glass refracts */
+      0 2px 4px rgba(26, 16, 8, 0.06), 0 16px 48px rgba(26, 16, 8, 0.16);
+    --ambient: radial-gradient(
+      60rem 40rem at 12% -10%,
+      hsl(43 89% 38% / 0.05),
+      transparent 60%
+    );
+  }
+
+  .dark {
+    /* Core brand dark (default). */
+    --background: 240 20% 5%; /* #0a0a0f */
+    --foreground: 217 39% 94%; /* #e8edf5 */
+    --card: 228 45% 9%; /* #0c1020 */
+    --card-foreground: 217 39% 94%;
+    --popover: 227 47% 6%; /* #080b16 section — solid overlay base */
+    --popover-foreground: 217 39% 94%;
+    --primary: 209 100% 55%; /* #1a8fff electric blue */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 227 47% 8%;
+    --secondary-foreground: 217 39% 94%;
+    --muted: 227 47% 8%;
+    --muted-foreground: 219 13% 59%; /* #8892a4 */
+    --accent: 222 55% 13%; /* #0f1a33 as a raised fill */
+    --accent-foreground: 217 39% 94%;
+    --destructive: 0 84% 60%; /* #ef4444 */
+    --destructive-foreground: 0 0% 98%;
+    --border: 222 55% 13%; /* #0f1a33 */
+    --input: 220 59% 19%;
+    --ring: 209 100% 55%;
+    --agent-active: 209 100% 55%; /* electric blue */
+    --agent-waiting: 45 93% 47%; /* #eab308 */
+    --agent-complete: 142 71% 45%; /* #22c55e */
+    --agent-error: 0 84% 60%; /* #ef4444 */
+    /* Glass recipe — OVERLAYS ONLY. */
+    --glass-fill: 228 45% 9% / 0.86;
+    --glass-border: 220 59% 25% / 0.55;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-float:
+      0 2px 8px rgba(0, 0, 0, 0.45), 0 16px 60px rgba(0, 0, 0, 0.55);
     --ambient:
       radial-gradient(
         60rem 40rem at 12% -10%,
-        hsl(191 100% 40% / 0.07),
+        hsl(209 100% 55% / 0.04),
         transparent 60%
       ),
       radial-gradient(
         50rem 36rem at 100% 110%,
-        hsl(224 60% 50% / 0.06),
+        hsl(222 89% 36% / 0.04),
         transparent 60%
       );
   }
 
-  .dark {
-    --background: 228 20% 5%;
-    --foreground: 220 25% 94%;
-    --card: 228 16% 9%;
-    --card-foreground: 220 25% 94%;
-    --popover: 228 16% 8%;
-    --popover-foreground: 220 25% 94%;
-    --primary: 189 100% 50%; /* #00d9ff */
-    --primary-foreground: 228 30% 8%;
-    --secondary: 226 15% 13%;
-    --secondary-foreground: 220 25% 94%;
-    --muted: 226 15% 13%;
-    --muted-foreground: 220 12% 60%;
-    --accent: 226 15% 15%;
-    --accent-foreground: 220 25% 94%;
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 224 14% 16%;
-    --input: 224 14% 18%;
-    --ring: 189 100% 50%;
-    --agent-active: 189 100% 50%;
-    --agent-waiting: 38 92% 55%;
-    --agent-complete: 142 70% 45%;
-    --agent-error: 0 84% 60%;
-    /* Glass recipe (dark) */
-    --glass-fill: 228 16% 9% / 0.55;
-    --glass-border: 0 0% 100% / 0.08;
-    --shadow-card:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 30px rgba(0, 0, 0, 0.35);
-    --shadow-float:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 16px 60px rgba(0, 0, 0, 0.5);
-    --ambient:
-      radial-gradient(
-        60rem 40rem at 12% -10%,
-        hsl(189 100% 50% / 0.05),
-        transparent 60%
-      ),
-      radial-gradient(
-        50rem 36rem at 100% 110%,
-        hsl(224 70% 40% / 0.04),
-        transparent 60%
-      );
+  /*
+   * High-contrast text variant for dense data surfaces (DESIGN_NOTES §0,
+   * live-site page-scoped block). Dark mode only — light luxe text is
+   * already espresso-on-cream. Scope on a table/feed container.
+   */
+  .dark .dense-surface {
+    --foreground: 0 0% 100%; /* #ffffff */
+    --card-foreground: 0 0% 100%;
+    --muted-foreground: 215 20% 65%; /* #94a3b8 */
+    --border: 224 42% 20%; /* #1e2a4a */
   }
 
   * {
@@ -103,7 +111,7 @@
   }
 
   html {
-    /* Apple-ish standard easing for plain CSS transitions */
+    /* Standard easing for plain CSS transitions */
     --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
   }
 
@@ -120,19 +128,24 @@
 }
 
 @layer components {
-  /* Frosted surface — chrome + cards. Never nest more than one level. */
+  /*
+   * Solid bordered card — the standard content container (v3: nothing
+   * floats on bare canvas). Border does the separation; shadow is minimal.
+   */
+  .card-panel {
+    @apply rounded-2xl border border-border bg-card;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Frosted surface — OVERLAYS ONLY (drawer, cmd-K). */
   .glass {
     background-color: hsl(var(--glass-fill));
     border: 1px solid hsl(var(--glass-border));
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
   }
-  .glass-card {
-    @apply glass rounded-2xl;
-    box-shadow: var(--shadow-card);
-  }
 
-  /* Working-agent pulse: soft breathing ring + cyan glow (2s). */
+  /* Working-agent pulse: soft breathing ring + accent glow (2s). */
   .pulse-live {
     animation: pulse-live 2s var(--ease-standard) infinite;
   }

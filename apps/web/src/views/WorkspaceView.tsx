@@ -175,7 +175,7 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
 
       {/* Signature element: floating glass agent tab strip with live dots */}
       <div
-        className="glass-card flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full p-1.5"
+        className="card-panel flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full p-1.5"
         role="tablist"
         aria-label="Agents"
       >
@@ -316,7 +316,7 @@ function AgentSummaryCard({
       type="button"
       onClick={onOpen}
       className={cn(
-        "glass-card group flex flex-col items-start gap-1.5 p-3.5 text-left transition-transform duration-150 hover:-translate-y-0.5",
+        "card-panel group flex flex-col items-start gap-1.5 p-3.5 text-left transition-transform duration-150 hover:-translate-y-0.5",
         working && "pulse-live",
       )}
     >
@@ -377,7 +377,7 @@ function AgentDetail({
 
   return (
     <div className="space-y-4">
-      <div className="glass-card flex flex-wrap items-center gap-x-8 gap-y-3 p-5">
+      <div className="card-panel flex flex-wrap items-center gap-x-8 gap-y-3 p-5">
         <div className="flex items-center gap-3">
           <span
             className={cn(
@@ -427,7 +427,7 @@ function AgentDetail({
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={spring.snappy}
-                className="glass-card flex items-center gap-3 px-4 py-2.5"
+                className="card-panel flex items-center gap-3 px-4 py-2.5"
               >
                 <Icon
                   className={cn(
@@ -471,7 +471,7 @@ function AgentDetail({
           })}
         </AnimatePresence>
         {feed.length === 0 && (
-          <div className="glass-card px-4 py-10 text-center text-sm text-muted-foreground">
+          <div className="card-panel px-4 py-10 text-center text-sm text-muted-foreground">
             No activity yet — events appear here the moment {agent} starts
             working.
           </div>

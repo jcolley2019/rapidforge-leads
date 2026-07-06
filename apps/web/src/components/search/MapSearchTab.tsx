@@ -166,10 +166,10 @@ function LiveMap({
         radius: milesToMeters(radiusMiles),
         editable: true, // native resize handle on the circle edge
         draggable: true,
-        strokeColor: "#00d9ff",
+        strokeColor: "#1a8fff",
         strokeOpacity: 0.9,
         strokeWeight: 2,
-        fillColor: "#00d9ff",
+        fillColor: "#1a8fff",
         fillOpacity: 0.08,
       });
       circle.addListener("radius_changed", () => {
@@ -233,7 +233,7 @@ function LiveMap({
 
   if (loadError) {
     return (
-      <div className="glass-card space-y-2 p-6 text-sm">
+      <div className="card-panel space-y-2 p-6 text-sm">
         <p className="font-medium text-agent-error">Map failed to load</p>
         <p className="text-xs text-muted-foreground">{loadError}</p>
         <p className="text-xs text-muted-foreground">
@@ -245,7 +245,7 @@ function LiveMap({
 
   return (
     <div className="space-y-4">
-      <div className="glass-card relative overflow-hidden p-0">
+      <div className="card-panel relative overflow-hidden p-0">
         <div
           ref={containerRef}
           className="h-[440px] w-full"
@@ -258,7 +258,7 @@ function LiveMap({
           </div>
         )}
         {/* Live readout chip */}
-        <div className="glass pointer-events-none absolute left-4 top-4 rounded-xl px-3.5 py-2 font-mono text-xs">
+        <div className="pointer-events-none absolute left-4 top-4 rounded-xl border border-border bg-card/95 px-3.5 py-2 font-mono text-xs">
           {pin ? (
             <>
               <span className="text-primary">{radiusMiles} mi</span>
@@ -293,7 +293,7 @@ function LiveMap({
           step={0.5}
           value={radiusMiles}
           onChange={(e) => setRadiusMiles(clampRadiusMiles(Number(e.target.value)))}
-          className="w-full accent-[#00d9ff]"
+          className="w-full accent-[hsl(var(--primary))]"
         />
       </div>
 
@@ -325,7 +325,7 @@ function LiveMap({
 /** Graceful key-absent state (kickoff: never a broken map). */
 function MapKeyPlaceholder() {
   return (
-    <div className="glass-card flex flex-col items-center gap-3 px-8 py-14 text-center">
+    <div className="card-panel flex flex-col items-center gap-3 px-8 py-14 text-center">
       <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/40 bg-primary/10">
         <MapPin className="h-6 w-6 text-primary" aria-hidden />
       </span>

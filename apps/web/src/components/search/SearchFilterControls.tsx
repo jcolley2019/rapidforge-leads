@@ -156,7 +156,7 @@ export function SearchFilterControls({
               type="checkbox"
               checked={excludeChains}
               onChange={(e) => onExcludeChainsChange(e.target.checked)}
-              className="accent-[#00d9ff]"
+              className="accent-[hsl(var(--primary))]"
             />
             Exclude chains
           </label>

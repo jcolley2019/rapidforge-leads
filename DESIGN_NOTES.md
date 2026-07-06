@@ -52,91 +52,99 @@
 
 `text #ffffff · text-secondary #94a3b8 · border #1e2a4a · border-hover
 #2a3d6a` — a secondary dark block in both source `index.css` (l.493) and
-the live CSS; same backgrounds as core. Use only if the core dark text
-tokens prove too soft on dense data screens.
+the live CSS; same backgrounds as core. In RapidForge this is the
+`.dense-surface` scope for dark-mode tables/feeds (see §4).
 
 ---
 
-# RapidForge visual language v2 ("Glass") — pre-rebrand baseline below
+# RapidForge visual language v3 — JoeyC brand (S5.5, 2026-07-05)
 
-> Sprint 4, 2026-07-05. Supersedes PRD 7.1 per Joey's design-direction change.
-> Governs every view. Apple-style modern product: generous whitespace, frosted
-> glass, soft depth, one accent. Premium — marketable under RapidForgeAI.
+> Supersedes v2 "Glass". Governs every view. The product wears the JoeyC
+> brand: electric-blue dark by default, luxe cream/gold light, bordered
+> containers, glass only where something truly floats.
 
-## Reference points
-Linear (restraint, keyboard-first chrome), Vercel dashboard (quiet data
-density, mono numerics), Apple Settings/Music on macOS (frosted sidebars,
-soft depth, one accent doing all the accent work). Glassmorphism is used
-**structurally** — only on chrome that floats above content (top bar, rail,
-cards, tab strip) — never as decoration on content itself.
+## 1. Color
 
-## Color tokens (HSL triplets, CSS vars in `apps/web/src/index.css`)
+- Tokens are the §0 palette, exactly — CSS vars in `apps/web/src/index.css`
+  as HSL triplets (exact conversions of the brand hexes).
+- **Dark (default):** `#0a0a0f` canvas · `#0c1020` cards · 1px blue-tinted
+  borders (`#0f1a33` base, `#1a3366` emphasis/hover) · text `#e8edf5` /
+  `#8892a4` · accent `#1a8fff` (hover `#3da0ff`). The accent does ALL
+  accent work: primary buttons, active nav, focus rings, live pulses,
+  hot-lead badges.
+- **Light (luxe):** `#faf6f0` canvas · **white** cards (guide permits white
+  or `#f5efe6`; white wins for data contrast — `#f5efe6` serves as
+  secondary/muted fills, `#ede5d8` as hover/accent fills) · `#d4c5a9`
+  borders · espresso text `#1a1008` / `#3d2b1f` · old-gold primary
+  `#b8860b` (hover `#d4a017`).
+- **Status (both themes, per guide):** success `#22c55e` · error `#ef4444`
+  · warning `#eab308`. These are functional semantics, never palette.
+- **Dense data surfaces (dark only):** the `.dense-surface` scope flips
+  text to `#ffffff`/`#94a3b8` and borders to `#1e2a4a` (the live site's
+  high-contrast block) for tables and activity feeds. Never page-wide.
 
-| Token | Dark (default) | Light |
-|---|---|---|
-| `--background` | `228 20% 5%` | `220 30% 97%` |
-| `--foreground` | `220 25% 94%` | `228 25% 10%` |
-| `--muted-foreground` | `220 12% 60%` | `220 12% 42%` |
-| `--primary` (accent) | `189 100% 50%` (#00d9ff) | `191 100% 34%` (AA on white) |
-| `--card` (glass fill) | `228 16% 9%` | `0 0% 100%` |
-| `--border` | `224 14% 16%` | `220 16% 88%` |
-| `--glass` (surface tint) | `white / 0.04` | `white / 0.65` |
-| `--glass-border` | `white / 0.08` | `228 25% 10% / 0.06` |
-| status: active/waiting/complete/error | cyan / amber `38 92% 55%` / green `142 70% 45%` / red `0 84% 60%` | same hues, −8% lightness |
+## 2. Typography (brand rule)
 
-Cyan is the **only** accent: primary buttons, active nav, focus rings, live
-pulses, hot-lead badges. Amber/green/red are functional status semantics, not
-palette. Ambient background: two fixed radial gradients (cyan at 5% top-left,
-deep blue at 4% bottom-right) so the glass has something to refract; imperceptible
-as "a gradient."
+- **Space Grotesk** for ALL UI and body copy. Page title 24px/600; card
+  title 15px/600; body 14px; caption 12px; eyebrow 11px/500/+0.08em upper.
+- **JetBrains Mono** ONLY for numeric data: scores, counts, phones,
+  durations, money. Always `tabular-nums`. Never headings or prose.
+- **Orbitron** appears in EXACTLY ONE place: the RapidForge logotype in the
+  top bar (`font-display`, 700, +0.08em). Never for headings, never for UI.
+- Delivery: Google Fonts links in `index.html` (same mechanism as
+  joeyc.ai). Weights: Space Grotesk 400–700, JetBrains Mono 400/500/700,
+  Orbitron 700 only.
 
-## Typography
-- **Inter Variable** for everything. Page title 24px/600/-0.025em; card title
-  15px/600; body 14px/400; caption 12px; eyebrow 11px/500/+0.08em uppercase.
-- **JetBrains Mono** ONLY for numeric data: scores, counts, phones, durations,
-  money. Always `tabular-nums`. Never for headings or prose.
+## 3. Containers (the v3 structural rule)
 
-## Spacing & radii
+- **Every content region lives in a bordered card** — `.card-panel`
+  (bg-card, 1px border-border, rounded-2xl, minimal shadow). Nothing
+  floats on bare canvas; the canvas-vs-card contrast (`#0a0a0f` vs
+  `#0c1020`, cream vs white) plus the 1px border IS the separation.
+  Shadows are near-invisible; borders carry the structure.
+- Chrome (top bar, left rail) is **solid** `bg-background/95` with a 1px
+  border edge — not glass, not a card.
+- **Glass exists ONLY on overlays**: the lead drawer and the cmd-K palette
+  (`.glass` = tinted fill + blur 20px + 1px border + `--shadow-float`).
+  Nothing else blurs.
+- Radii: surfaces `rounded-2xl` (16px) · controls `rounded-xl` (12px) ·
+  chips/badges `rounded-full`. shadcn `--radius: 0.75rem`.
+
+## 4. Density
+
 - Base 4px scale. Page padding 32px; card padding 20–24px; section gap 24px;
-  control height 40px; table row 52px. Whitespace is the layout tool — no
-  hairline-dense grids.
-- Radii: surfaces/cards `rounded-2xl` (16px) · controls/inputs `rounded-xl`
-  (12px) · chips/badges/pills `rounded-full`. shadcn `--radius: 0.75rem`.
+  control height 40px.
+- **Tables are compact (S5.5):** cell padding `px-3 py-[7px]` (~40% less
+  than v2's py-3), row height ≈ 38–40px, full-opacity 1px row dividers
+  (`border-border`), phone/state columns single-line always (nowrap +
+  reserved widths). Tables and feeds sit inside `.dense-surface` in dark
+  mode.
 
-## Glass recipe (the `glass` utility)
-- Dark: `background: hsl(var(--card) / 0.55)` + `backdrop-blur(20px)` +
-  `border: 1px solid white/0.08` + inner top highlight
-  `inset 0 1px 0 white/0.06`.
-- Light: `background: white/0.65` + same blur + `border: black/0.06`.
-- Chrome (top bar / rail / tab strip): blur 20px, fill opacity ~0.6 so content
-  scrolls visibly beneath. Cards: same recipe + shadow (below). Never nest
-  glass inside glass more than one level.
+## 5. Sidebar
 
-## Shadow recipe
-- `--shadow-card` dark: `0 1px 0 rgba(255,255,255,.05) inset, 0 8px 30px rgba(0,0,0,.35)`
-- `--shadow-card` light: `0 1px 2px rgba(16,24,40,.05), 0 8px 24px rgba(16,24,40,.08)`
-- `--shadow-float` (popovers/drawers): double the y/blur. No colored shadows
-  except the accent glow on live pulses: `0 0 12px hsl(189 100% 50% / .35)`.
+Grouped sections with uppercase micro-headers (11px mono, +0.2em,
+muted): **PROSPECTING** (Dashboard, Workspace, New Search) ·
+**PIPELINE** (Pipeline, Leads) · **INTELLIGENCE** (Agents, Analytics) ·
+**ACCOUNT** (Settings). Active item = accent pill (spring `layoutId`).
 
-## Motion (Framer Motion, presets in `apps/web/src/lib/motion.ts`)
-- `spring.default` — `{ type:'spring', stiffness: 260, damping: 30 }` (layout,
-  slide-in, tab underline).
-- `spring.snappy` — `{ stiffness: 520, damping: 34 }` (micro: chips, buttons,
-  count ticks).
-- `spring.expand` — `{ stiffness: 300, damping: 36 }` (row expand — damped, no
-  bounce).
-- CSS transitions where Framer is overkill: 150ms micro / 250ms standard,
-  easing `cubic-bezier(0.32, 0.72, 0, 1)`.
-- Working-agent pulse: 2s soft opacity ring (CSS keyframe) + cyan glow.
-- Everything respects `prefers-reduced-motion` (springs → opacity fades).
+## 6. Motion
 
-## Signature element
-The **agent tab strip** on the Workspace view: a floating glass segmented
-control with per-agent live status dots that breathe cyan while working — the
-one place the product visibly "is" a team of agents. Everything around it
-stays quiet.
+Framer springs unchanged from v2 (`apps/web/src/lib/motion.ts`):
+`spring.default` 260/30 (layout, slide-in, tab underline) ·
+`spring.snappy` 520/34 (micro) · `spring.expand` 300/36 (row expand).
+CSS transitions 150/250ms, easing `cubic-bezier(0.32, 0.72, 0, 1)`.
+Working-agent pulse: 2s breathing ring in the accent color.
+Everything respects `prefers-reduced-motion`.
 
-## Theme
-Dark is default. Toggle in top bar; preference persisted to
-`localStorage('rapidforge-theme')`, applied as `.dark` class on `<html>`
-before first paint (inline script in index.html — no flash).
+## 7. Map
+
+Google's **default basemap styling in both themes** — no JSON tinting, no
+theme restyling of the canvas (v3 reverses v2's tinted map). RapidForge
+owns only its own layers: pin, radius circle (stroke/fill `#1a8fff`),
+and the bordered readout chip.
+
+## 8. Theme
+
+Dark is the brand default. Toggle in top bar; persisted to
+`localStorage('rapidforge-theme')`, applied as `.dark` on `<html>` before
+first paint (inline script in index.html — no flash).

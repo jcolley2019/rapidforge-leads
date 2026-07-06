@@ -23,7 +23,7 @@ export function ResultsTable({ leads, terminal, onSelect }: ResultsTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
-    <div className="glass-card overflow-hidden">
+    <div className="card-panel overflow-hidden">
       <table className="w-full table-fixed text-sm">
         <colgroup>
           <col className="w-11" />

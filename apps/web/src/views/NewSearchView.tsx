@@ -108,7 +108,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
       </div>
 
       <div
-        className="glass-card flex w-fit items-center gap-1 rounded-full p-1.5 text-xs"
+        className="card-panel flex w-fit items-center gap-1 rounded-full p-1.5 text-xs"
         role="tablist"
         aria-label="Search mode"
       >
@@ -159,7 +159,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
                   step={1}
                   value={radius}
                   onChange={(e) => setRadius(Number(e.target.value))}
-                  className="w-full accent-[#00d9ff]"
+                  className="w-full accent-[hsl(var(--primary))]"
                 />
                 <div className="flex gap-1.5">
                   {RADIUS_PRESETS.map((preset) => (

@@ -162,7 +162,7 @@ export function PipelineView() {
             <section
               key={status}
               className={cn(
-                "glass-card flex min-h-[320px] w-64 shrink-0 flex-col transition-colors",
+                "card-panel flex min-h-[320px] w-64 shrink-0 flex-col transition-colors",
                 dragOver === status && "border-primary/60 bg-primary/5",
               )}
               onDragOver={(e) => {

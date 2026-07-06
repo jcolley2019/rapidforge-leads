@@ -251,7 +251,7 @@ export function LeadsView() {
       </div>
 
       {/* Filter bar */}
-      <div className="glass-card flex flex-wrap items-center gap-2 px-4 py-3 text-xs">
+      <div className="card-panel flex flex-wrap items-center gap-2 px-4 py-3 text-xs">
         <FilterSelect
           label="Website"
           value={website}
@@ -288,7 +288,7 @@ export function LeadsView() {
 
       {/* Bulk action bar */}
       {selectedLeads.length > 0 && (
-        <div className="glass-card flex flex-wrap items-center gap-3 border-primary/40 px-4 py-2.5 text-xs">
+        <div className="card-panel flex flex-wrap items-center gap-3 border-primary/40 px-4 py-2.5 text-xs">
           <span className="font-mono">
             {selectedLeads.length} selected
           </span>
@@ -321,7 +321,7 @@ export function LeadsView() {
               type="checkbox"
               checked={forceReaudit}
               onChange={(e) => setForceReaudit(e.target.checked)}
-              className="accent-[#00d9ff]"
+              className="accent-[hsl(var(--primary))]"
             />
             Force fresh (ignore 30-day cache)
           </label>
@@ -357,7 +357,7 @@ export function LeadsView() {
       )}
 
       {/* Table */}
-      <div className="glass-card overflow-hidden">
+      <div className="card-panel overflow-hidden">
         <table className="w-full table-fixed text-sm">
           <colgroup>
             <col className="w-10" />
@@ -378,7 +378,7 @@ export function LeadsView() {
                   type="checkbox"
                   checked={allSelected}
                   onChange={toggleAll}
-                  className="accent-[#00d9ff]"
+                  className="accent-[hsl(var(--primary))]"
                   aria-label="Select all filtered leads"
                 />
               </th>
@@ -487,7 +487,7 @@ function LeadRow({
           type="checkbox"
           checked={checked}
           onChange={onCheck}
-          className="accent-[#00d9ff]"
+          className="accent-[hsl(var(--primary))]"
           aria-label={`Select ${business.name}`}
         />
       </td>

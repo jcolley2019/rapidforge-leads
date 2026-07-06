@@ -34,13 +34,14 @@ export function TopBar({
   const { connection } = useLive();
 
   return (
-    <header className="glass sticky top-0 z-20 flex h-14 shrink-0 items-center gap-4 border-x-0 border-t-0 px-6">
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-4 border-b border-border bg-background/95 px-6">
       <div className="flex items-center gap-2.5">
         <span
           className="h-4 w-4 rounded-md bg-primary shadow-[0_0_10px_hsl(var(--primary)/0.5)]"
           aria-hidden
         />
-        <span className="text-[15px] font-semibold tracking-tight">
+        {/* Logotype is the ONLY Orbitron in the product (brand rule). */}
+        <span className="font-display text-sm font-bold tracking-[0.08em] text-foreground">
           RapidForge
         </span>
       </div>

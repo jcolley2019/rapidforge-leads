@@ -7,9 +7,11 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        // Inter for chrome, JetBrains Mono for data/logs/numbers (PRD 7.1)
-        sans: ["Inter Variable", "Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono Variable", "JetBrains Mono", "monospace"],
+        // Brand typography (DESIGN_NOTES v3): Space Grotesk for UI/body,
+        // JetBrains Mono for data/numbers, Orbitron ONLY for the logotype.
+        sans: ["Space Grotesk", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "monospace"],
+        display: ["Orbitron", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",

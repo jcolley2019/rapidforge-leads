@@ -21,7 +21,7 @@ export function LeftRail({
   return (
     <nav
       className={cn(
-        "glass flex shrink-0 flex-col border-b-0 border-l-0 transition-[width] duration-200",
+        "flex shrink-0 flex-col border-r border-border bg-background/95 transition-[width] duration-200",
         collapsed ? "w-14" : "w-56",
       )}
       aria-label="Primary"
