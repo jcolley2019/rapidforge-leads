@@ -23,7 +23,7 @@ export function ResultsTable({ leads, terminal, onSelect }: ResultsTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
-    <div className="card-panel overflow-hidden">
+    <div className="card-panel dense-surface overflow-hidden">
       <table className="w-full table-fixed text-sm">
         <colgroup>
           <col className="w-11" />
@@ -36,15 +36,15 @@ export function ResultsTable({ leads, terminal, onSelect }: ResultsTableProps) {
           <col className="w-[168px]" />
         </colgroup>
         <thead>
-          <tr className="border-b border-border/70 text-left font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-            <th className="px-3 py-3 font-medium">#</th>
-            <th className="px-3 py-3 font-medium">Business</th>
-            <th className="px-3 py-3 font-medium">Phone</th>
-            <th className="px-3 py-3 font-medium">Reviews</th>
-            <th className="px-3 py-3 font-medium">Website</th>
-            <th className="px-3 py-3 text-right font-medium">Health</th>
-            <th className="px-3 py-3 text-right font-medium">Sell</th>
-            <th className="px-3 py-3 font-medium">State</th>
+          <tr className="border-b border-border text-left font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            <th className="px-3 py-[7px] font-medium">#</th>
+            <th className="px-3 py-[7px] font-medium">Business</th>
+            <th className="px-3 py-[7px] font-medium">Phone</th>
+            <th className="px-3 py-[7px] font-medium">Reviews</th>
+            <th className="px-3 py-[7px] font-medium">Website</th>
+            <th className="px-3 py-[7px] text-right font-medium">Health</th>
+            <th className="px-3 py-[7px] text-right font-medium">Sell</th>
+            <th className="px-3 py-[7px] font-medium">State</th>
           </tr>
         </thead>
         <tbody>
@@ -116,7 +116,7 @@ function LeadRow({
     <>
       <tr
         className={cn(
-          "border-b border-border/50 transition-colors last:border-0",
+          "border-b border-border transition-colors last:border-0",
           skipped && "opacity-45",
           (onSelect || expandable) && "cursor-pointer hover:bg-accent/40",
         )}
@@ -135,7 +135,7 @@ function LeadRow({
               : undefined
         }
       >
-        <td className="px-3 py-3 font-mono text-xs text-muted-foreground">
+        <td className="px-3 py-[7px] font-mono text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             {expandable && (
               <button
@@ -161,17 +161,17 @@ function LeadRow({
             {rank}
           </span>
         </td>
-        <td className="px-3 py-3">
+        <td className="px-3 py-[7px]">
           <div className="truncate font-medium">{business.name}</div>
           <div className="truncate text-xs text-muted-foreground">
             {business.address}
           </div>
         </td>
         {/* Joey's fix: phone on ONE line, always */}
-        <td className="whitespace-nowrap px-3 py-3 font-mono text-xs">
+        <td className="whitespace-nowrap px-3 py-[7px] font-mono text-xs">
           {business.phone ?? <span className="text-muted-foreground">—</span>}
         </td>
-        <td className="whitespace-nowrap px-3 py-3 font-mono text-xs">
+        <td className="whitespace-nowrap px-3 py-[7px] font-mono text-xs">
           {business.google_rating !== null ? (
             <>
               <span className="text-agent-waiting">★</span>{" "}
@@ -185,13 +185,13 @@ function LeadRow({
             <span className="text-muted-foreground">no reviews</span>
           )}
         </td>
-        <td className="px-3 py-3">
+        <td className="px-3 py-[7px]">
           <WebsiteCell lead={lead} />
         </td>
-        <td className="px-3 py-3 text-right">
+        <td className="px-3 py-[7px] text-right">
           <HealthCell health={health} stars={stars} />
         </td>
-        <td className="px-3 py-3 text-right">
+        <td className="px-3 py-[7px] text-right">
           {sellability !== null ? (
             <span
               className={cn(
@@ -215,7 +215,7 @@ function LeadRow({
           )}
         </td>
         {/* Joey's fix: state chips on ONE line in a reserved-width column */}
-        <td className="whitespace-nowrap px-3 py-3">
+        <td className="whitespace-nowrap px-3 py-[7px]">
           <StateChip lead={lead} />
         </td>
       </tr>
@@ -228,7 +228,7 @@ function LeadRow({
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={spring.expand}
-                className="overflow-hidden border-b border-border/50 bg-accent/30"
+                className="overflow-hidden border-b border-border bg-accent/30"
               >
                 <div className="px-4 py-4 pl-12">
                   <p className="mb-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">

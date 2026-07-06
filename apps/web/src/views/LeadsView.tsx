@@ -357,7 +357,7 @@ export function LeadsView() {
       )}
 
       {/* Table */}
-      <div className="card-panel overflow-hidden">
+      <div className="card-panel dense-surface overflow-hidden">
         <table className="w-full table-fixed text-sm">
           <colgroup>
             <col className="w-10" />
@@ -372,8 +372,8 @@ export function LeadsView() {
             <col className="w-[110px]" />
           </colgroup>
           <thead>
-            <tr className="border-b border-border/70 text-left font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-              <th className="px-3 py-3">
+            <tr className="border-b border-border text-left font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+              <th className="px-3 py-[7px]">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -383,7 +383,7 @@ export function LeadsView() {
                 />
               </th>
               <SortHeader label="Business" k="name" sort={sort} onSort={toggleSort} />
-              <th className="px-3 py-3 font-medium">Website</th>
+              <th className="px-3 py-[7px] font-medium">Website</th>
               <SortHeader label="Rating" k="rating" sort={sort} onSort={toggleSort} align="right" />
               <SortHeader label="Reviews" k="reviews" sort={sort} onSort={toggleSort} align="right" />
               <SortHeader label="Platform" k="platform" sort={sort} onSort={toggleSort} />
@@ -441,7 +441,7 @@ function SortHeader({
   align?: "right";
 }) {
   return (
-    <th className={cn("px-3 py-3 font-medium", align === "right" && "text-right")}>
+    <th className={cn("px-3 py-[7px] font-medium", align === "right" && "text-right")}>
       <button
         type="button"
         onClick={() => onSort(k)}
@@ -478,11 +478,11 @@ function LeadRow({
 
   return (
     <tr
-      className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-accent/40"
+      className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-accent/40"
       onClick={onOpen}
       title="Open lead detail"
     >
-      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+      <td className="px-3 py-[7px]" onClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
           checked={checked}
@@ -491,16 +491,16 @@ function LeadRow({
           aria-label={`Select ${business.name}`}
         />
       </td>
-      <td className="px-3 py-3">
+      <td className="px-3 py-[7px]">
         <div className="truncate font-medium">{business.name}</div>
         <div className="truncate font-mono text-[11px] text-muted-foreground">
           {business.phone ?? "no phone"}
         </div>
       </td>
-      <td className="truncate px-3 py-3 font-mono text-xs text-muted-foreground">
+      <td className="truncate px-3 py-[7px] font-mono text-xs text-muted-foreground">
         {websiteHost(lead)}
       </td>
-      <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs">
+      <td className="whitespace-nowrap px-3 py-[7px] text-right font-mono text-xs">
         {business.google_rating !== null ? (
           <>
             <span className="text-agent-waiting">★</span>{" "}
@@ -510,15 +510,15 @@ function LeadRow({
           "—"
         )}
       </td>
-      <td className="px-3 py-3 text-right font-mono text-xs">
+      <td className="px-3 py-[7px] text-right font-mono text-xs">
         {business.review_count ?? "—"}
       </td>
-      <td className="truncate px-3 py-3 font-mono text-xs text-muted-foreground">
+      <td className="truncate px-3 py-[7px] font-mono text-xs text-muted-foreground">
         {audit?.platform ?? "—"}
       </td>
       <td
         className={cn(
-          "px-3 py-3 text-right font-mono text-sm font-semibold",
+          "px-3 py-[7px] text-right font-mono text-sm font-semibold",
           health === null
             ? "text-muted-foreground"
             : health >= 70
@@ -532,7 +532,7 @@ function LeadRow({
       </td>
       <td
         className={cn(
-          "px-3 py-3 text-right font-mono text-sm font-semibold",
+          "px-3 py-[7px] text-right font-mono text-sm font-semibold",
           sell === null
             ? "text-muted-foreground"
             : sell >= 90
@@ -544,10 +544,10 @@ function LeadRow({
       >
         {sell ?? "—"}
       </td>
-      <td className="whitespace-nowrap px-3 py-3">
+      <td className="whitespace-nowrap px-3 py-[7px]">
         <StatusChip status={status} />
       </td>
-      <td className="whitespace-nowrap px-3 py-3 text-xs text-muted-foreground">
+      <td className="whitespace-nowrap px-3 py-[7px] text-xs text-muted-foreground">
         {relativeTime(result.last_contacted_at) ?? "—"}
       </td>
     </tr>
