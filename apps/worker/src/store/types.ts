@@ -190,6 +190,21 @@ export interface JobCounts {
   failed: number;
 }
 
+/** Per-agent AI spend for a business, read from agent_runs (PRD 7.2 / S8). */
+export interface AgentCostRow {
+  agent: string;
+  cost_cents: number;
+  runs: number;
+}
+
+export interface BusinessCostSummary {
+  /** One row per agent that touched this business, highest cost first. */
+  by_agent: AgentCostRow[];
+  business_total_cents: number;
+  /** Total cost of the business's most recent search (null if none). */
+  search_total_cents: number | null;
+}
+
 export interface SearchDetail {
   search: Search;
   /** Sorted by sellability desc (nulls last), then name. */
@@ -264,6 +279,8 @@ export interface DataStore {
   ): Promise<SearchResult | null>;
   /** usage_events rollup since the given ISO timestamp (GET /api/usage). */
   getUsageSummary(workspaceId: string, sinceIso: string): Promise<UsageSummary>;
+  /** Per-agent AI spend for a business from agent_runs (drawer readout, S8). */
+  getBusinessCostSummary(businessId: string): Promise<BusinessCostSummary>;
   getWorkspaceConfig(workspaceId: string): Promise<WorkspaceConfig | null>;
   /** Upserts so a workspace missing its config row can still save. */
   updateWorkspaceConfig(

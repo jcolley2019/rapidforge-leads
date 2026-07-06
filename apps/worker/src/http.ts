@@ -290,6 +290,27 @@ export function createApp(
     }
   });
 
+  /** GET /api/businesses/:id/costs → per-agent AI spend readout (PRD 7.2/S8). */
+  app.get("/api/businesses/:id/costs", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const business = await deps.store.getBusiness(req.params.id);
+      if (!business || business.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Business not found" });
+        return;
+      }
+      const costs = await deps.store.getBusinessCostSummary(business.id);
+      res.json(costs);
+    } catch (err) {
+      console.error("[api] GET /api/businesses/:id/costs failed:", err);
+      res.status(500).json({ error: "Failed to load costs" });
+    }
+  });
+
   /** POST /api/businesses/:id/reaudit → {job_id} (PRD Section 8). */
   app.post("/api/businesses/:id/reaudit", async (req, res) => {
     const auth = req.auth;

@@ -322,6 +322,35 @@ describe("GET /api/businesses/:id/audits", () => {
   });
 });
 
+describe("GET /api/businesses/:id/costs", () => {
+  it("returns per-agent AI spend (highest first) + business/search totals", async () => {
+    const { business, result } = await seedLead();
+    const seedRun = async (agent: string, cents: number) => {
+      const run = await store.insertAgentRun({
+        workspace_id: DEV_WORKSPACE_ID,
+        agent_name: agent,
+        job_id: null,
+        target_id: business.id,
+        input: { search_id: result.search_id },
+      });
+      await store.updateAgentRun(run.id, { status: "completed", cost_cents: cents });
+    };
+    await seedRun("analyst", 7);
+    await seedRun("design", 2);
+
+    const res = await api("GET", `/api/businesses/${business.id}/costs`);
+    expect(res.status).toBe(200);
+    expect(res.json.business_total_cents).toBe(9);
+    expect(res.json.search_total_cents).toBe(9);
+    expect(res.json.by_agent[0]).toMatchObject({ agent: "analyst", cost_cents: 7 });
+  });
+
+  it("404s a foreign business", async () => {
+    const res = await api("GET", "/api/businesses/nope/costs");
+    expect(res.status).toBe(404);
+  });
+});
+
 async function seedCompletedAudit(businessId: string) {
   return store.insertAudit({
     workspace_id: DEV_WORKSPACE_ID,

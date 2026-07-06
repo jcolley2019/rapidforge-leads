@@ -21,6 +21,7 @@ import type {
 import {
   DEV_WORKSPACE_ID,
   sortLeads,
+  type BusinessCostSummary,
   type CreateSearchInput,
   type DataStore,
   type EnqueueJobInput,
@@ -415,6 +416,41 @@ export class MemoryStore implements DataStore {
         e.workspace_id === workspaceId && (e.created_at ?? "") >= sinceIso,
     );
     return summarizeUsage(rows, sinceIso);
+  }
+
+  async getBusinessCostSummary(
+    businessId: string,
+  ): Promise<BusinessCostSummary> {
+    const byAgent = new Map<string, { cost_cents: number; runs: number }>();
+    let businessTotal = 0;
+    for (const run of this.agentRuns.values()) {
+      if (run.target_id !== businessId) continue;
+      const cents = run.cost_cents ?? 0;
+      const cur = byAgent.get(run.agent_name) ?? { cost_cents: 0, runs: 0 };
+      cur.cost_cents += cents;
+      cur.runs += 1;
+      byAgent.set(run.agent_name, cur);
+      businessTotal += cents;
+    }
+
+    const latest = await this.getLatestSearchResultForBusiness(businessId);
+    let searchTotal: number | null = null;
+    if (latest) {
+      searchTotal = 0;
+      for (const run of this.agentRuns.values()) {
+        const sid = (run.input as { search_id?: string } | null)?.search_id;
+        if (sid === latest.search_id) searchTotal += run.cost_cents ?? 0;
+      }
+    }
+
+    const by_agent = [...byAgent.entries()]
+      .map(([agent, v]) => ({ agent, ...v }))
+      .sort((a, b) => b.cost_cents - a.cost_cents);
+    return {
+      by_agent,
+      business_total_cents: businessTotal,
+      search_total_cents: searchTotal,
+    };
   }
 
   async getWorkspaceConfig(

@@ -23,6 +23,7 @@ import type {
 } from "@rapidforge/shared";
 import {
   sortLeads,
+  type BusinessCostSummary,
   type CreateSearchInput,
   type DataStore,
   type EnqueueJobInput,
@@ -476,6 +477,57 @@ export class SupabaseStore implements DataStore {
       );
     }
     return summarizeUsage(rows, sinceIso);
+  }
+
+  async getBusinessCostSummary(
+    businessId: string,
+  ): Promise<BusinessCostSummary> {
+    const { data, error } = await this.db
+      .from("agent_runs")
+      .select("agent_name, cost_cents")
+      .eq("target_id", businessId);
+    if (error) {
+      throw new Error(`[store] getBusinessCostSummary: ${error.message}`);
+    }
+    const rows = (data ?? []) as Array<{
+      agent_name: string;
+      cost_cents: number | null;
+    }>;
+    const byAgent = new Map<string, { cost_cents: number; runs: number }>();
+    let businessTotal = 0;
+    for (const row of rows) {
+      const cents = row.cost_cents ?? 0;
+      const cur = byAgent.get(row.agent_name) ?? { cost_cents: 0, runs: 0 };
+      cur.cost_cents += cents;
+      cur.runs += 1;
+      byAgent.set(row.agent_name, cur);
+      businessTotal += cents;
+    }
+
+    const latest = await this.getLatestSearchResultForBusiness(businessId);
+    let searchTotal: number | null = null;
+    if (latest) {
+      const { data: searchRows, error: sErr } = await this.db
+        .from("agent_runs")
+        .select("cost_cents")
+        .eq("input->>search_id", latest.search_id);
+      if (sErr) {
+        throw new Error(`[store] getBusinessCostSummary(search): ${sErr.message}`);
+      }
+      searchTotal = ((searchRows ?? []) as Array<{ cost_cents: number | null }>).reduce(
+        (sum, r) => sum + (r.cost_cents ?? 0),
+        0,
+      );
+    }
+
+    const by_agent = [...byAgent.entries()]
+      .map(([agent, v]) => ({ agent, ...v }))
+      .sort((a, b) => b.cost_cents - a.cost_cents);
+    return {
+      by_agent,
+      business_total_cents: businessTotal,
+      search_total_cents: searchTotal,
+    };
   }
 
   async getWorkspaceConfig(

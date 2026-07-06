@@ -39,15 +39,17 @@ import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import {
   downloadReport,
   fetchBusinessAudits,
+  fetchBusinessCosts,
   generateBuilderBrief,
   generateSalesSummary,
   resolveAssetUrl,
   updateLeadStatus,
   type AnalystResult,
+  type BusinessCostSummary,
   type LeadView,
   type SalesSummaryResult,
 } from "@/lib/api";
-import { relativeTime } from "@/lib/format";
+import { formatCents, relativeTime } from "@/lib/format";
 import { spring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -185,7 +187,9 @@ function DrawerBody({ lead, onClose }: { lead: LeadView; onClose: () => void }) 
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {tab === "overview" && <OverviewTab lead={lead} />}
-        {tab === "audit" && <AuditTab audit={lead.audit} />}
+        {tab === "audit" && (
+          <AuditTab audit={lead.audit} businessId={lead.business.id} />
+        )}
         {tab === "brief" && <BuilderBriefTab lead={lead} />}
         {tab === "sales" && <SalesScriptTab lead={lead} />}
         {tab === "history" && <HistoryTab businessId={lead.business.id} />}
@@ -424,7 +428,13 @@ interface V15Agents {
   };
 }
 
-function AuditTab({ audit }: { audit: Audit | null }) {
+function AuditTab({
+  audit,
+  businessId,
+}: {
+  audit: Audit | null;
+  businessId: string;
+}) {
   if (!audit) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -596,6 +606,7 @@ function AuditTab({ audit }: { audit: Audit | null }) {
 
   return (
     <div className="space-y-2">
+      <AuditCostReadout businessId={businessId} />
       {groups.map((group) => (
         <Disclosure key={group.title} title={group.title}>
           <dl className="space-y-1.5">
@@ -611,6 +622,70 @@ function AuditTab({ audit }: { audit: Audit | null }) {
       {audit.error_message && (
         <p className="rounded-xl border border-agent-error/40 bg-agent-error/10 px-3.5 py-2 text-xs text-agent-error">
           {audit.error_message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Read-only per-agent AI spend for the business (from agent_runs, S8). */
+function AuditCostReadout({ businessId }: { businessId: string }) {
+  const [costs, setCosts] = useState<BusinessCostSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCosts(null);
+    fetchBusinessCosts(businessId).then(
+      (c) => {
+        if (!cancelled) setCosts(c);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
+
+  if (!costs) return null;
+  const spenders = costs.by_agent.filter((r) => r.cost_cents > 0);
+
+  return (
+    <div className="rounded-xl border border-border/70 p-3.5">
+      <div className="mb-2 flex items-baseline justify-between">
+        <SectionTitle>AI cost</SectionTitle>
+        <span className="font-mono text-xs">
+          <span className="text-foreground">
+            {formatCents(costs.business_total_cents)}
+          </span>
+          <span className="text-muted-foreground"> this lead</span>
+          {costs.search_total_cents !== null && (
+            <span className="text-muted-foreground">
+              {" · "}
+              {formatCents(costs.search_total_cents)} search
+            </span>
+          )}
+        </span>
+      </div>
+      {spenders.length > 0 ? (
+        <dl className="space-y-1">
+          {spenders.map((row) => (
+            <div
+              key={row.agent}
+              className="flex items-baseline justify-between text-xs"
+            >
+              <dt className="capitalize text-muted-foreground">
+                {row.agent}
+                {row.runs > 1 && (
+                  <span className="text-muted-foreground/60"> ×{row.runs}</span>
+                )}
+              </dt>
+              <dd className="font-mono">{formatCents(row.cost_cents)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          No AI spend recorded — deterministic scoring or template mode.
         </p>
       )}
     </div>

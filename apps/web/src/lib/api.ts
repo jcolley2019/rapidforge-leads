@@ -137,6 +137,25 @@ export async function fetchBusinessAudits(businessId: string): Promise<Audit[]> 
   return audits;
 }
 
+export interface AgentCostRow {
+  agent: string;
+  cost_cents: number;
+  runs: number;
+}
+
+export interface BusinessCostSummary {
+  by_agent: AgentCostRow[];
+  business_total_cents: number;
+  search_total_cents: number | null;
+}
+
+/** Per-agent AI spend for a business (drawer Audit-tab readout, S8). */
+export async function fetchBusinessCosts(
+  businessId: string,
+): Promise<BusinessCostSummary> {
+  return apiFetch(`/api/businesses/${encodeURIComponent(businessId)}/costs`);
+}
+
 /** Enqueue a fresh audit; force=true bypasses the 30-day cache (PRD 5.5). */
 export async function reauditBusiness(
   businessId: string,
