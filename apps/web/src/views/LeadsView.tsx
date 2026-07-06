@@ -226,7 +226,7 @@ export function LeadsView() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1">
           <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-primary">
-            Leads
+            Pipeline
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">
             All leads{" "}
