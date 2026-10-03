@@ -9,7 +9,8 @@
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
 import { generateMarkdown, MODEL_OPUS } from "../lib/ai";
-import { builderBriefGuardrail } from "./guardrails/builder-brief";
+import { buildDesignBrief, embedDesignBrief } from "./design-brief";
+import { builderBriefGuardrail, h2Headings } from "./guardrails/builder-brief";
 import { countWords } from "./guardrails/analyst";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
 import { resolveConfigVars, type CascadingVars } from "./prompts/config-vars";
@@ -161,9 +162,29 @@ export async function runBuilderBrief(
         ),
     });
 
-    const markdown = outcome.value;
+    // RFL.BRIEF.7: the structured Design Brief rides along as a fenced JSON
+    // block so the generator reads fields while the markdown stays the human
+    // view. Its failure never fails the Builder Brief — the block is omitted.
+    let markdown = outcome.value;
+    let designBriefCost = 0;
+    let designBriefTokens = 0;
+    let designBriefNote: string | null = null;
+    try {
+      const design = await buildDesignBrief({
+        business: ctx.business,
+        audit: ctx.audit,
+        siteHtmlExcerpt: ctx.siteHtmlExcerpt,
+      });
+      markdown = embedDesignBrief(markdown, design.brief);
+      designBriefCost = design.costCents;
+      designBriefTokens = design.tokensUsed;
+    } catch (err) {
+      designBriefNote = `Design Brief JSON omitted: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(`[builder-brief] ${designBriefNote}`);
+    }
+    const headings = h2Headings(markdown);
     const sections = BRIEF_SECTIONS.filter((s) =>
-      markdown.toLowerCase().includes(s.toLowerCase()),
+      headings.some((h) => h === s.toLowerCase() || h.startsWith(`${s.toLowerCase()} `)),
     );
 
     return {
@@ -176,11 +197,12 @@ export async function runBuilderBrief(
       },
       error: null,
       modelUsed: outcome.modelUsed,
-      tokensUsed: outcome.tokensUsed,
-      costCents: outcome.costCents,
+      tokensUsed: outcome.tokensUsed + designBriefTokens,
+      costCents: outcome.costCents + designBriefCost,
       durationMs: Date.now() - startedAt,
       guardrailPassed: outcome.guardrailPassed,
-      guardrailNotes: outcome.guardrailNotes,
+      guardrailNotes:
+        [outcome.guardrailNotes, designBriefNote].filter(Boolean).join(" | ") || null,
     };
   } catch (err) {
     return {

@@ -213,7 +213,8 @@ export interface SummarySpec<T> {
   parse: (raw: string) => T;
   guardrail: (value: T) => GuardrailResult;
   /** Deterministic fallback — template mode AND terminal AI failures. */
-  template: () => T;
+  template: () => T;  /** Test seam: replaces callModel (transport) — never set in production. */
+  call?: (options: AiCallOptions) => Promise<AiCallResult>;
 }
 
 export interface SummaryOutcome<T> {
@@ -266,7 +267,7 @@ export async function generateJsonSummary<T>(
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     let result: AiCallResult;
     try {
-      result = await callModel({
+      result = await (spec.call ?? callModel)({
         model: spec.model,
         system: spec.system,
         prompt: spec.prompt,
@@ -344,7 +345,8 @@ export interface MarkdownSpec {
   effort?: AiCallOptions["effort"];
   guardrail: (markdown: string) => GuardrailResult;
   /** Deterministic fallback — template mode AND terminal AI failures. */
-  template: () => string;
+  template: () => string;  /** Test seam: replaces callModel (transport) — never set in production. */
+  call?: (options: AiCallOptions) => Promise<AiCallResult>;
 }
 
 export interface MarkdownOutcome {
@@ -393,7 +395,7 @@ export async function generateMarkdown(
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     let result: AiCallResult;
     try {
-      result = await callModel({
+      result = await (spec.call ?? callModel)({
         model: spec.model,
         system: spec.system,
         prompt: spec.prompt,

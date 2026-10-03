@@ -15,6 +15,7 @@ import {
 } from "@rapidforge/shared";
 import { runAnalyst } from "./agents/analyst";
 import { runBuilderBrief } from "./agents/builder-brief";
+import { runDesignBrief } from "./agents/design-brief";
 import { runOnDemandAgent } from "./agents/on-demand";
 import { runSalesSummary } from "./agents/sales-summary";
 import { AnalystOutputSchema } from "./agents/prompts/analyst";
@@ -506,6 +507,71 @@ export function createApp(
     } catch (err) {
       console.error("[api] POST /api/businesses/:id/sales-summary failed:", err);
       res.status(500).json({ error: "Failed to run sales summary" });
+    }
+  });
+
+  /**
+   * POST /api/businesses/:id/design-brief → structured Design Brief JSON
+   * (RFL.BRIEF.7). Returns the stored audits.design_brief when present
+   * (finding 13: no repeat spend) unless ?force=true re-runs the agent.
+   */
+  app.post("/api/businesses/:id/design-brief", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const business = await deps.store.getBusiness(req.params.id);
+      if (!business || business.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Business not found" });
+        return;
+      }
+      const audit = await deps.store.getLatestCompletedAuditForBusiness(
+        business.id,
+      );
+      if (!audit) {
+        res.status(409).json({ error: "No completed audit for a design brief" });
+        return;
+      }
+      const force = req.query.force === "true";
+      if (!force && audit.design_brief) {
+        res.json({ design_brief: audit.design_brief, stored: true });
+        return;
+      }
+      let siteHtmlExcerpt: string | null = null;
+      if (business.website_url) {
+        try {
+          const site = await deps.site.fetchHomepage(business.website_url);
+          if (site) siteHtmlExcerpt = htmlToExcerpt(site.html);
+        } catch {
+          siteHtmlExcerpt = null;
+        }
+      }
+      const result = await runOnDemandAgent({
+        store: deps.store,
+        workspaceId: auth.workspaceId,
+        agentName: "design-brief",
+        businessId: business.id,
+        auditId: audit.id,
+        run: () => runDesignBrief({ business, audit, siteHtmlExcerpt }),
+        persist: (auditId, output) =>
+          deps.store.updateAudit(auditId, { design_brief: output }),
+      });
+      if (result.status !== "completed" || !result.output) {
+        res.status(502).json({ error: result.error ?? "Design brief failed" });
+        return;
+      }
+      res.json({
+        design_brief: result.output,
+        stored: false,
+        guardrail_passed: result.guardrailPassed,
+        guardrail_notes: result.guardrailNotes,
+        model_used: result.modelUsed,
+      });
+    } catch (err) {
+      console.error("[api] POST /api/businesses/:id/design-brief failed:", err);
+      res.status(500).json({ error: "Failed to run design brief" });
     }
   });
 

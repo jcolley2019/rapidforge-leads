@@ -29,10 +29,24 @@ export function placeholdersIn(markdown: string): string[] {
   return hits;
 }
 
+/** The H2 headings actually present ("## Title" lines), lowercased/trimmed. */
+export function h2Headings(markdown: string): string[] {
+  return [...markdown.matchAll(/^##\s+(.+?)\s*$/gm)].map((m) =>
+    m[1]!.replace(/[*_`]/g, "").trim().toLowerCase(),
+  );
+}
+
+/**
+ * A section counts only as its own H2 line (audit finding 10: a sentence
+ * containing "assets" used to satisfy the "Assets" section).
+ */
 export function missingSections(markdown: string): string[] {
-  const lower = markdown.toLowerCase();
+  const headings = h2Headings(markdown);
   return BRIEF_SECTIONS.filter(
-    (section) => !lower.includes(section.toLowerCase()),
+    (section) =>
+      !headings.some(
+        (h) => h === section.toLowerCase() || h.startsWith(`${section.toLowerCase()} `),
+      ),
   );
 }
 

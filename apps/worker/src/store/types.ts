@@ -148,6 +148,8 @@ export interface UpdateAuditPatch {
   analyst_output?: Record<string, unknown> | null;
   builder_brief_md?: string | null;
   sales_summary?: Record<string, unknown> | null;
+  /** Structured Design Brief (RFL.BRIEF.7; migration 0007). */
+  design_brief?: Record<string, unknown> | null;
   status?: string;
   error_message?: string | null;
   completed_at?: string | null;

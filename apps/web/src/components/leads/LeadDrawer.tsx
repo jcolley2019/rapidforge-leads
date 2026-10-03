@@ -31,6 +31,7 @@ import {
 import {
   LeadStatusSchema,
   type Audit,
+  type DesignBrief,
   type Issue,
   type LeadStatus,
 } from "@rapidforge/shared";
@@ -40,7 +41,9 @@ import {
   downloadReport,
   fetchBusinessAudits,
   fetchBusinessCosts,
+  fetchPlacePhotoUrl,
   generateBuilderBrief,
+  generateDesignBrief,
   generateSalesSummary,
   resolveAssetUrl,
   updateLeadStatus,
@@ -73,6 +76,7 @@ type TabKey =
   | "overview"
   | "audit"
   | "brief"
+  | "design"
   | "sales"
   | "history"
   | "notes"
@@ -82,6 +86,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "audit", label: "Audit" },
   { key: "brief", label: "Builder Brief" },
+  { key: "design", label: "Design Brief" },
   { key: "sales", label: "Sales Script" },
   { key: "history", label: "History" },
   { key: "notes", label: "Notes" },
@@ -197,6 +202,7 @@ function DrawerBody({ lead, onClose }: { lead: LeadView; onClose: () => void }) 
           <AuditTab audit={lead.audit} businessId={lead.business.id} />
         )}
         {tab === "brief" && <BuilderBriefTab lead={lead} />}
+        {tab === "design" && <DesignBriefTab lead={lead} />}
         {tab === "sales" && <SalesScriptTab lead={lead} />}
         {tab === "history" && <HistoryTab businessId={lead.business.id} />}
         {tab === "notes" && <NotesTab lead={lead} />}
@@ -1072,6 +1078,224 @@ function BuilderBriefTab({ lead }: { lead: LeadView }) {
         )
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Design Brief (RFL.BRIEF.7) — structured JSON the demo-site generator reads
+// ---------------------------------------------------------------------------
+
+function DesignBriefTab({ lead }: { lead: LeadView }) {
+  const [brief, setBrief] = useState<DesignBrief | null>(
+    (lead.audit?.design_brief as DesignBrief | null | undefined) ?? null,
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setBrief((lead.audit?.design_brief as DesignBrief | null | undefined) ?? null);
+    setError(null);
+  }, [lead.result.id, lead.audit?.design_brief]);
+
+  async function run(force: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await generateDesignBrief(lead.business.id, force);
+      setBrief(r.brief);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!auditReadyFor(lead)) return <DeliverableLocked kind="brief" />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <SectionTitle>Design Brief</SectionTitle>
+        <Button
+          variant={brief ? "outline" : "default"}
+          size="sm"
+          onClick={() => void run(brief !== null)}
+          disabled={busy}
+        >
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : brief ? (
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+          )}
+          {busy ? "Generating…" : brief ? "Regenerate" : "Design brief"}
+        </Button>
+      </div>
+      {error && <p className="text-xs text-agent-error">{error}</p>}
+      {brief ? (
+        <DesignBriefView brief={brief} />
+      ) : (
+        !busy && (
+          <p className="text-sm text-muted-foreground">
+            Structured JSON for the site generator — name, tone, services,
+            review quotes, photos, hours and the primary CTA, assembled from
+            this audit and the Places record (one Haiku call for tone and
+            services).
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
+function DesignBriefView({ brief }: { brief: DesignBrief }) {
+  return (
+    <div className="space-y-4 text-sm">
+      <section className="rounded-xl border border-border/70 px-4 py-3">
+        <p className="font-medium">{brief.business_name}</p>
+        <p className="font-mono text-[11px] text-muted-foreground">
+          {brief.vertical}
+          {brief.source.template_fallback ? " · template fallback" : ` · ${brief.source.haiku_model ?? "model"}`}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {brief.tone_descriptors.map((t) => (
+            <span
+              key={t}
+              className="rounded-full border border-primary/50 bg-primary/10 px-2 py-0.5 text-[11px] text-primary"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <SectionTitle>Services</SectionTitle>
+        <ul className="list-disc space-y-0.5 pl-5">
+          {brief.services.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <SectionTitle>Primary CTA</SectionTitle>
+        <p>
+          <span className="font-medium">{brief.primary_cta.label}</span>
+          <span className="ml-2 rounded-full border border-border px-1.5 font-mono text-[10px] text-muted-foreground">
+            {brief.primary_cta.kind}
+          </span>
+        </p>
+        <p className="truncate font-mono text-[11px] text-muted-foreground" title={brief.primary_cta.href}>
+          {brief.primary_cta.href}
+        </p>
+      </section>
+
+      <section>
+        <SectionTitle>Current site problem</SectionTitle>
+        <p>{brief.current_site_problem}</p>
+      </section>
+
+      {brief.review_quotes.length > 0 && (
+        <section>
+          <SectionTitle>Review quotes</SectionTitle>
+          <ul className="space-y-1.5">
+            {brief.review_quotes.map((q, i) => (
+              <li key={i} className="rounded-xl border border-border/70 px-3.5 py-2.5 text-xs">
+                <p>&ldquo;{q.text}&rdquo;</p>
+                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                  {q.rating !== null ? `${"★".repeat(Math.round(q.rating))} ` : ""}
+                  {q.author ?? "Google review"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section>
+        <SectionTitle>Hours</SectionTitle>
+        {brief.hours ? (
+          <table className="w-full text-xs">
+            <tbody>
+              {brief.hours.map((h) => (
+                <tr key={h.day} className="border-b border-border/50 last:border-0">
+                  <td className="py-1 pr-3 text-muted-foreground">{h.day}</td>
+                  <td className="py-1 font-mono">
+                    {h.open && h.close ? `${h.open} – ${h.close}` : h.open ?? "Closed"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="text-xs text-muted-foreground">No hours in the Places record.</p>
+        )}
+      </section>
+
+      <section>
+        <SectionTitle>Contact</SectionTitle>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          <Signal label="Phone" value={brief.phone} mono />
+          <Signal label="Address" value={brief.address} />
+        </dl>
+      </section>
+
+      {brief.photo_urls.length > 0 && <DesignBriefPhotos urls={brief.photo_urls} />}
+
+      <p className="font-mono text-[10px] text-muted-foreground">
+        generated {new Date(brief.generated_at).toLocaleString()} · audit {brief.source.audit_id}
+      </p>
+    </div>
+  );
+}
+
+/** Photos load via fetch + blob URL — the photo route needs the Bearer token. */
+function DesignBriefPhotos({ urls }: { urls: string[] }) {
+  const [blobs, setBlobs] = useState<Array<string | null>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const created: string[] = [];
+    void Promise.all(
+      urls.map((u) =>
+        fetchPlacePhotoUrl(u)
+          .then((blob) => {
+            created.push(blob);
+            return blob;
+          })
+          .catch(() => null),
+      ),
+    ).then((result) => {
+      if (!cancelled) setBlobs(result);
+    });
+    return () => {
+      cancelled = true;
+      for (const b of created) URL.revokeObjectURL(b);
+    };
+  }, [urls]);
+
+  return (
+    <section>
+      <SectionTitle>Photos</SectionTitle>
+      <div className="grid grid-cols-4 gap-2">
+        {urls.map((u, i) => (
+          <div
+            key={u}
+            className="aspect-square overflow-hidden rounded-xl border border-border bg-muted/30"
+          >
+            {blobs[i] ? (
+              <img src={blobs[i]!} alt={`Business photo ${i + 1}`} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center font-mono text-[10px] text-muted-foreground">
+                {blobs.length === 0 ? "…" : "n/a"}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

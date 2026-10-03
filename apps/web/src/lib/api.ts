@@ -12,6 +12,7 @@ import type {
   Audit,
   Business,
   CreateSearchRequest,
+  DesignBrief,
   Search,
   SearchResult,
   UpdateLeadStatusRequest,
@@ -249,6 +250,34 @@ export async function generateBuilderBrief(
     word_count: res.word_count,
     sections: res.sections,
   };
+}
+
+/**
+ * Design Brief JSON (RFL.BRIEF.7). The worker returns the stored brief when
+ * one exists; force=true re-runs the agent (one Haiku call).
+ */
+export async function generateDesignBrief(
+  businessId: string,
+  force = false,
+): Promise<{ brief: DesignBrief; stored: boolean }> {
+  const res = await apiFetch<{ design_brief: DesignBrief; stored: boolean }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/design-brief${force ? "?force=true" : ""}`,
+    { method: "POST" },
+  );
+  return { brief: res.design_brief, stored: res.stored };
+}
+
+/**
+ * Fetch a worker photo-route URL (/api/places/photo/:ref) as a blob URL —
+ * the route needs the Bearer token, so an <img src> cannot load it directly.
+ * Caller revokes the URL when done.
+ */
+export async function fetchPlacePhotoUrl(photoRouteUrl: string): Promise<string> {
+  const res = await fetch(resolveAssetUrl(photoRouteUrl), {
+    headers: { Authorization: `Bearer ${await bearerToken()}` },
+  });
+  if (!res.ok) throw new Error(`Photo request failed (${res.status})`);
+  return URL.createObjectURL(await res.blob());
 }
 
 /** Run (or re-run) the Sales Summary for a business (PRD 6.13). */
