@@ -4,6 +4,9 @@ import {
   BUILDER_PLATFORM_SCORE_MAX,
   CHAIN_SELLABILITY_CAP,
   DEAD_SITE_HEALTH_SCORE,
+  HEALTHY_SITE_SELLABILITY_CAP,
+  PROVISIONAL_SELLABILITY_CAP,
+  UNKNOWN_REPUTATION_SCORE,
   HEALTH_WEIGHTS,
   NO_WEBSITE_SELLABILITY_SCORE,
   PLATFORM_SCORES,
@@ -265,12 +268,103 @@ describe("computeSellabilityScore (PRD 4.3)", () => {
     expect(guarded.badge).toBeNull();
   });
 
-  it("computes the weighted blend for a strong lead", () => {
-    // health 40 → inverted 60*0.4=24; reviews 150→100*0.2=20;
-    // rating 4.6→100*0.15=15; phone 100*0.1=10; not chain 100*0.1=10;
-    // operational 100*0.05=5 → 84
+  it("computes the weighted blend for a strong lead (RFL-05 weights)", () => {
+    // health 40 → inverted 60*0.5=30; reviews 150→100*0.15=15;
+    // rating 4.6→100*0.1=10; phone 100*0.1=10; not chain 100*0.1=10;
+    // operational 100*0.05=5 → 80
     const result = computeSellabilityScore(sellableInput());
-    expect(result.score).toBe(84);
+    expect(result.score).toBe(80);
+    expect(result.breakdown.capped).toBeUndefined();
+    expect(result.breakdown.reputationUnknown).toBeUndefined();
+  });
+
+  it("weights: invertedHealth 0.50, reviewCount 0.15, ratingQuality 0.10, phone 0.10, notChain 0.10, operational 0.05", () => {
+    expect(SELLABILITY_WEIGHTS).toEqual({
+      invertedHealth: 0.5,
+      reviewCount: 0.15,
+      ratingQuality: 0.1,
+      phoneReachable: 0.1,
+      notChain: 0.1,
+      operational: 0.05,
+    });
+  });
+
+  it("needs-rebuild cap: health ≥ 70 caps sellability at 55 with capped='healthy_site'", () => {
+    // A perfect business with a merely-good site: blend would be
+    // 30*0.5 + 15 + 10 + 10 + 10 + 5 = 65 → capped.
+    const good = computeSellabilityScore(sellableInput({ healthScore: 70 }));
+    expect(good.score).toBe(HEALTHY_SITE_SELLABILITY_CAP);
+    expect(good.score).toBe(55);
+    expect(good.breakdown.capped).toBe("healthy_site");
+    // Just under the threshold: no cap.
+    const under = computeSellabilityScore(sellableInput({ healthScore: 69 }));
+    expect(under.score).toBe(66);
+    expect(under.breakdown.capped).toBeUndefined();
+    // A healthy site whose blend is already under 55 keeps its own score.
+    const weak = computeSellabilityScore(
+      sellableInput({ healthScore: 95, reviewCount: 2, googleRating: 3.0, hasPhone: false }),
+    );
+    expect(weak.score).toBeLessThan(55);
+    expect(weak.breakdown.capped).toBe("healthy_site");
+  });
+
+  it("provisional (blocked) audits cap at 55 with capped='provisional'", () => {
+    // Blocked → health neutral 50 → blend 25 + 15 + 10 + 10 + 10 + 5 = 75.
+    const blocked = computeSellabilityScore(
+      sellableInput({ healthScore: BLOCKED_SITE_NEUTRAL_SCORE, siteBlocked: true }),
+    );
+    expect(blocked.score).toBe(PROVISIONAL_SELLABILITY_CAP);
+    expect(blocked.score).toBe(55);
+    expect(blocked.breakdown.capped).toBe("provisional");
+    // Unknown health can never rank above measured-bad health.
+    const measuredBad = computeSellabilityScore(sellableInput({ healthScore: 40 }));
+    expect(measuredBad.score).toBeGreaterThan(blocked.score);
+  });
+
+  it("lowest cap wins: chain + healthy site → 40, capped='chain', chain=true", () => {
+    const both = computeSellabilityScore(
+      sellableInput({ isChain: true, healthScore: 80 }),
+    );
+    expect(both.score).toBe(CHAIN_SELLABILITY_CAP);
+    expect(both.breakdown.capped).toBe("chain");
+    expect(both.breakdown.chain).toBe(true);
+    const chainBlocked = computeSellabilityScore(
+      sellableInput({ isChain: true, healthScore: 50, siteBlocked: true }),
+    );
+    expect(chainBlocked.score).toBe(40);
+    expect(chainBlocked.breakdown.capped).toBe("chain");
+    // Chain with a bad site: still the chain cap, still flagged.
+    const chainBad = computeSellabilityScore(sellableInput({ isChain: true, healthScore: 30 }));
+    expect(chainBad.breakdown.capped).toBe("chain");
+    // No-website special case: no cap of any kind (CLAUDE.md 6.7).
+    const noSite = computeSellabilityScore(
+      sellableInput({ websiteKind: "none", healthScore: null, isChain: true }),
+    );
+    expect(noSite.score).toBe(95);
+    expect(noSite.breakdown.capped).toBeUndefined();
+  });
+
+  it("null reputation is unknown, not zero: neutral 50 per term + reputationUnknown (finding 8)", () => {
+    const unknownBoth = computeSellabilityScore(
+      sellableInput({ reviewCount: null, googleRating: null }),
+    );
+    expect(unknownBoth.breakdown.reviewCount).toBe(UNKNOWN_REPUTATION_SCORE);
+    expect(unknownBoth.breakdown.ratingQuality).toBe(UNKNOWN_REPUTATION_SCORE);
+    expect(unknownBoth.breakdown.reputationUnknown).toBe(true);
+    // 30 + 7.5 + 5 + 10 + 10 + 5 = 67.5 → 68
+    expect(unknownBoth.score).toBe(68);
+    // Zero reviews / low rating are MEASURED and still score low.
+    const measuredZero = computeSellabilityScore(
+      sellableInput({ reviewCount: 0, googleRating: 2.0 }),
+    );
+    expect(measuredZero.breakdown.reviewCount).toBe(20);
+    expect(measuredZero.breakdown.ratingQuality).toBe(0);
+    expect(measuredZero.breakdown.reputationUnknown).toBeUndefined();
+    // Blum-style: unknown reputation + health 55 must beat a chain at 40.
+    const blum = computeSellabilityScore(
+      sellableInput({ reviewCount: null, googleRating: null, healthScore: 55 }),
+    );
+    expect(blum.score).toBeGreaterThan(CHAIN_SELLABILITY_CAP);
   });
 
   it("bands review counts per PRD 4.3", () => {
@@ -292,7 +386,7 @@ describe("computeSellabilityScore (PRD 4.3)", () => {
     const none = computeSellabilityScore(sellableInput({ googleRating: null }));
     expect(above.breakdown.ratingQuality).toBe(100);
     expect(below.breakdown.ratingQuality).toBe(0);
-    expect(none.breakdown.ratingQuality).toBe(0);
+    expect(none.breakdown.ratingQuality).toBe(UNKNOWN_REPUTATION_SCORE); // unknown ≠ bad
   });
 
   it("penalizes chains and non-operational businesses", () => {

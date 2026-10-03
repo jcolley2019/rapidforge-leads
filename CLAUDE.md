@@ -69,6 +69,19 @@
 ### 4.2 Scoring Doctrine
 Scores are **deterministic math** (PRD Section 4; constants in `packages/shared/scoring.ts`). LLMs never assign Health, star, or Sellability scores — they interpret, critique, and write narrative on top of measured data. **Deterministic before AI:** if the worker can measure it, the worker measures it and the model receives it as fact.
 
+**Sellability weights (current — RFL-05, supersede PRD §4.3's 40/20/15):**
+
+| Term | Weight | Note |
+|---|---|---|
+| Inverted health (100 − health) | 0.50 | |
+| Review count band | 0.15 | null count = unknown → neutral 50 + "Unverified reputation" issue |
+| Rating quality (≥ 3.8★) | 0.10 | null rating = unknown → neutral 50 |
+| Phone reachable | 0.10 | |
+| Not a chain | 0.10 | |
+| Operational | 0.05 | |
+
+Caps after blending, lowest wins (`score_breakdown.capped`): health ≥ 70 → 55 (`healthy_site`); provisional/bot-blocked audit → 55 (`provisional`); `is_chain` → 40 (`chain`). No-website / social-only stays 95 (6.7). Analyst auto-runs only when star ≤ 3 AND sellability ≥ 60 AND not `is_chain` AND not provisional.
+
 ---
 
 ## 5. Windows + PowerShell

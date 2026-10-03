@@ -46,6 +46,29 @@ export const AUDIT_CONCURRENCY_CAP = 5;
 
 /** Analyst auto-run threshold (CLAUDE.md Section 8) — used from Sprint 7. */
 export const ANALYST_SELLABILITY_THRESHOLD = 60;
+/** PRD 4.2: 4–5★ sites are not sales targets — the Analyst skips them. */
+export const ANALYST_MAX_STAR_GRADE = 3;
+
+/**
+ * The Analyst auto-run gate (RFL-05, audit finding 2): star ≤ 3 AND
+ * sellability ≥ 60 AND not a chain AND not a provisional (bot-blocked)
+ * audit. Pure, so the four conditions are unit-tested directly.
+ */
+export function analystEligible(input: {
+  starGrade: number | null;
+  sellabilityScore: number | null;
+  isChain: boolean;
+  provisional: boolean;
+}): boolean {
+  return (
+    input.starGrade !== null &&
+    input.starGrade <= ANALYST_MAX_STAR_GRADE &&
+    input.sellabilityScore !== null &&
+    input.sellabilityScore >= ANALYST_SELLABILITY_THRESHOLD &&
+    !input.isChain &&
+    !input.provisional
+  );
+}
 
 /**
  * 30-day audit cache (PRD 5.5). Freshness is keyed on the audit's own
@@ -375,16 +398,19 @@ async function runAuditPipeline(
   // the just-finalized audit into a narrative verdict. It rides the same
   // agent_runs/events lifecycle; a refusal or failure never stalls the job
   // (the deterministic template answers), and its cost is logged as ai_call.
-  // Chains never get the Analyst (RFL-04) — the cap keeps them under the
-  // threshold anyway, but is_chain is the rule, not the score.
+  // Gate (RFL-05): star ≤ 3, sellability ≥ 60, not a chain, not provisional.
   if (
-    business.is_chain !== true &&
-    scorer.output.sellability_score >= ANALYST_SELLABILITY_THRESHOLD
+    analystEligible({
+      starGrade: scorer.output.star_grade,
+      sellabilityScore: scorer.output.sellability_score,
+      isChain: business.is_chain === true,
+      provisional: false, // the blocked path returned before the agents ran
+    })
   ) {
     const auditForAnalyst = await store.getLatestCompletedAuditForBusiness(
       business.id,
     );
-    if (auditForAnalyst) {
+    if (auditForAnalyst && auditForAnalyst.provisional !== true) {
       const config = await store.getWorkspaceConfig(search.workspace_id);
       const analyst = await withAgentRun(
         deps,

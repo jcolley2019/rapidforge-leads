@@ -88,6 +88,28 @@ const SEVERITY_RANK: Record<Issue["severity"], number> = {
  * behind it (CLAUDE.md 6.3), so "we couldn't measure X" is never phrased
  * as "X is broken".
  */
+/** Null Places rating/review count (audit finding 8): unknown, not zero. */
+export const UNVERIFIED_REPUTATION_LABEL =
+  "Unverified reputation (no Google rating data)";
+
+export function unverifiedReputationIssue(
+  googleRating: number | null,
+  reviewCount: number | null,
+): Issue | null {
+  if (googleRating !== null && reviewCount !== null) return null;
+  const missing =
+    googleRating === null && reviewCount === null
+      ? "Places returned no rating and no review count"
+      : googleRating === null
+        ? "Places returned no rating"
+        : "Places returned no review count";
+  return {
+    severity: "low",
+    label: UNVERIFIED_REPUTATION_LABEL,
+    detail: `${missing} — reputation terms scored neutral, verify by hand`,
+  };
+}
+
 export function buildIssues(input: IssueInputs): Issue[] {
   const issues: Issue[] = [];
   const add = (severity: Issue["severity"], label: string, detail?: string) => {
@@ -235,6 +257,8 @@ export function buildIssues(input: IssueInputs): Issue[] {
   }
 
   // -- reputation (Sprint 6, PRD 6.9) -----------------------------------------
+  const unverified = unverifiedReputationIssue(input.googleRating, input.reviewCount);
+  if (unverified) issues.push(unverified);
   if (
     input.googleRating !== null &&
     input.reviewCount !== null &&
