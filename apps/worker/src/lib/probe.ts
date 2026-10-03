@@ -105,7 +105,11 @@ export class RealWebProbe implements WebProbe {
   }
 }
 
-/** Read at most maxBytes of the body as text, then release the stream. */
+/**
+ * Read at most maxBytes of the body as text, then release the stream. A
+ * body that errors or stalls mid-read keeps what arrived — the status line
+ * already proved the server answered, so this never turns a site "dead".
+ */
 async function readBodyPrefix(res: Response, maxBytes: number): Promise<string> {
   if (!res.body) return "";
   const reader = res.body.getReader();
@@ -119,6 +123,8 @@ async function readBodyPrefix(res: Response, maxBytes: number): Promise<string> 
       bytes += value.byteLength;
       text += decoder.decode(value, { stream: true });
     }
+  } catch {
+    // keep the partial body
   } finally {
     await reader.cancel().catch(() => undefined);
   }

@@ -89,6 +89,25 @@ describe("RealWebProbe", () => {
     expect(result.note).toMatch(/^Unreachable: .*timeout/);
   });
 
+  it("a body that errors mid-read keeps the status verdict (200 → yes, not dead)", async () => {
+    const fetchMock = vi.fn(async () => {
+      let sent = false;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!sent) {
+            sent = true;
+            controller.enqueue(new TextEncoder().encode("<html><head><title>Home"));
+          } else {
+            controller.error(new Error("socket hang up"));
+          }
+        },
+      });
+      return new Response(body, { status: 200 });
+    });
+    const result = await new RealWebProbe({ fetch: fetchMock }).probe(URL_UNDER_TEST);
+    expect(result).toMatchObject({ alive: "yes", httpStatus: 200, blockedBy: null });
+  });
+
   it("200 real page → yes, via one GET with browser headers", async () => {
     const fetchMock = respond(200, "<html><head><title>Example Plumbing</title></head></html>");
     const result = await new RealWebProbe({ fetch: fetchMock }).probe(URL_UNDER_TEST);
