@@ -30,6 +30,8 @@ import {
   type JobCounts,
   type LeadView,
   type LogUsageEventInput,
+  type ReclaimStaleInput,
+  type ReclaimStaleResult,
   type SearchDetail,
   type UpdateAgentRunPatch,
   type UpdateAuditPatch,
@@ -176,6 +178,42 @@ export class MemoryStore implements DataStore {
       if (job.status === "queued" || job.status === "running") count += 1;
     }
     return count;
+  }
+
+  async reclaimStaleWork(input: ReclaimStaleInput): Promise<ReclaimStaleResult> {
+    const exclude = new Set(input.excludeJobIds ?? []);
+    const isStale = (startedAt: string | null): boolean =>
+      startedAt !== null && startedAt < input.staleBeforeIso;
+    const result: ReclaimStaleResult = {
+      requeued: [],
+      failed: [],
+      agentRunsFailed: [],
+    };
+
+    for (const job of this.jobs.values()) {
+      if (job.status !== "running" || exclude.has(job.id)) continue;
+      if (!isStale(job.started_at)) continue;
+      job.error = input.reason;
+      if ((job.attempts ?? 0) < input.maxAttempts) {
+        job.status = "queued";
+        job.finished_at = null;
+        result.requeued.push({ ...job });
+      } else {
+        job.status = "failed";
+        job.finished_at = nowIso();
+        result.failed.push({ ...job });
+      }
+    }
+
+    for (const run of this.agentRuns.values()) {
+      if (run.status !== "running" || !isStale(run.started_at)) continue;
+      if (run.job_id !== null && exclude.has(run.job_id)) continue;
+      run.status = "failed";
+      run.error = input.reason;
+      run.ended_at = nowIso();
+      result.agentRunsFailed.push({ ...run });
+    }
+    return result;
   }
 
   // -- businesses / results / audits ----------------------------------------
