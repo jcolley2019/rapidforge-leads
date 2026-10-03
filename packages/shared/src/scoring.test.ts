@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BLOCKED_SITE_NEUTRAL_SCORE,
   BUILDER_PLATFORM_SCORE_MAX,
+  CHAIN_SELLABILITY_CAP,
   DEAD_SITE_HEALTH_SCORE,
   HEALTH_WEIGHTS,
   NO_WEBSITE_SELLABILITY_SCORE,
@@ -300,7 +301,35 @@ describe("computeSellabilityScore (PRD 4.3)", () => {
       sellableInput({ businessStatus: "CLOSED_TEMPORARILY" }),
     );
     const base = computeSellabilityScore(sellableInput());
-    expect(base.score - chain.score).toBe(10); // notChain weight 0.10
+    expect(chain.breakdown.notChain).toBe(0); // notChain weight 0.10 still applies
     expect(base.score - closed.score).toBe(5); // operational weight 0.05
+  });
+
+  it("caps a chain's final score at 40 and marks breakdown.chain (RFL-04)", () => {
+    // Blend would be 84 − 10 (notChain) = 74 → capped.
+    const chain = computeSellabilityScore(sellableInput({ isChain: true }));
+    expect(chain.score).toBe(CHAIN_SELLABILITY_CAP);
+    expect(chain.score).toBe(40);
+    expect(chain.breakdown.chain).toBe(true);
+    // A chain whose blend is already under the cap keeps its own score.
+    const weakChain = computeSellabilityScore(
+      sellableInput({
+        isChain: true,
+        healthScore: 95,
+        reviewCount: 2,
+        googleRating: 3.1,
+        hasPhone: false,
+      }),
+    );
+    expect(weakChain.score).toBeLessThan(40);
+    expect(weakChain.breakdown.chain).toBe(true);
+    // The no-website special case is routing law (CLAUDE.md 6.7): not capped.
+    const noSiteChain = computeSellabilityScore(
+      sellableInput({ isChain: true, websiteKind: "none", healthScore: null }),
+    );
+    expect(noSiteChain.score).toBe(NO_WEBSITE_SELLABILITY_SCORE);
+    expect(noSiteChain.breakdown.chain).toBeUndefined();
+    // Independents never carry the flag.
+    expect(computeSellabilityScore(sellableInput()).breakdown.chain).toBeUndefined();
   });
 });
