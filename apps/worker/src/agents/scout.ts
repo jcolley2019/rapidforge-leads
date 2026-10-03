@@ -4,15 +4,23 @@
  * Places Nearby Search (New) with type filter; grid-tiles areas larger
  * than one search's coverage and dedupes by place_id; Place Details
  * enrichment for records missing website/phone; is_chain heuristic
- * (brand-name list + multi-location detection); website_kind
+ * (lib/chains: brand list + URL shape + multi-location, with chain_reason);
+ * website_kind
  * classification; upserts `businesses` on (workspace_id, google_place_id)
  * + `search_results`; logs a usage_events row per Places call.
  */
 import {
   type AgentResult,
+  type ChainReason,
   type Search,
   type WebsiteKind,
 } from "@rapidforge/shared";
+import {
+  MULTI_LOCATION_CHAIN_THRESHOLD,
+  detectChain,
+  isKnownChainName,
+  normalizeBusinessName,
+} from "../lib/chains";
 import { haversineMeters, METERS_PER_MILE, planTiles } from "../lib/geo";
 import { parseSearchParams } from "../lib/search-params";
 import type { PlaceRecord, PlacesClient } from "../lib/places";
@@ -21,8 +29,7 @@ import type { DataStore } from "../store";
 /** Hard cap per search — Founder plan max_results_per_search (PRD 5.1). */
 export const MAX_RESULTS_PER_SEARCH = 100;
 
-/** Same normalized name at ≥ this many locations in one search → chain. */
-export const MULTI_LOCATION_CHAIN_THRESHOLD = 3;
+export { MULTI_LOCATION_CHAIN_THRESHOLD } from "../lib/chains";
 
 // ---------------------------------------------------------------------------
 // Website classification (PRD 6.1) — deterministic, exported for tests
@@ -57,61 +64,11 @@ export function classifyWebsiteKind(websiteUrl: string | null): WebsiteKind {
 }
 
 // ---------------------------------------------------------------------------
-// is_chain heuristic (PRD 6.1) — brand list + multi-location detection
+// is_chain heuristic (PRD 6.1) — brand list + URL shape live in lib/chains;
+// re-exported so existing imports keep working.
 // ---------------------------------------------------------------------------
 
-/** National/franchise brands that never buy a local website rebuild. */
-const KNOWN_CHAIN_BRANDS = [
-  "roto rooter",
-  "mr rooter",
-  "benjamin franklin plumbing",
-  "one hour heating",
-  "aire serv",
-  "servpro",
-  "servicemaster",
-  "stanley steemer",
-  "terminix",
-  "orkin",
-  "trugreen",
-  "chem dry",
-  "molly maid",
-  "merry maids",
-  "jiffy lube",
-  "midas",
-  "meineke",
-  "aamco",
-  "firestone",
-  "les schwab",
-  "great clips",
-  "supercuts",
-  "sport clips",
-  "planet fitness",
-  "anytime fitness",
-  "mcdonalds",
-  "starbucks",
-  "subway",
-  "dominos",
-  "pizza hut",
-  "papa johns",
-  "walmart",
-  "home depot",
-  "lowes",
-  "ace hardware",
-] as const;
-
-/** Lowercase, strip punctuation, collapse whitespace. */
-export function normalizeBusinessName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
-export function isKnownChainName(name: string): boolean {
-  const padded = ` ${normalizeBusinessName(name)} `;
-  return KNOWN_CHAIN_BRANDS.some((brand) => padded.includes(` ${brand} `));
-}
+export { isKnownChainName, normalizeBusinessName };
 
 /**
  * Multi-location detection: the same normalized name appearing at
@@ -264,8 +221,7 @@ export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutp
         review_count: record.reviewCount,
         category: record.primaryType ?? search.category,
         business_status: record.businessStatus,
-        is_chain:
-          isKnownChainName(record.name) || multiLocation.has(record.placeId),
+        ...chainFields(record, multiLocation.has(record.placeId)),
         website_kind: classifyWebsiteKind(record.websiteUrl),
       });
       await store.ensureSearchResult(search.workspace_id, search.id, business.id);
@@ -297,6 +253,15 @@ export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutp
   } finally {
     unsubscribe();
   }
+}
+
+/** is_chain + chain_reason for the upsert (brand → URL → multi-location). */
+function chainFields(
+  record: PlaceRecord,
+  multiLocationInSearch: boolean,
+): { is_chain: boolean; chain_reason: ChainReason | null } {
+  const detection = detectChain(record.name, record.websiteUrl, multiLocationInSearch);
+  return { is_chain: detection.isChain, chain_reason: detection.reason };
 }
 
 function fail(error: string, startedAt: number): AgentResult<ScoutOutput> {

@@ -48,7 +48,8 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
   });
   const [minReviews, setMinReviews] = useState(0);
   const [minRating, setMinRating] = useState(0);
-  const [excludeChains, setExcludeChains] = useState(false);
+  // Chains excluded by default (RFL-04); the checkbox opts back in.
+  const [excludeChains, setExcludeChains] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

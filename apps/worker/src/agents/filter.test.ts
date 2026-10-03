@@ -103,11 +103,21 @@ describe("evaluateGates", () => {
     expect(evaluateGates(makeBusiness({ google_rating: null }), params)).toBeNull();
   });
 
-  it("excludes chains only when the search says so", () => {
-    expect(evaluateGates(makeBusiness({ is_chain: true }), params)).toBeNull();
+  it("excludes chains by default and admits them only when exclude_chains=false (RFL-04)", () => {
+    // `params` is parsed without exclude_chains → schema default (true).
+    expect(params.exclude_chains).toBe(true);
+    expect(evaluateGates(makeBusiness({ is_chain: true }), params)).toMatch(/[Cc]hain/);
     expect(
-      evaluateGates(makeBusiness({ is_chain: true }), { ...params, exclude_chains: true }),
-    ).toMatch(/[Cc]hain/);
+      planFilterOutcome(makeBusiness({ is_chain: true }), params, null),
+    ).toMatchObject({ outcome: "skip", auditStatus: "skipped" });
+    // Independents pass the gate either way.
+    expect(evaluateGates(makeBusiness({ is_chain: false }), params)).toBeNull();
+    // Opting in admits the chain.
+    const optIn = { ...params, exclude_chains: false };
+    expect(evaluateGates(makeBusiness({ is_chain: true }), optIn)).toBeNull();
+    expect(
+      planFilterOutcome(makeBusiness({ is_chain: true }), optIn, null).outcome,
+    ).toBe("needs_probe");
   });
 });
 

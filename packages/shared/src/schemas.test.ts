@@ -17,7 +17,7 @@ describe("MapDrawParamsSchema", () => {
       radius_miles: 10,
       min_reviews: 0,
       min_rating: 0,
-      exclude_chains: false,
+      exclude_chains: true, // RFL-04: chains excluded by default
     });
   });
 
@@ -69,7 +69,7 @@ describe("CreateSearchRequestSchema (discriminated union)", () => {
     expect(parsed.mode).toBe("map_draw");
     if (parsed.mode === "map_draw") {
       expect(parsed.params.lat).toBe(43.6);
-      expect(parsed.params.exclude_chains).toBe(false);
+      expect(parsed.params.exclude_chains).toBe(true);
     }
   });
 

@@ -15,6 +15,7 @@ import type {
   AgentRun,
   Audit,
   Business,
+  ChainReason,
   Issue,
   Job,
   JobStatus,
@@ -69,6 +70,12 @@ export interface UpsertBusinessInput {
   category: string | null;
   business_status: string | null;
   is_chain: boolean;
+  /**
+   * Why is_chain (RFL-04). Optional: callers that only know is_chain pass
+   * nothing and the store writes null. The store itself adds the
+   * workspace-wide multi-location check and name_normalized (migration 0008).
+   */
+  chain_reason?: ChainReason | null;
   website_kind: WebsiteKind;
 }
 
@@ -277,6 +284,14 @@ export interface DataStore {
   reclaimStaleWork(input: ReclaimStaleInput): Promise<ReclaimStaleResult>;
 
   // businesses / results / audits
+  /**
+   * Upsert on (workspace_id, google_place_id). Also the workspace-wide
+   * multi-location check: when the normalized name now sits at
+   * MULTI_LOCATION_CHAIN_THRESHOLD+ distinct place ids in the workspace,
+   * every one of them becomes is_chain with chain_reason 'multi_location'
+   * (an existing known_brand / url_shape reason is kept). Returns the
+   * row as it stands after that check.
+   */
   upsertBusiness(input: UpsertBusinessInput): Promise<Business>;
   getBusiness(id: string): Promise<Business | null>;
   ensureSearchResult(

@@ -156,6 +156,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
       health: healthResult.breakdown,
       sellability: sellabilityResult.breakdown,
       ...(badge ? { badge } : {}),
+      ...(sellabilityResult.breakdown.chain ? { chain: true } : {}),
       agents: {
         health: health !== null,
         conversion: conversion !== null,

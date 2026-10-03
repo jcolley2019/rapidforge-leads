@@ -60,8 +60,8 @@ export const ZipRadiusParamsSchema = z.object({
   radius_miles: z.number().min(1).max(25),
   min_reviews: z.number().int().min(0).default(0),
   min_rating: z.number().min(0).max(5).default(0),
-  /** PRD 6.2: is_chain exclusion is configurable; off by default. */
-  exclude_chains: z.boolean().default(false),
+  /** PRD 6.2: is_chain exclusion is configurable; ON by default (RFL-04). */
+  exclude_chains: z.boolean().default(true),
 });
 export type ZipRadiusParams = z.infer<typeof ZipRadiusParamsSchema>;
 
@@ -75,7 +75,8 @@ export const MapDrawParamsSchema = z.object({
   radius_miles: z.number().min(1).max(25),
   min_reviews: z.number().int().min(0).default(0),
   min_rating: z.number().min(0).max(5).default(0),
-  exclude_chains: z.boolean().default(false),
+  /** Same default as zip/radius: chains excluded unless the user opts in. */
+  exclude_chains: z.boolean().default(true),
 });
 export type MapDrawParams = z.infer<typeof MapDrawParamsSchema>;
 
@@ -218,6 +219,14 @@ export const SearchSchema = z.object({
 });
 export type Search = z.infer<typeof SearchSchema>;
 
+/** Why a business was marked is_chain (RFL-04; migration 0008). */
+export const ChainReasonSchema = z.enum([
+  "known_brand",
+  "url_shape",
+  "multi_location",
+]);
+export type ChainReason = z.infer<typeof ChainReasonSchema>;
+
 export const BusinessSchema = z.object({
   id: uuid,
   workspace_id: uuid,
@@ -233,6 +242,9 @@ export const BusinessSchema = z.object({
   category: z.string().nullable(),
   business_status: z.string().nullable(),
   is_chain: z.boolean().nullable(),
+  /** Optional: columns arrive with migration 0008. */
+  chain_reason: ChainReasonSchema.nullable().optional(),
+  name_normalized: z.string().nullable().optional(),
   website_kind: WebsiteKindSchema.nullable(),
   first_seen_at: timestamp.nullable(),
   last_refreshed_at: timestamp.nullable(),

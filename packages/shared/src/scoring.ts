@@ -114,6 +114,14 @@ export const RATING_QUALITY_THRESHOLD = 3.8;
 /** Special case (PRD 4.4): no website (or social-only, CLAUDE.md 6.7) → auto. */
 export const NO_WEBSITE_SELLABILITY_SCORE = 95;
 
+/**
+ * Chains / franchises never buy a local rebuild (audit finding 3): a
+ * business with is_chain has its FINAL blended sellability capped here.
+ * The no-website / social-only special case (CLAUDE.md 6.7 routing law)
+ * stays at NO_WEBSITE_SELLABILITY_SCORE. Not a weight — weights untouched.
+ */
+export const CHAIN_SELLABILITY_CAP = 40;
+
 /** Badge copy for the special cases (PRD 4.4 + PRD 6.2 social-only). */
 export const SPECIAL_CASE_BADGES = {
   noWebsite: "No website — easiest pitch",
@@ -346,6 +354,8 @@ export interface SellabilityBreakdown {
   notChain: number;
   operational: number;
   specialCase: "no_website" | null;
+  /** Present (true) only when the chain cap applied. */
+  chain?: true;
 }
 
 export interface SellabilityResult {
@@ -375,6 +385,18 @@ export function reviewCountScore(reviewCount: number | null): number {
 export function computeSellabilityScore(
   input: SellabilityInput,
 ): SellabilityResult {
+  const result = computeUncappedSellability(input);
+  // is_chain → final score ≤ CHAIN_SELLABILITY_CAP, breakdown.chain = true.
+  // Special-case routing (no website → 95) is law and is not capped.
+  if (!input.isChain || result.breakdown.specialCase === "no_website") return result;
+  return {
+    ...result,
+    score: Math.min(result.score, CHAIN_SELLABILITY_CAP),
+    breakdown: { ...result.breakdown, chain: true },
+  };
+}
+
+function computeUncappedSellability(input: SellabilityInput): SellabilityResult {
   if (input.websiteKind === "none" || input.websiteKind === "social_only") {
     return {
       score: NO_WEBSITE_SELLABILITY_SCORE,

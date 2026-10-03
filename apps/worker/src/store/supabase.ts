@@ -40,6 +40,10 @@ import {
   type UpdateSearchResultPatch,
   type UpsertBusinessInput,
 } from "./types";
+import {
+  MULTI_LOCATION_CHAIN_THRESHOLD,
+  normalizeBusinessName,
+} from "../lib/chains";
 import { summarizeUsage, type UsageRollupRow } from "./usage";
 
 /** Row cap for the month rollup fetch — logged when hit, never silent. */
@@ -322,15 +326,60 @@ export class SupabaseStore implements DataStore {
   // -- businesses / results / audits ----------------------------------------
 
   async upsertBusiness(input: UpsertBusinessInput): Promise<Business> {
+    const name_normalized = normalizeBusinessName(input.name);
     const { data, error } = await this.db
       .from("businesses")
       .upsert(
-        { ...input, last_refreshed_at: nowIso() },
+        {
+          ...input,
+          chain_reason: input.chain_reason ?? null,
+          name_normalized,
+          last_refreshed_at: nowIso(),
+        },
         { onConflict: "workspace_id,google_place_id" },
       )
       .select()
       .single();
-    return must(data, error, "upsertBusiness") as Business;
+    const business = must(data, error, "upsertBusiness") as Business;
+    return this.markMultiLocationChains(business, name_normalized);
+  }
+
+  /**
+   * Workspace-wide multi-location check (see DataStore.upsertBusiness).
+   * One indexed read on (workspace_id, name_normalized); one update only
+   * when the threshold is crossed and some row is not yet a chain.
+   */
+  private async markMultiLocationChains(
+    business: Business,
+    nameNormalized: string,
+  ): Promise<Business> {
+    const { data, error } = await this.db
+      .from("businesses")
+      .select("id, google_place_id, is_chain, chain_reason")
+      .eq("workspace_id", business.workspace_id)
+      .eq("name_normalized", nameNormalized);
+    if (error) throw new Error(`[store] multiLocation read: ${error.message}`);
+    const rows = (data ?? []) as Pick<
+      Business,
+      "id" | "google_place_id" | "is_chain" | "chain_reason"
+    >[];
+    const distinctPlaces = new Set(rows.map((r) => r.google_place_id));
+    if (distinctPlaces.size < MULTI_LOCATION_CHAIN_THRESHOLD) return business;
+    const ids = rows
+      .filter((r) => !(r.is_chain === true && r.chain_reason))
+      .map((r) => r.id);
+    if (ids.length === 0) return business;
+    const { error: updErr } = await this.db
+      .from("businesses")
+      .update({ is_chain: true, chain_reason: "multi_location" })
+      .in("id", ids);
+    if (updErr) throw new Error(`[store] multiLocation update: ${updErr.message}`);
+    console.log(
+      `[store] "${nameNormalized}" at ${distinctPlaces.size} places in workspace ${business.workspace_id} — ${ids.length} marked is_chain (multi_location)`,
+    );
+    return ids.includes(business.id)
+      ? { ...business, is_chain: true, chain_reason: "multi_location" }
+      : business;
   }
 
   async getBusiness(id: string): Promise<Business | null> {
