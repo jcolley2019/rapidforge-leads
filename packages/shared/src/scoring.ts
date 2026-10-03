@@ -60,6 +60,13 @@ export const UNMEASURED_PSI_SCORE = 50;
 /** Special case (PRD 4.4): site times out / errors → health is pinned here. */
 export const DEAD_SITE_HEALTH_SCORE = 10;
 
+/**
+ * Blocked site (audit finding 4: WAF / bot challenge — not dead, not
+ * measured): every health term is this neutral value and the audit is
+ * provisional. Not a weight — the score is simply unmeasured.
+ */
+export const BLOCKED_SITE_NEUTRAL_SCORE = 50;
+
 // ---------------------------------------------------------------------------
 // Star grade (PRD 4.2) — derived from Health Score
 // ---------------------------------------------------------------------------
@@ -122,6 +129,12 @@ export const SPECIAL_CASE_BADGES = {
 export interface HealthScoreInput {
   /** Site timed out / connection refused / hard error (PRD 4.4 dead site). */
   siteDead: boolean;
+  /**
+   * Bot protection answered instead of the site (probe "unknown"). Every
+   * term is BLOCKED_SITE_NEUTRAL_SCORE and the breakdown carries
+   * blocked=true. Takes precedence over siteDead.
+   */
+  siteBlocked?: boolean;
   /** PSI desktop performance 0–100; null = PSI returned nothing. */
   psDesktopPerformance: number | null;
   /** PSI mobile performance 0–100; null = PSI returned nothing. */
@@ -156,7 +169,9 @@ export interface HealthScoreBreakdown {
   conversion: number;
   freshness: number;
   design: number;
-  specialCase: "dead_site" | null;
+  specialCase: "dead_site" | "blocked" | null;
+  /** Present (true) only for a blocked site — score is unmeasured. */
+  blocked?: true;
 }
 
 export interface HealthScoreResult {
@@ -200,6 +215,23 @@ export function isBuilderPlatform(platform: string | null): boolean {
  * those businesses skip the audit pipeline entirely and health stays null.
  */
 export function computeHealthScore(input: HealthScoreInput): HealthScoreResult {
+  if (input.siteBlocked === true) {
+    const n = BLOCKED_SITE_NEUTRAL_SCORE;
+    return {
+      score: n,
+      breakdown: {
+        performance: n,
+        mobile: n,
+        technical: n,
+        platform: n,
+        conversion: n,
+        freshness: n,
+        design: n,
+        specialCase: "blocked",
+        blocked: true,
+      },
+    };
+  }
   if (input.siteDead) {
     return {
       score: DEAD_SITE_HEALTH_SCORE,
@@ -302,6 +334,8 @@ export interface SellabilityInput {
   isChain: boolean;
   /** Google Places business_status, e.g. 'OPERATIONAL'. */
   businessStatus: string | null;
+  /** Blocked site (see HealthScoreInput.siteBlocked) — never a dead-site badge. */
+  siteBlocked?: boolean;
 }
 
 export interface SellabilityBreakdown {
@@ -379,7 +413,7 @@ export function computeSellabilityScore(
   );
 
   const badge =
-    input.healthScore === DEAD_SITE_HEALTH_SCORE
+    input.siteBlocked !== true && input.healthScore === DEAD_SITE_HEALTH_SCORE
       ? SPECIAL_CASE_BADGES.deadSite
       : null;
 
