@@ -49,9 +49,15 @@ import {
   type LeadView,
   type SalesSummaryResult,
 } from "@/lib/api";
+import {
+  failedAuditReason,
+  isFailedAudit,
+  isProvisionalAudit,
+} from "@/lib/audit-flags";
 import { formatCents, relativeTime } from "@/lib/format";
 import { spring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { CouldNotAuditChip, ProvisionalTag } from "./AuditTags";
 
 const LEAD_STATUSES = LeadStatusSchema.options;
 
@@ -269,12 +275,14 @@ function OverviewTab({ lead }: { lead: LeadView }) {
           label="Sellability"
           value={audit?.sellability_score ?? null}
           accent="primary"
+          provisional={isProvisionalAudit(audit)}
         />
         <ScoreCard
           label="Health"
           value={audit?.website_health_score ?? null}
           accent="health"
           stars={audit?.star_grade ?? null}
+          provisional={isProvisionalAudit(audit)}
         />
       </section>
 
@@ -300,6 +308,11 @@ function OverviewTab({ lead }: { lead: LeadView }) {
               <IssueBullet key={i} issue={issue} />
             ))}
           </ul>
+        ) : isFailedAudit(audit) ? (
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            <CouldNotAuditChip reason={failedAuditReason(audit)} />
+            {failedAuditReason(audit)}
+          </p>
         ) : (
           <p className="text-xs text-muted-foreground">
             {audit
@@ -776,10 +789,14 @@ function HistoryTab({ businessId }: { businessId: string }) {
             {audit.completed_at
               ? new Date(audit.completed_at).toLocaleString()
               : `${audit.status ?? "pending"}…`}
+            {isFailedAudit(audit) && (
+              <CouldNotAuditChip reason={failedAuditReason(audit)} />
+            )}
           </span>
           <span className="font-mono">
             health {audit.website_health_score ?? "—"} · sell{" "}
             {audit.sellability_score ?? "—"}
+            {isProvisionalAudit(audit) && <ProvisionalTag />}
           </span>
         </li>
       ))}
@@ -1201,11 +1218,14 @@ function ScoreCard({
   value,
   accent,
   stars,
+  provisional = false,
 }: {
   label: string;
   value: number | null;
   accent: "primary" | "health";
   stars?: number | null;
+  /** Placeholder score (bot-blocked audit) — tagged, not presented as measured. */
+  provisional?: boolean;
 }) {
   const color =
     value === null
@@ -1228,6 +1248,7 @@ function ScoreCard({
       </p>
       <p className={cn("font-mono text-2xl font-semibold", color)}>
         {value ?? "—"}
+        {provisional && value !== null && <ProvisionalTag className="ml-2" />}
       </p>
       {stars !== undefined && stars !== null && (
         <p

@@ -8,8 +8,14 @@ import { ChevronRight, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { Issue } from "@rapidforge/shared";
 import type { LeadView } from "@/lib/api";
+import {
+  failedAuditReason,
+  isFailedAudit,
+  isProvisionalAudit,
+} from "@/lib/audit-flags";
 import { spring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { CouldNotAuditChip, ProvisionalTag } from "./AuditTags";
 
 export interface ResultsTableProps {
   leads: LeadView[];
@@ -109,6 +115,7 @@ function LeadRow({
     (audit?.score_breakdown as { provisional?: boolean } | null)?.provisional,
   );
   const skipped = audit?.status === "skipped";
+  const provisionalAudit = isProvisionalAudit(audit);
   const issues = audit?.issues ?? [];
   const expandable = issues.length > 0;
 
@@ -209,6 +216,7 @@ function LeadRow({
                   est
                 </span>
               )}
+              {provisionalAudit && <ProvisionalTag />}
             </span>
           ) : (
             <span className="font-mono text-muted-foreground">—</span>
@@ -355,6 +363,9 @@ function StateChip({ lead }: { lead: LeadView }) {
         Skipped · {audit.error_message}
       </span>
     );
+  }
+  if (isFailedAudit(audit)) {
+    return <CouldNotAuditChip reason={failedAuditReason(audit)} />;
   }
   if (audit.status === "pending") {
     return (
