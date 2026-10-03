@@ -327,13 +327,17 @@ export class SupabaseStore implements DataStore {
 
   async upsertBusiness(input: UpsertBusinessInput): Promise<Business> {
     const name_normalized = normalizeBusinessName(input.name);
+    // places_details undefined → key omitted → the stored record survives
+    // the upsert (PostgREST only writes the columns present in the body).
+    const { places_details, ...fields } = input;
     const { data, error } = await this.db
       .from("businesses")
       .upsert(
         {
-          ...input,
+          ...fields,
           chain_reason: input.chain_reason ?? null,
           name_normalized,
+          ...(places_details === undefined ? {} : { places_details }),
           last_refreshed_at: nowIso(),
         },
         { onConflict: "workspace_id,google_place_id" },
@@ -380,6 +384,17 @@ export class SupabaseStore implements DataStore {
     return ids.includes(business.id)
       ? { ...business, is_chain: true, chain_reason: "multi_location" }
       : business;
+  }
+
+  async setBusinessPlacesDetails(
+    id: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    const { error } = await this.db
+      .from("businesses")
+      .update({ places_details: details, last_refreshed_at: nowIso() })
+      .eq("id", id);
+    if (error) throw new Error(`[store] setBusinessPlacesDetails: ${error.message}`);
   }
 
   async getBusiness(id: string): Promise<Business | null> {

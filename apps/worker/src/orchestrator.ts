@@ -194,6 +194,7 @@ async function handleAuditBusinessJob(
       runFilter({
         store,
         probe: deps.probe,
+        places: deps.places,
         search,
         business,
         jobId: job.id,
@@ -207,10 +208,15 @@ async function handleAuditBusinessJob(
   // Only live real sites proceed to the audit agents (PRD 3.3 steps 4–5).
   // Hot leads / dead sites / skips / cache hits are complete after Filter.
   if (result.output.outcome !== "pending_audit") return;
+  // Filter may have just persisted places_details (RFL-06): the agents
+  // (Presence hours, Reputation review text) read the enriched row.
+  const enriched = result.output.details_fetched
+    ? ((await store.getBusiness(business.id)) ?? business)
+    : business;
   await runAuditPipeline(
     job,
     search,
-    business,
+    enriched,
     result.output.audit_id,
     latest,
     deps,

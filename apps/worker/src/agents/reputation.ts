@@ -14,7 +14,9 @@
  *     YELP_API_KEY check, clearly marked v1.5 — divergence stays null.
  *
  * Sonnet writes the verdict narrative; themes come only from provided
- * review text (none in v1), so guardrails reject any invented quote.
+ * review text — the Places reviews persisted in businesses.places_details
+ * (RFL-06) when present — so guardrails reject any quote that is not
+ * verbatim from that text. The deterministic template never invents themes.
  */
 import type { AgentResult, Audit, Business } from "@rapidforge/shared";
 import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
@@ -124,6 +126,45 @@ export interface ReputationOutput extends Record<string, unknown> {
   summary: ReputationSummary;
 }
 
+/** One review as handed to the model — text capped, nothing invented. */
+export interface ReviewTextInput {
+  rating: number | null;
+  text: string;
+  when: string | null;
+}
+
+export const MAX_REVIEWS_FOR_THEMES = 5;
+export const MAX_REVIEW_CHARS = 400;
+
+/**
+ * Review texts from a raw places_details record (pure): highest rating
+ * first, then longest, capped to MAX_REVIEWS_FOR_THEMES and
+ * MAX_REVIEW_CHARS. Empty when no details / no text.
+ */
+export function reviewTextsFrom(
+  placesDetails: Record<string, unknown> | null | undefined,
+): ReviewTextInput[] {
+  const reviews = (placesDetails as {
+    reviews?: Array<{
+      rating?: number;
+      text?: { text?: string };
+      originalText?: { text?: string };
+      relativePublishTimeDescription?: string;
+    }>;
+  } | null)?.reviews;
+  if (!Array.isArray(reviews)) return [];
+  return reviews
+    .map((r) => ({
+      rating: typeof r.rating === "number" ? r.rating : null,
+      text: (r.text?.text ?? r.originalText?.text ?? "").trim(),
+      when: r.relativePublishTimeDescription ?? null,
+    }))
+    .filter((r) => r.text.length > 0)
+    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || b.text.length - a.text.length)
+    .slice(0, MAX_REVIEWS_FOR_THEMES)
+    .map((r) => ({ ...r, text: r.text.slice(0, MAX_REVIEW_CHARS) }));
+}
+
 export interface ReputationContext {
   business: Business;
   /** Latest completed audit BEFORE this run — the velocity baseline. */
@@ -183,6 +224,9 @@ export async function runReputation(
         ? Math.round((rating - yelpRating) * 10) / 10
         : null;
 
+    // RFL-06: Places review text (when Filter persisted details) feeds the
+    // existing Sonnet theme extraction; quotes must be verbatim from it.
+    const reviews = reviewTextsFrom(business.places_details);
     const signals = {
       google_rating: rating,
       review_count: reviewCount,
@@ -191,7 +235,8 @@ export async function runReputation(
       months_since_previous_audit: monthsSincePrevious,
       last_review_at: null,
       yelp_available: yelp !== null,
-      review_text_available: false, // v1 holds no review text
+      review_text_available: reviews.length > 0,
+      ...(reviews.length > 0 ? { reviews } : {}),
     };
 
     const summary = await generateJsonSummary({
@@ -199,7 +244,10 @@ export async function runReputation(
       system: REPUTATION_SUMMARY_SYSTEM,
       prompt: buildReputationSummaryPrompt(signals),
       parse: (raw) => ReputationSummarySchema.parse(JSON.parse(raw)),
-      guardrail: makeReputationSummaryGuardrail(volumeBand, false),
+      guardrail: makeReputationSummaryGuardrail(
+        volumeBand,
+        reviews.map((r) => r.text),
+      ),
       template: () =>
         buildTemplateSummary(rating, reviewCount, volumeBand, velocity),
     });
@@ -218,6 +266,7 @@ export async function runReputation(
         yelp_rating: yelpRating,
         yelp_review_count: yelp?.review_count ?? null,
         rating_divergence: ratingDivergence,
+        reviews_considered: reviews.length,
         summary: summary.value,
       },
       error: null,

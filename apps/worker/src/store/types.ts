@@ -77,6 +77,12 @@ export interface UpsertBusinessInput {
    */
   chain_reason?: ChainReason | null;
   website_kind: WebsiteKind;
+  /**
+   * Raw Place Details (RFL-06, migration 0007). Omit (undefined) to leave
+   * the stored record untouched — a later Scout pass that did not fetch
+   * details must not erase one Filter already persisted.
+   */
+  places_details?: Record<string, unknown> | null;
 }
 
 export interface InsertAuditInput {
@@ -293,6 +299,11 @@ export interface DataStore {
    * row as it stands after that check.
    */
   upsertBusiness(input: UpsertBusinessInput): Promise<Business>;
+  /** Persist a Place Details record fetched after the upsert (Filter, RFL-06). */
+  setBusinessPlacesDetails(
+    id: string,
+    details: Record<string, unknown>,
+  ): Promise<void>;
   getBusiness(id: string): Promise<Business | null>;
   ensureSearchResult(
     workspaceId: string,

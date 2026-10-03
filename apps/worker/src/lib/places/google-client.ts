@@ -19,19 +19,22 @@
  */
 import type { LatLng } from "../geo";
 import {
+  PLACE_PHOTO_MAX_WIDTH_PX,
+  PLACE_PHOTO_NAME_RE,
   PLACES_COST_CENTS,
   type NearbySearchParams,
+  type PlaceDetails,
+  type PlacePhoto,
   type PlaceRecord,
   type PlacesCallListener,
   type PlacesClient,
+  type PlacesEndpoint,
 } from "./types";
 
 const BASE = "https://places.googleapis.com/v1";
 
 export const PLACES_TIMEOUT_MS = 15_000;
 export const PLACES_RETRY_BACKOFF_MS = 2_000;
-
-type PlacesEndpoint = "geocode" | "nearby" | "details";
 
 /** Typed Places failure — status is null for a timeout / network error. */
 export class PlacesApiError extends Error {
@@ -72,7 +75,13 @@ const NEARBY_FIELD_MASK = [
   "places.primaryType",
 ].join(",");
 
-const DETAILS_FIELD_MASK = [
+/**
+ * Place Details mask (RFL-06): the Pro fields plus what the Design Brief
+ * needs — hours, photos, reviews, editorial summary, types, price level.
+ * Reviews/photos bill at the Enterprise (+ Atmosphere) SKU, so Filter only
+ * fetches details for businesses that pass its gates.
+ */
+export const DETAILS_FIELD_MASK = [
   "id",
   "displayName",
   "formattedAddress",
@@ -83,25 +92,21 @@ const DETAILS_FIELD_MASK = [
   "nationalPhoneNumber",
   "websiteUri",
   "primaryType",
+  "types",
+  "priceLevel",
+  "editorialSummary",
+  "regularOpeningHours",
+  "photos",
+  "reviews",
 ].join(",");
 
-/** Raw Places (New) place resource — only the fields we request. */
-interface GooglePlace {
-  id?: string;
-  displayName?: { text?: string };
-  formattedAddress?: string;
-  location?: { latitude?: number; longitude?: number };
-  rating?: number;
-  userRatingCount?: number;
-  businessStatus?: string;
-  nationalPhoneNumber?: string;
-  websiteUri?: string;
-  primaryType?: string;
-}
+/** Raw Places (New) place resource — the fields we request. */
+type GooglePlace = Omit<PlaceDetails, "fetchedAt">;
 
-function toPlaceRecord(p: GooglePlace): PlaceRecord | null {
+function toPlaceRecord(p: GooglePlace, details?: PlaceDetails): PlaceRecord | null {
   if (!p.id || !p.displayName?.text) return null;
   return {
+    ...(details ? { details } : {}),
     placeId: p.id,
     name: p.displayName.text,
     lat: p.location?.latitude ?? 0,
@@ -141,7 +146,7 @@ export class GooglePlacesClient implements PlacesClient {
     };
   }
 
-  private emit(endpoint: "geocode" | "nearby" | "details"): void {
+  private emit(endpoint: PlacesEndpoint): void {
     for (const l of this.listeners)
       l({ endpoint, costCents: PLACES_COST_CENTS[endpoint] });
   }
@@ -256,7 +261,7 @@ export class GooglePlacesClient implements PlacesClient {
     );
     const data = (await res.json()) as { places?: GooglePlace[] };
     return (data.places ?? [])
-      .map(toPlaceRecord)
+      .map((p) => toPlaceRecord(p))
       .filter((p): p is PlaceRecord => p !== null);
   }
 
@@ -270,6 +275,35 @@ export class GooglePlacesClient implements PlacesClient {
       [404],
     );
     if (res.status === 404) return null;
-    return toPlaceRecord((await res.json()) as GooglePlace);
+    const raw = (await res.json()) as GooglePlace;
+    return toPlaceRecord(raw, { ...raw, fetchedAt: new Date().toISOString() });
+  }
+
+  /**
+   * Two-step media fetch: /media?skipHttpRedirect=true returns the signed
+   * photoUri (JSON), then the image is fetched from that URI. The API key
+   * travels only in the X-Goog-Api-Key header — never in a URL, so logs
+   * and error messages cannot leak it.
+   */
+  async fetchPhoto(photoName: string, maxWidthPx: number): Promise<PlacePhoto | null> {
+    if (!PLACE_PHOTO_NAME_RE.test(photoName)) return null;
+    const width = Math.min(Math.max(1, Math.floor(maxWidthPx)), PLACE_PHOTO_MAX_WIDTH_PX);
+    this.emit("photo");
+    const meta = await this.request(
+      "photo",
+      "Place Photo",
+      `${BASE}/${photoName}/media?maxWidthPx=${width}&skipHttpRedirect=true`,
+      { headers: { "X-Goog-Api-Key": this.apiKey } },
+      [404],
+    );
+    if (meta.status === 404) return null;
+    const { photoUri } = (await meta.json()) as { photoUri?: string };
+    if (!photoUri) return null;
+    const img = await this.request("photo", "Place Photo media", photoUri, {}, [404]);
+    if (img.status === 404) return null;
+    return {
+      bytes: new Uint8Array(await img.arrayBuffer()),
+      contentType: img.headers.get("content-type") ?? "image/jpeg",
+    };
   }
 }

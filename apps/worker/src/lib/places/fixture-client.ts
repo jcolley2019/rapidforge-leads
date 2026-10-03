@@ -14,13 +14,25 @@
  */
 import { haversineMeters } from "../geo";
 import type { LatLng } from "../geo";
-import { FIXTURE_BUSINESSES, FIXTURE_CENTER } from "./fixtures";
-import type {
-  NearbySearchParams,
-  PlaceRecord,
-  PlacesCallListener,
-  PlacesClient,
+import { FIXTURE_BUSINESSES, FIXTURE_CENTER, FIXTURE_DETAILS } from "./fixtures";
+import {
+  PLACE_PHOTO_NAME_RE,
+  type NearbySearchParams,
+  type PlaceDetails,
+  type PlacePhoto,
+  type PlaceRecord,
+  type PlacesCallListener,
+  type PlacesClient,
+  type PlacesEndpoint,
 } from "./types";
+
+/** 1×1 transparent PNG — what the fixture photo proxy serves. */
+export const FIXTURE_PHOTO_PNG = Uint8Array.from(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+    "base64",
+  ),
+);
 
 /** Nearby Search (New) hard response cap, mirrored here. */
 export const NEARBY_RESULT_CAP = 20;
@@ -37,7 +49,7 @@ export class FixturePlacesClient implements PlacesClient {
     };
   }
 
-  private emit(endpoint: "geocode" | "nearby" | "details"): void {
+  private emit(endpoint: PlacesEndpoint): void {
     for (const l of this.listeners) l({ endpoint, costCents: 0 });
   }
 
@@ -70,8 +82,37 @@ export class FixturePlacesClient implements PlacesClient {
       .slice(0, NEARBY_RESULT_CAP);
   }
 
+  /**
+   * Mirrors the real client: the record carries a raw `details` object —
+   * the curated FIXTURE_DETAILS entry when one exists, else a minimal
+   * record synthesized from the fixture fields (so places_details is never
+   * left null after a fetch, exactly like production).
+   */
   async getDetails(placeId: string): Promise<PlaceRecord | null> {
     this.emit("details");
-    return FIXTURE_BUSINESSES.find((b) => b.placeId === placeId) ?? null;
+    const record = FIXTURE_BUSINESSES.find((b) => b.placeId === placeId);
+    if (!record) return null;
+    const curated = FIXTURE_DETAILS[placeId];
+    const details: PlaceDetails = {
+      id: record.placeId,
+      displayName: { text: record.name },
+      formattedAddress: record.address ?? undefined,
+      location: { latitude: record.lat, longitude: record.lng },
+      rating: record.rating ?? undefined,
+      userRatingCount: record.reviewCount ?? undefined,
+      businessStatus: record.businessStatus ?? undefined,
+      nationalPhoneNumber: record.phone ?? undefined,
+      websiteUri: record.websiteUrl ?? undefined,
+      primaryType: record.primaryType ?? undefined,
+      ...curated,
+      fetchedAt: "2026-07-06T07:00:00.000Z",
+    };
+    return { ...record, details };
+  }
+
+  async fetchPhoto(photoName: string, _maxWidthPx: number): Promise<PlacePhoto | null> {
+    if (!PLACE_PHOTO_NAME_RE.test(photoName)) return null;
+    this.emit("photo");
+    return { bytes: FIXTURE_PHOTO_PNG, contentType: "image/png" };
   }
 }
