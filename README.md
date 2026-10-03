@@ -73,7 +73,8 @@ with the jobs poller disabled. Nothing crashes on a fresh clone.
 2. SQL Editor → paste and run each migration **in order**:
    `supabase/migrations/0001_tenancy.sql` → `0002_domain.sql` →
    `0003_operational.sql` → `0004_rls.sql` → `0005_update_policies.sql` →
-   `0006_screenshots_bucket.sql` → `0007a_audits_provisional.sql`.
+   `0006_screenshots_bucket.sql` → `0007a_audits_provisional.sql` →
+   `0008_businesses_chain_reason.sql`.
 3. Authentication → Providers → enable **Email** (magic link is on by
    default) and **Google** (needs an OAuth client from Google Cloud
    Console; paste its client ID + secret into the Supabase Google
