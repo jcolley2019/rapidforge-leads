@@ -155,6 +155,29 @@ export interface UpdateAgentRunPatch {
   duration_ms?: number;
 }
 
+/**
+ * Stale-claim sweep (audit finding 5): jobs / agent_runs left 'running' by a
+ * dead worker. Jobs under maxAttempts go back to 'queued', the rest fail;
+ * stale agent_runs always fail (they are never re-run in place).
+ */
+export interface ReclaimStaleInput {
+  /** Rows whose started_at is before this ISO instant are stale. */
+  staleBeforeIso: string;
+  /** attempts >= maxAttempts → 'failed' instead of 'queued'. */
+  maxAttempts: number;
+  /** Written to jobs.error / agent_runs.error. */
+  reason: string;
+  /** Jobs this process still has in flight — never reclaimed, nor their runs. */
+  excludeJobIds?: readonly string[];
+}
+
+export interface ReclaimStaleResult {
+  /** Post-update rows. */
+  requeued: Job[];
+  failed: Job[];
+  agentRunsFailed: AgentRun[];
+}
+
 export interface LogUsageEventInput {
   workspace_id: string;
   event_type: UsageEventType;
@@ -242,6 +265,8 @@ export interface DataStore {
     outcome: { status: Extract<JobStatus, "done" | "failed" | "queued">; error?: string | null },
   ): Promise<void>;
   countActiveJobsForSearch(searchId: string): Promise<number>;
+  /** Requeue/fail jobs and fail agent_runs stuck 'running' (finding 5). */
+  reclaimStaleWork(input: ReclaimStaleInput): Promise<ReclaimStaleResult>;
 
   // businesses / results / audits
   upsertBusiness(input: UpsertBusinessInput): Promise<Business>;

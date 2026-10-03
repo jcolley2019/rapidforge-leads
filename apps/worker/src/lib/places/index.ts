@@ -11,7 +11,7 @@ import type { PlacesClient } from "./types";
 
 export * from "./types";
 export { FixturePlacesClient, NEARBY_RESULT_CAP } from "./fixture-client";
-export { GooglePlacesClient } from "./google-client";
+export { GooglePlacesClient, PlacesApiError } from "./google-client";
 export {
   DEAD_FIXTURE_HOSTS,
   FIXTURE_BUSINESSES,

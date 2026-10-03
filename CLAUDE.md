@@ -48,7 +48,7 @@
 - **Web:** Vite + React 18 + TypeScript strict + Tailwind + shadcn/ui + Framer Motion + cmdk + TanStack Query + TanStack Table (virtualized)
 - **Worker:** Node + Express + TypeScript; Puppeteer for screenshots/PDF; job queue = the Postgres `jobs` table with a 2s poller (NO BullMQ/Redis)
 - **DB:** Supabase (Postgres + RLS, Storage, Auth magic-link + Google OAuth, Realtime broadcast)
-- **AI:** **ONLY through RapidForge AI Core** (`github.com/jcolley2019/rapidforge-ai-core`; local `C:\Users\jcoll\OneDrive\Desktop\rapidforge-ai-core`). App code never imports the Anthropic SDK and never fetches `api.anthropic.com` directly.
+- **AI:** **ONLY through RapidForge AI Core** (`github.com/jcolley2019/rapidforge-ai-core`; github:jcolley2019/rapidforge-ai-core (pinned commit in apps/worker/package.json)). App code never imports the Anthropic SDK and never fetches `api.anthropic.com` directly.
 - **Perf data:** Google PageSpeed Insights API (free) — NOT self-hosted Lighthouse
 - **Places:** Google Places API (New) — worker only
 - **Deploy:** Vercel (web). Worker runs locally in v1; Railway when v1 proves out.

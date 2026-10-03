@@ -32,6 +32,8 @@ import {
   type JobCounts,
   type LeadView,
   type LogUsageEventInput,
+  type ReclaimStaleInput,
+  type ReclaimStaleResult,
   type SearchDetail,
   type UpdateAgentRunPatch,
   type UpdateAuditPatch,
@@ -244,6 +246,77 @@ export class SupabaseStore implements DataStore {
     if (error)
       throw new Error(`[store] countActiveJobsForSearch: ${error.message}`);
     return count ?? 0;
+  }
+
+  async reclaimStaleWork(input: ReclaimStaleInput): Promise<ReclaimStaleResult> {
+    const exclude = new Set(input.excludeJobIds ?? []);
+
+    const { data: staleJobs, error } = await this.db
+      .from("jobs")
+      .select("*")
+      .eq("status", "running")
+      .lt("started_at", input.staleBeforeIso);
+    if (error) throw new Error(`[store] reclaimStaleWork jobs: ${error.message}`);
+    const candidates = ((staleJobs ?? []) as Job[]).filter(
+      (j) => !exclude.has(j.id),
+    );
+    const requeueIds = candidates
+      .filter((j) => (j.attempts ?? 0) < input.maxAttempts)
+      .map((j) => j.id);
+    const failIds = candidates
+      .filter((j) => (j.attempts ?? 0) >= input.maxAttempts)
+      .map((j) => j.id);
+
+    const requeued = await this.reclaimJobs(requeueIds, {
+      status: "queued",
+      error: input.reason,
+      finished_at: null,
+    });
+    const failed = await this.reclaimJobs(failIds, {
+      status: "failed",
+      error: input.reason,
+      finished_at: nowIso(),
+    });
+
+    const { data: staleRuns, error: runsErr } = await this.db
+      .from("agent_runs")
+      .select("id, job_id")
+      .eq("status", "running")
+      .lt("started_at", input.staleBeforeIso);
+    if (runsErr)
+      throw new Error(`[store] reclaimStaleWork agent_runs: ${runsErr.message}`);
+    const runIds = ((staleRuns ?? []) as { id: string; job_id: string | null }[])
+      .filter((r) => r.job_id === null || !exclude.has(r.job_id))
+      .map((r) => r.id);
+    let agentRunsFailed: AgentRun[] = [];
+    if (runIds.length > 0) {
+      const { data, error: updErr } = await this.db
+        .from("agent_runs")
+        .update({ status: "failed", error: input.reason, ended_at: nowIso() })
+        .in("id", runIds)
+        .eq("status", "running") // optimistic guard — a run may finish meanwhile
+        .select();
+      if (updErr)
+        throw new Error(`[store] reclaimStaleWork agent_runs update: ${updErr.message}`);
+      agentRunsFailed = (data ?? []) as AgentRun[];
+    }
+
+    return { requeued, failed, agentRunsFailed };
+  }
+
+  private async reclaimJobs(
+    ids: string[],
+    patch: { status: "queued" | "failed"; error: string; finished_at: string | null },
+  ): Promise<Job[]> {
+    if (ids.length === 0) return [];
+    const { data, error } = await this.db
+      .from("jobs")
+      .update(patch)
+      .in("id", ids)
+      .eq("status", "running") // optimistic guard — same as claim
+      .select();
+    if (error) throw new Error(`[store] reclaimJobs: ${error.message}`);
+    return (data ?? []) as Job[];
   }
 
   // -- businesses / results / audits ----------------------------------------
