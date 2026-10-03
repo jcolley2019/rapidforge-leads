@@ -72,7 +72,8 @@ with the jobs poller disabled. Nothing crashes on a fresh clone.
 1. https://supabase.com → New project (any region close to you).
 2. SQL Editor → paste and run each migration **in order**:
    `supabase/migrations/0001_tenancy.sql` → `0002_domain.sql` →
-   `0003_operational.sql` → `0004_rls.sql`.
+   `0003_operational.sql` → `0004_rls.sql` → `0005_update_policies.sql` →
+   `0006_screenshots_bucket.sql` → `0007a_audits_provisional.sql`.
 3. Authentication → Providers → enable **Email** (magic link is on by
    default) and **Google** (needs an OAuth client from Google Cloud
    Console; paste its client ID + secret into the Supabase Google
@@ -105,6 +106,7 @@ Copy `apps/worker/.env.example` → `apps/worker/.env`.
 | `YELP_API_KEY` | https://www.yelp.com/developers → Fusion API key (v1.5 — leave blank until Sprint 6) |
 | `ANTHROPIC_API_KEY` | https://console.anthropic.com → API keys (used only via RapidForge AI Core) |
 | `WORKER_PORT` | Local HTTP port, default `8788` |
+| `RAPIDFORGE_LEGACY_UA` | Debug only: `true` sends the old `RapidForge-Audit/1.0` User-Agent instead of desktop Chrome on site probes/fetches |
 
 ### 4. First sign-in
 
