@@ -20,6 +20,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { withPage } from "./browser";
 import { forceFixtures } from "./env";
 
 export const DESKTOP_VIEWPORT = { width: 1440, height: 900 } as const;
@@ -90,61 +91,39 @@ const MOBILE_USER_AGENT =
 export class PuppeteerScreenshotCapturer implements ScreenshotCapturer {
   readonly mode = "real" as const;
 
+  /**
+   * RFL.QUEUE.8: pages come from the process-wide shared browser (lazy
+   * launch, 2 page slots); each shot runs under the 30s screenshot budget.
+   * No browser / timeout / error → null, never a throw.
+   */
   async capture(url: string): Promise<ScreenshotSet | null> {
-    // Dynamic import: fixture mode must never require puppeteer/Chrome.
-    let puppeteer: typeof import("puppeteer-core");
-    try {
-      puppeteer = await import("puppeteer-core");
-    } catch (err) {
-      console.warn(
-        `[screenshots] puppeteer-core unavailable: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return null;
-    }
-    let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
-    try {
-      browser = await puppeteer.launch({
-        channel: "chrome",
-        headless: true,
-        args: ["--hide-scrollbars", "--disable-gpu"],
+    const shoot = (viewport: { width: number; height: number }, mobile: boolean) =>
+      withPage(`screenshot-${mobile ? "mobile" : "desktop"}`, SCREENSHOT_NAV_TIMEOUT_MS, async (page) => {
+        await page.setViewport({ ...viewport, isMobile: mobile, hasTouch: mobile });
+        if (mobile) await page.setUserAgent(MOBILE_USER_AGENT);
+        await page.goto(url, {
+          waitUntil: "networkidle2",
+          timeout: SCREENSHOT_NAV_TIMEOUT_MS,
+        });
+        // Let late webfonts/hero images settle before the shot.
+        await new Promise((r) => setTimeout(r, 500));
+        const data = await page.screenshot({
+          type: "jpeg",
+          quality: SCREENSHOT_JPEG_QUALITY,
+        });
+        return Buffer.from(data);
       });
-      const shoot = async (
-        viewport: { width: number; height: number },
-        mobile: boolean,
-      ): Promise<Buffer> => {
-        const page = await browser!.newPage();
-        try {
-          await page.setViewport({
-            ...viewport,
-            isMobile: mobile,
-            hasTouch: mobile,
-          });
-          if (mobile) await page.setUserAgent(MOBILE_USER_AGENT);
-          await page.goto(url, {
-            waitUntil: "networkidle2",
-            timeout: SCREENSHOT_NAV_TIMEOUT_MS,
-          });
-          // Let late webfonts/hero images settle before the shot.
-          await new Promise((r) => setTimeout(r, 500));
-          const data = await page.screenshot({
-            type: "jpeg",
-            quality: SCREENSHOT_JPEG_QUALITY,
-          });
-          return Buffer.from(data);
-        } finally {
-          await page.close().catch(() => {});
-        }
-      };
+    try {
       const desktop = await shoot(DESKTOP_VIEWPORT, false);
+      if (!desktop) return null;
       const mobile = await shoot(MOBILE_VIEWPORT, true);
+      if (!mobile) return null;
       return { desktop, mobile, contentType: "image/jpeg" };
     } catch (err) {
       console.warn(
         `[screenshots] capture failed for ${url}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
-    } finally {
-      await browser?.close().catch(() => {});
     }
   }
 }
