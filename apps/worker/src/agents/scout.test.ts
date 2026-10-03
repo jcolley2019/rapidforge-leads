@@ -99,7 +99,8 @@ describe("multiLocationPlaceIds", () => {
 
 describe("normalizeBusinessName", () => {
   it("lowercases, strips punctuation, collapses whitespace", () => {
-    expect(normalizeBusinessName("  Boise   Plumbing Co. ")).toBe("boise plumbing co");
+    // "Co." is an entity suffix (RFL-04 normalizer) — dropped for grouping.
+    expect(normalizeBusinessName("  Boise   Plumbing Co. ")).toBe("boise plumbing");
     expect(normalizeBusinessName("Roto-Rooter!")).toBe("roto rooter");
   });
 });

@@ -38,6 +38,10 @@ import {
   type UpdateSearchResultPatch,
   type UpsertBusinessInput,
 } from "./types";
+import {
+  MULTI_LOCATION_CHAIN_THRESHOLD,
+  normalizeBusinessName,
+} from "../lib/chains";
 import { summarizeUsage } from "./usage";
 
 function nowIso(): string {
@@ -219,23 +223,43 @@ export class MemoryStore implements DataStore {
   // -- businesses / results / audits ----------------------------------------
 
   async upsertBusiness(input: UpsertBusinessInput): Promise<Business> {
-    const existing = [...this.businesses.values()].find(
+    const row = {
+      ...input,
+      chain_reason: input.chain_reason ?? null,
+      name_normalized: normalizeBusinessName(input.name),
+    };
+    let business = [...this.businesses.values()].find(
       (b) =>
         b.workspace_id === input.workspace_id &&
         b.google_place_id === input.google_place_id,
     );
-    if (existing) {
-      Object.assign(existing, input, { last_refreshed_at: nowIso() });
-      return existing;
+    if (business) {
+      Object.assign(business, row, { last_refreshed_at: nowIso() });
+    } else {
+      business = {
+        id: randomUUID(),
+        ...row,
+        first_seen_at: nowIso(),
+        last_refreshed_at: nowIso(),
+      };
+      this.businesses.set(business.id, business);
     }
-    const business: Business = {
-      id: randomUUID(),
-      ...input,
-      first_seen_at: nowIso(),
-      last_refreshed_at: nowIso(),
-    };
-    this.businesses.set(business.id, business);
+    this.markMultiLocationChains(input.workspace_id, row.name_normalized);
     return business;
+  }
+
+  /** Workspace-wide multi-location check (see DataStore.upsertBusiness). */
+  private markMultiLocationChains(workspaceId: string, nameNormalized: string): void {
+    const sameName = [...this.businesses.values()].filter(
+      (b) => b.workspace_id === workspaceId && b.name_normalized === nameNormalized,
+    );
+    const distinctPlaces = new Set(sameName.map((b) => b.google_place_id));
+    if (distinctPlaces.size < MULTI_LOCATION_CHAIN_THRESHOLD) return;
+    for (const b of sameName) {
+      if (b.is_chain === true && b.chain_reason) continue;
+      b.is_chain = true;
+      b.chain_reason = "multi_location";
+    }
   }
 
   async getBusiness(id: string): Promise<Business | null> {
