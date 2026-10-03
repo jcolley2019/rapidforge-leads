@@ -8,6 +8,7 @@ import { runScout } from "../../agents/scout";
 import { MemoryStore } from "../../store/memory";
 import { DEV_USER_ID, DEV_WORKSPACE_ID } from "../../store/types";
 import {
+  DETAILS_FIELD_MASK,
   GooglePlacesClient,
   PLACES_RETRY_BACKOFF_MS,
   PlacesApiError,
@@ -142,5 +143,94 @@ describe("GooglePlacesClient timeout + retry", () => {
 
     expect(result.status).toBe("failed");
     expect(result.error).toMatch(/^Places searchText 500 \(after 1 retry\): /);
+  });
+});
+
+describe("Place Details + photos (RFL-06)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("requests the enrichment fields and keeps the originals", () => {
+    for (const field of [
+      "id",
+      "displayName",
+      "nationalPhoneNumber",
+      "websiteUri",
+      "primaryType",
+      "regularOpeningHours",
+      "photos",
+      "reviews",
+      "editorialSummary",
+      "types",
+      "priceLevel",
+    ]) {
+      expect(DETAILS_FIELD_MASK.split(",")).toContain(field);
+    }
+  });
+
+  it("getDetails returns the record with the raw details attached (+ fetchedAt)", async () => {
+    const raw = {
+      id: "abc",
+      displayName: { text: "Example Plumbing" },
+      nationalPhoneNumber: "(208) 555-0100",
+      regularOpeningHours: { weekdayDescriptions: ["Monday: 8 AM – 5 PM"] },
+      photos: [{ name: "places/abc/photos/p1", widthPx: 100, heightPx: 100 }],
+      reviews: [{ rating: 5, text: { text: "Great" } }],
+      types: ["plumber"],
+    };
+    const fetchMock = vi.fn(async () => json(raw));
+    const { client } = makeClient(fetchMock as unknown as typeof fetch);
+    const record = await client.getDetails("abc");
+    expect(record?.name).toBe("Example Plumbing");
+    expect(record?.details).toMatchObject(raw);
+    expect(record?.details?.fetchedAt).toMatch(/^\d{4}-/);
+    const init = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
+      DETAILS_FIELD_MASK,
+    );
+  });
+
+  it("fetchPhoto: media metadata then image; the API key is only ever a header", async () => {
+    const png = new Uint8Array([137, 80, 78, 71]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json({ name: "places/abc/photos/p1/media", photoUri: "https://lh3.googleusercontent.com/p/x=s1600" }),
+      )
+      .mockResolvedValueOnce(
+        new Response(png, { status: 200, headers: { "content-type": "image/png" } }),
+      );
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const { client } = makeClient(fetchMock as unknown as typeof fetch);
+
+    const photo = await client.fetchPhoto("places/abc/photos/p1", 5000);
+
+    expect(photo?.contentType).toBe("image/png");
+    expect(photo?.bytes).toEqual(png);
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]![0]).toBe(
+      "https://places.googleapis.com/v1/places/abc/photos/p1/media?maxWidthPx=1600&skipHttpRedirect=true",
+    );
+    expect((calls[0]![1].headers as Record<string, string>)["X-Goog-Api-Key"]).toBe("test-key");
+    for (const [url] of calls) expect(url).not.toContain("test-key");
+    expect(calls[1]![0]).toBe("https://lh3.googleusercontent.com/p/x=s1600");
+    const logged = [...logSpy.mock.calls, ...(console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls]
+      .flat()
+      .map(String)
+      .join(" ");
+    expect(logged).not.toContain("test-key");
+  });
+
+  it("fetchPhoto rejects a malformed reference without any request", async () => {
+    const fetchMock = vi.fn();
+    const { client } = makeClient(fetchMock as unknown as typeof fetch);
+    expect(await client.fetchPhoto("../../secret", 800)).toBeNull();
+    expect(await client.fetchPhoto("places/abc/photos/p1/../x", 800)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

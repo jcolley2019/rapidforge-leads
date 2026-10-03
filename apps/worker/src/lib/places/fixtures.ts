@@ -21,7 +21,64 @@
  * search returns all 25, while a 5-mile radius demonstrably filters.
  */
 import type { LatLng } from "../geo";
-import type { PlaceRecord } from "./types";
+import type { PlaceDetails, PlaceRecord } from "./types";
+
+/**
+ * Curated Place Details extras (RFL-06) for the fixtures that exercise
+ * hours / photos / reviews: fx-001 is complete, fx-002 has partial hours
+ * and no reviews. Every other fixture gets a minimal synthesized record.
+ */
+export const FIXTURE_DETAILS: Readonly<
+  Record<string, Partial<Omit<PlaceDetails, "fetchedAt">>>
+> = {
+  "fx-001": {
+    types: ["plumber", "point_of_interest", "establishment"],
+    priceLevel: "PRICE_LEVEL_MODERATE",
+    editorialSummary: { text: "Family-run plumbing company serving Meridian since 1998." },
+    regularOpeningHours: {
+      weekdayDescriptions: [
+        "Monday: 7:00 AM – 6:00 PM",
+        "Tuesday: 7:00 AM – 6:00 PM",
+        "Wednesday: 7:00 AM – 6:00 PM",
+        "Thursday: 7:00 AM – 6:00 PM",
+        "Friday: 7:00 AM – 6:00 PM",
+        "Saturday: 8:00 AM – 2:00 PM",
+        "Sunday: Closed",
+      ],
+    },
+    photos: [
+      { name: "places/fx-001/photos/fxphoto-a", widthPx: 4032, heightPx: 3024 },
+      { name: "places/fx-001/photos/fxphoto-b", widthPx: 1600, heightPx: 1200 },
+    ],
+    reviews: [
+      {
+        rating: 5,
+        text: { text: "Showed up on time and fixed our water heater the same day. Fair price, no upsell." },
+        relativePublishTimeDescription: "2 months ago",
+        authorAttribution: { displayName: "Dana R." },
+      },
+      {
+        rating: 5,
+        text: { text: "Honest plumbers. They explained every option before doing the work." },
+        relativePublishTimeDescription: "4 months ago",
+        authorAttribution: { displayName: "Mike T." },
+      },
+      {
+        rating: 4,
+        text: { text: "Good work on the repipe, a little slow to send the invoice." },
+        relativePublishTimeDescription: "a year ago",
+        authorAttribution: { displayName: "J. Alvarez" },
+      },
+    ],
+  },
+  "fx-002": {
+    types: ["plumber", "establishment"],
+    regularOpeningHours: {
+      weekdayDescriptions: ["Monday: 8:00 AM – 5:00 PM", "Tuesday: 8:00 AM – 5:00 PM"],
+    },
+    photos: [{ name: "places/fx-002/photos/fxphoto-c", widthPx: 1200, heightPx: 900 }],
+  },
+};
 
 /** Every fixture zip geocodes here (logged) — Meridian, ID centroid. */
 export const FIXTURE_CENTER: LatLng = { lat: 43.6, lng: -116.4 };
