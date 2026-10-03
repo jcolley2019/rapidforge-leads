@@ -10,6 +10,12 @@
  *
  * Every call notifies onCall listeners so Scout logs a usage_events row
  * per Places call (CLAUDE.md Section 8).
+ *
+ * Reliability (audit finding 12): every fetch carries a 15s
+ * AbortSignal.timeout; a 429/5xx is retried once after a 2s backoff. A
+ * timeout, network error, second 429/5xx, or other non-OK status throws a
+ * PlacesApiError, which Scout records as the job's failure reason instead
+ * of hanging the job in 'running'.
  */
 import type { LatLng } from "../geo";
 import {
@@ -21,6 +27,36 @@ import {
 } from "./types";
 
 const BASE = "https://places.googleapis.com/v1";
+
+export const PLACES_TIMEOUT_MS = 15_000;
+export const PLACES_RETRY_BACKOFF_MS = 2_000;
+
+type PlacesEndpoint = "geocode" | "nearby" | "details";
+
+/** Typed Places failure — status is null for a timeout / network error. */
+export class PlacesApiError extends Error {
+  override readonly name = "PlacesApiError";
+  constructor(
+    message: string,
+    readonly endpoint: PlacesEndpoint,
+    readonly kind: "timeout" | "network" | "http",
+    readonly status: number | null,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+  }
+}
+
+/** Test seams — production uses global fetch, real sleep and the 15s cap. */
+export interface GooglePlacesClientOptions {
+  fetch?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  timeoutMs?: number;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
 
 /** Pro-tier fields Scout needs — one FieldMask for nearby, one for details. */
 const NEARBY_FIELD_MASK = [
@@ -84,7 +120,19 @@ export class GooglePlacesClient implements PlacesClient {
   readonly mode = "google" as const;
   private listeners: PlacesCallListener[] = [];
 
-  constructor(private readonly apiKey: string) {}
+  private readonly fetchImpl: typeof fetch;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly timeoutMs: number;
+
+  constructor(
+    private readonly apiKey: string,
+    options: GooglePlacesClientOptions = {},
+  ) {
+    this.fetchImpl = options.fetch ?? fetch;
+    this.sleep =
+      options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.timeoutMs = options.timeoutMs ?? PLACES_TIMEOUT_MS;
+  }
 
   onCall(listener: PlacesCallListener): () => void {
     this.listeners.push(listener);
@@ -98,6 +146,63 @@ export class GooglePlacesClient implements PlacesClient {
       l({ endpoint, costCents: PLACES_COST_CENTS[endpoint] });
   }
 
+  /**
+   * fetch with timeout + one retry on 429/5xx. Returns the response when it
+   * is OK or listed in passStatuses; throws PlacesApiError otherwise.
+   */
+  private async request(
+    endpoint: PlacesEndpoint,
+    label: string,
+    url: string,
+    init: RequestInit,
+    passStatuses: readonly number[] = [],
+  ): Promise<Response> {
+    for (let attempt = 1; ; attempt += 1) {
+      let res: Response;
+      try {
+        res = await this.fetchImpl(url, {
+          ...init,
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch (err) {
+        if ((err as { name?: string } | null)?.name === "TimeoutError") {
+          throw new PlacesApiError(
+            `${label} timed out after ${this.timeoutMs}ms`,
+            endpoint,
+            "timeout",
+            null,
+            { cause: err },
+          );
+        }
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new PlacesApiError(
+          `${label} network error: ${detail}`,
+          endpoint,
+          "network",
+          null,
+          { cause: err },
+        );
+      }
+      if (res.ok || passStatuses.includes(res.status)) return res;
+      if (isRetryableStatus(res.status) && attempt === 1) {
+        await res.body?.cancel().catch(() => undefined);
+        console.warn(
+          `[places] ${label} ${res.status} — retrying once in ${PLACES_RETRY_BACKOFF_MS}ms`,
+        );
+        await this.sleep(PLACES_RETRY_BACKOFF_MS);
+        continue;
+      }
+      const body = await res.text().catch(() => "");
+      const retried = attempt > 1 ? " (after 1 retry)" : "";
+      throw new PlacesApiError(
+        `${label} ${res.status}${retried}: ${body}`,
+        endpoint,
+        "http",
+        res.status,
+      );
+    }
+  }
+
   private headers(fieldMask: string): Record<string, string> {
     return {
       "Content-Type": "application/json",
@@ -108,14 +213,16 @@ export class GooglePlacesClient implements PlacesClient {
 
   async geocodeZip(zip: string): Promise<LatLng | null> {
     this.emit("geocode");
-    const res = await fetch(`${BASE}/places:searchText`, {
-      method: "POST",
-      headers: this.headers("places.location"),
-      body: JSON.stringify({ textQuery: `${zip} USA`, maxResultCount: 1 }),
-    });
-    if (!res.ok) {
-      throw new Error(`Places searchText ${res.status}: ${await res.text()}`);
-    }
+    const res = await this.request(
+      "geocode",
+      "Places searchText",
+      `${BASE}/places:searchText`,
+      {
+        method: "POST",
+        headers: this.headers("places.location"),
+        body: JSON.stringify({ textQuery: `${zip} USA`, maxResultCount: 1 }),
+      },
+    );
     const data = (await res.json()) as { places?: GooglePlace[] };
     const loc = data.places?.[0]?.location;
     if (loc?.latitude === undefined || loc.longitude === undefined) return null;
@@ -124,27 +231,29 @@ export class GooglePlacesClient implements PlacesClient {
 
   async nearbySearch(params: NearbySearchParams): Promise<PlaceRecord[]> {
     this.emit("nearby");
-    const res = await fetch(`${BASE}/places:searchNearby`, {
-      method: "POST",
-      headers: this.headers(NEARBY_FIELD_MASK),
-      body: JSON.stringify({
-        includedTypes: [params.categoryType],
-        maxResultCount: 20,
-        locationRestriction: {
-          circle: {
-            center: {
-              latitude: params.center.lat,
-              longitude: params.center.lng,
+    const res = await this.request(
+      "nearby",
+      "Places searchNearby",
+      `${BASE}/places:searchNearby`,
+      {
+        method: "POST",
+        headers: this.headers(NEARBY_FIELD_MASK),
+        body: JSON.stringify({
+          includedTypes: [params.categoryType],
+          maxResultCount: 20,
+          locationRestriction: {
+            circle: {
+              center: {
+                latitude: params.center.lat,
+                longitude: params.center.lng,
+              },
+              // API max is 50,000 m
+              radius: Math.min(params.radiusMeters, 50_000),
             },
-            // API max is 50,000 m
-            radius: Math.min(params.radiusMeters, 50_000),
           },
-        },
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Places searchNearby ${res.status}: ${await res.text()}`);
-    }
+        }),
+      },
+    );
     const data = (await res.json()) as { places?: GooglePlace[] };
     return (data.places ?? [])
       .map(toPlaceRecord)
@@ -153,13 +262,14 @@ export class GooglePlacesClient implements PlacesClient {
 
   async getDetails(placeId: string): Promise<PlaceRecord | null> {
     this.emit("details");
-    const res = await fetch(`${BASE}/places/${encodeURIComponent(placeId)}`, {
-      headers: this.headers(DETAILS_FIELD_MASK),
-    });
+    const res = await this.request(
+      "details",
+      "Place Details",
+      `${BASE}/places/${encodeURIComponent(placeId)}`,
+      { headers: this.headers(DETAILS_FIELD_MASK) },
+      [404],
+    );
     if (res.status === 404) return null;
-    if (!res.ok) {
-      throw new Error(`Place Details ${res.status}: ${await res.text()}`);
-    }
     return toPlaceRecord((await res.json()) as GooglePlace);
   }
 }
