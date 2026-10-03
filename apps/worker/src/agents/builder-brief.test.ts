@@ -187,3 +187,45 @@ describe("runBuilderBrief (template mode, no API key)", () => {
     expect(result.guardrailPassed).toBe(true);
   });
 });
+
+describe("RFL.BRIEF.7 — section anchoring and embedded Design Brief JSON", () => {
+  it("a sentence containing a section name no longer satisfies the H2 check", () => {
+    const md = buildTemplateBrief(
+      buildAuditFacts(makeBusiness(), makeAudit()),
+      resolveConfigVars(null),
+      [],
+      ["plumber Boise"],
+      null,
+    ).replace("## Assets", "We also cover the assets here.");
+    expect(missingSections(md)).toEqual(["Assets"]);
+    // Headings with trailing words / emphasis still count.
+    expect(missingSections(md.replace("We also cover the assets here.", "## **Assets** and media"))).toEqual([]);
+  });
+
+  it("runBuilderBrief embeds a parseable Design Brief under '## Design Brief (JSON)'", async () => {
+    const result = await runBuilderBrief({
+      business: makeBusiness({
+        places_details: {
+          reviews: [
+            { rating: 5, text: { text: "They cleared our main line in an hour and left the place spotless." } },
+          ],
+          regularOpeningHours: { weekdayDescriptions: ["Monday: 8:00 AM – 5:00 PM"] },
+        },
+      }),
+      audit: makeAudit(),
+      config: null,
+      competitors: [],
+      siteHtmlExcerpt: null,
+    });
+    expect(result.status).toBe("completed");
+    const md = result.output!.markdown;
+    const block = /## Design Brief \(JSON\)\n\n```json\n([\s\S]*?)\n```/.exec(md);
+    expect(block).not.toBeNull();
+    const brief = JSON.parse(block![1]!) as { business_name: string; review_quotes: unknown[]; hours: unknown[] | null };
+    expect(brief.business_name).toBe(makeBusiness().name);
+    expect(brief.review_quotes).toHaveLength(1);
+    expect(brief.hours).toHaveLength(7);
+    // The 12 PRD sections are still exactly the 12 (the JSON H2 is extra).
+    expect(result.output!.sections).toHaveLength(12);
+  });
+});
