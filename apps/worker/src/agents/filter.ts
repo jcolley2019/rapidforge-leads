@@ -125,6 +125,7 @@ export function planBlockedOutcome(
       health: health.breakdown,
       sellability: sellability.breakdown,
       blocked_by: block.blockedBy,
+      ...(sellability.breakdown.chain ? { chain: true } : {}),
     },
     issues: [
       {
@@ -287,6 +288,7 @@ export function planFilterOutcome(
         health: health.breakdown,
         sellability: sellability.breakdown,
         badge,
+        ...(sellability.breakdown.chain ? { chain: true } : {}),
       },
       issues: [
         {

@@ -375,7 +375,12 @@ async function runAuditPipeline(
   // the just-finalized audit into a narrative verdict. It rides the same
   // agent_runs/events lifecycle; a refusal or failure never stalls the job
   // (the deterministic template answers), and its cost is logged as ai_call.
-  if (scorer.output.sellability_score >= ANALYST_SELLABILITY_THRESHOLD) {
+  // Chains never get the Analyst (RFL-04) — the cap keeps them under the
+  // threshold anyway, but is_chain is the rule, not the score.
+  if (
+    business.is_chain !== true &&
+    scorer.output.sellability_score >= ANALYST_SELLABILITY_THRESHOLD
+  ) {
     const auditForAnalyst = await store.getLatestCompletedAuditForBusiness(
       business.id,
     );
