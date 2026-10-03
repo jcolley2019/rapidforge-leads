@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "RapidForge — multi-agent local lead generation platform",
+  "engines": {
+    "node": ">=22"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
