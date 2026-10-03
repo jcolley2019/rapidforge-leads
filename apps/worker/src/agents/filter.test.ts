@@ -13,7 +13,12 @@ import {
   DEV_WORKSPACE_ID,
   type UpsertBusinessInput,
 } from "../store/types";
-import { evaluateGates, planFilterOutcome, runFilter } from "./filter";
+import {
+  BLOCKED_ISSUE_LABEL,
+  evaluateGates,
+  planFilterOutcome,
+  runFilter,
+} from "./filter";
 
 const params: ZipRadiusParams = ZipRadiusParamsSchema.parse({
   zip: "83686",
@@ -44,19 +49,21 @@ function makeBusiness(overrides: Partial<Business> = {}): Business {
 }
 
 const aliveProbe: ProbeResult = {
-  alive: true,
+  alive: "yes",
   httpStatus: 200,
   responseMs: 300,
   sslValid: true,
   note: null,
+  blockedBy: null,
 };
 
 const deadProbe: ProbeResult = {
-  alive: false,
+  alive: "no",
   httpStatus: null,
   responseMs: 10_000,
   sslValid: false,
   note: "Unreachable: connection timed out",
+  blockedBy: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -177,6 +184,38 @@ describe("planFilterOutcome — real websites", () => {
     expect(plan.sellability).toBe(92);
     expect(plan.auditStatus).toBe("completed");
     expect(plan.issues[0]?.label).toBe(SPECIAL_CASE_BADGES.deadSite);
+  });
+
+  it("blocked site (probe unknown) → one low issue, neutral 50, no badge, not dead", () => {
+    const blockedProbe: ProbeResult = {
+      alive: "unknown",
+      httpStatus: 403,
+      responseMs: 210,
+      sslValid: true,
+      note: "Cloudflare bot protection (HTTP 403)",
+      blockedBy: "cloudflare-just-a-moment",
+    };
+    const plan = planFilterOutcome(
+      makeBusiness({ review_count: 127, google_rating: 4.7 }),
+      params,
+      blockedProbe,
+    );
+    expect(plan.outcome).toBe("blocked");
+    expect(plan.auditStatus).toBe("completed");
+    expect(plan.health).toBe(50);
+    expect(plan.star).toBeNull();
+    expect(plan.badge).toBeNull();
+    expect(plan.issues).toEqual([
+      {
+        severity: "low",
+        label: BLOCKED_ISSUE_LABEL,
+        detail: "Cloudflare bot protection (HTTP 403)",
+      },
+    ]);
+    expect(
+      (plan.breakdown?.health as { blocked?: boolean } | undefined)?.blocked,
+    ).toBe(true);
+    expect(plan.breakdown?.blocked_by).toBe("cloudflare-just-a-moment");
   });
 
   it("live site → provisional pending audit, marked provisional", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  BLOCKED_SITE_NEUTRAL_SCORE,
   BUILDER_PLATFORM_SCORE_MAX,
   DEAD_SITE_HEALTH_SCORE,
   HEALTH_WEIGHTS,
@@ -107,6 +108,36 @@ describe("computeHealthScore (PRD 4.1)", () => {
       healthyInput({ siteDead: true, psDesktopPerformance: 100 }),
     );
     expect(perfectButDead.score).toBe(10);
+  });
+
+  it("blocked site (bot protection): every term neutral 50, blocked=true", () => {
+    // Even a site whose (challenge-page) signals look terrible, or that the
+    // probe would call dead, scores neutral — nothing was measured.
+    const { score, breakdown } = computeHealthScore(
+      healthyInput({
+        siteBlocked: true,
+        siteDead: true,
+        psDesktopPerformance: 5,
+        hasVisiblePhone: false,
+        hasContactForm: false,
+        platform: "wix",
+      }),
+    );
+    expect(score).toBe(BLOCKED_SITE_NEUTRAL_SCORE);
+    expect(score).toBe(50);
+    expect(breakdown).toEqual({
+      performance: 50,
+      mobile: 50,
+      technical: 50,
+      platform: 50,
+      conversion: 50,
+      freshness: 50,
+      design: 50,
+      specialCase: "blocked",
+      blocked: true,
+    });
+    // Not blocked → no blocked flag at all.
+    expect(computeHealthScore(healthyInput()).breakdown.blocked).toBeUndefined();
   });
 
   it("treats unmeasured PSI as neutral 50, not zero", () => {
@@ -218,6 +249,19 @@ describe("computeSellabilityScore (PRD 4.3)", () => {
     expect(healthy.badge).toBeNull();
     // inverted health: 100 - 10 = 90 at 40% weight
     expect(dead.breakdown.invertedHealth).toBe(90);
+  });
+
+  it("blocked site never gets the dead-site badge", () => {
+    const blocked = computeSellabilityScore(
+      sellableInput({ healthScore: BLOCKED_SITE_NEUTRAL_SCORE, siteBlocked: true }),
+    );
+    expect(blocked.badge).toBeNull();
+    expect(blocked.breakdown.invertedHealth).toBe(50);
+    // The guard holds even if a caller passed the dead-site health value.
+    const guarded = computeSellabilityScore(
+      sellableInput({ healthScore: DEAD_SITE_HEALTH_SCORE, siteBlocked: true }),
+    );
+    expect(guarded.badge).toBeNull();
   });
 
   it("computes the weighted blend for a strong lead", () => {

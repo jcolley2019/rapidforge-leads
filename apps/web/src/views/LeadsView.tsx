@@ -8,6 +8,7 @@
 import { ArrowDown, ArrowUp, Download, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LeadStatusSchema, type LeadStatus } from "@rapidforge/shared";
+import { ProvisionalTag } from "@/components/leads/AuditTags";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
@@ -17,6 +18,7 @@ import {
   updateLeadStatus,
   type LeadView,
 } from "@/lib/api";
+import { isProvisionalAudit } from "@/lib/audit-flags";
 import { downloadCsv, leadsToCsv } from "@/lib/csv";
 import { dedupeLeads, type DedupedLead } from "@/lib/dedupe";
 import { relativeTime } from "@/lib/format";
@@ -555,6 +557,7 @@ function LeadRow({
         )}
       >
         {sell ?? "—"}
+        {isProvisionalAudit(audit) && <ProvisionalTag />}
       </td>
       <td className="whitespace-nowrap px-3 py-[7px]">
         <StatusChip status={status} />

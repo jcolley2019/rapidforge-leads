@@ -88,6 +88,12 @@ export interface InsertAuditInput {
   status: string;
   error_message: string | null;
   completed_at: string | null;
+  /**
+   * Scores are placeholders (bot-blocked audit, finding 4). Set ONLY when
+   * true: the column arrives with migration 0007a, and omitting it keeps
+   * every other insert working on a database that has not applied it yet.
+   */
+  provisional?: true;
 }
 
 /**
@@ -132,6 +138,8 @@ export interface UpdateAuditPatch {
   status?: string;
   error_message?: string | null;
   completed_at?: string | null;
+  /** See InsertAuditInput.provisional — only ever sent as true. */
+  provisional?: true;
 }
 
 export interface InsertAgentRunInput {

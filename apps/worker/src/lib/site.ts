@@ -9,6 +9,7 @@
  * fixture fetcher is selected whenever GOOGLE_PLACES_API_KEY is absent.
  * With real Places data the real fetcher does an actual GET.
  */
+import { siteRequestHeaders } from "./browser-headers";
 import { forceFixtures } from "./env";
 import { fallbackSiteFixture, SITE_FIXTURES } from "./site-fixtures";
 
@@ -51,7 +52,7 @@ export class RealSiteFetcher implements SiteFetcher {
         method: "GET",
         redirect: "follow",
         signal: AbortSignal.timeout(SITE_FETCH_TIMEOUT_MS),
-        headers: { "User-Agent": "RapidForge-Audit/1.0" },
+        headers: siteRequestHeaders(),
       });
       const responseMs = Date.now() - started;
       const html = (await res.text()).slice(0, MAX_HTML_BYTES);
@@ -88,7 +89,7 @@ export class RealSiteFetcher implements SiteFetcher {
         method: "GET",
         redirect: "follow",
         signal: AbortSignal.timeout(SITE_FETCH_TIMEOUT_MS),
-        headers: { "User-Agent": "RapidForge-Audit/1.0" },
+        headers: siteRequestHeaders(),
       });
       // Drain nothing — status is the answer; cancel the body politely.
       await res.body?.cancel().catch(() => {});

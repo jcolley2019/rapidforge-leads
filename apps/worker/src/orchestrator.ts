@@ -19,7 +19,7 @@ import type { AgentResult, Business, Job, Search } from "@rapidforge/shared";
 import { runAnalyst } from "./agents/analyst";
 import { runConversion } from "./agents/conversion";
 import { runDesign } from "./agents/design";
-import { runFilter } from "./agents/filter";
+import { planBlockedOutcome, runFilter } from "./agents/filter";
 import { runHealth } from "./agents/health";
 import { runPresence } from "./agents/presence";
 import { runReputation } from "./agents/reputation";
@@ -28,6 +28,7 @@ import { runScout } from "./agents/scout";
 import { runSeo } from "./agents/seo";
 import { runTraffic } from "./agents/traffic";
 import { broadcastAgentEvent } from "./events";
+import { detectBotProtection } from "./lib/bot-protection";
 import type { PlacesClient } from "./lib/places";
 import type { WebProbe } from "./lib/probe";
 import type { PsiClient, PsiStrategy } from "./lib/psi";
@@ -151,11 +152,13 @@ async function handleAuditBusinessJob(
 
   // Latest completed audit serves two masters: the 30-day cache (PRD 5.5,
   // ignored when force=true — Sprint 5 re-audit) and the Reputation agent's
-  // review-velocity baseline (Sprint 6, used in BOTH cases).
+  // review-velocity baseline (Sprint 6, used in BOTH cases). A provisional
+  // (bot-blocked) audit is never a cache hit: the site is re-probed.
   const now = new Date();
   const latest = await store.getLatestCompletedAuditForBusiness(business.id);
   const cachedAudit =
     force !== true &&
+    latest?.provisional !== true &&
     latest?.completed_at != null &&
     isWithinDays(latest.completed_at, AUDIT_CACHE_DAYS, now)
       ? latest
@@ -234,6 +237,45 @@ async function runAuditPipeline(
       deps.site.checkPath(url, "/sitemap.xml"),
       deps.site.checkPath(url, "/robots.txt"),
     ]);
+  // The probe passed but the homepage fetch hit bot protection (finding 4):
+  // never analyse a challenge page — no agents, no screenshots of the block
+  // page. Finalize as blocked: one low issue, neutral provisional scores.
+  const siteBlock = site
+    ? detectBotProtection({
+        status: site.httpStatus,
+        headers: site.headers,
+        body: site.html,
+      })
+    : null;
+  if (site && siteBlock) {
+    const plan = planBlockedOutcome(business, {
+      note: siteBlock.note,
+      blockedBy: siteBlock.reason,
+    });
+    await store.updateAudit(auditId, {
+      http_status: site.httpStatus,
+      response_ms: site.responseMs,
+      website_health_score: plan.health,
+      star_grade: plan.star,
+      sellability_score: plan.sellability,
+      score_breakdown: plan.breakdown,
+      issues: plan.issues,
+      status: plan.auditStatus,
+      completed_at: now.toISOString(),
+      provisional: true,
+    });
+    console.warn(
+      `[orchestrator] business ${business.id} blocked on homepage fetch (${siteBlock.reason}) — audit ${auditId} provisional`,
+    );
+    await broadcastAgentEvent(search.workspace_id, {
+      type: "lead.scored",
+      businessId: business.id,
+      healthScore: plan.health ?? 0,
+      sellabilityScore: plan.sellability ?? 0,
+    });
+    return;
+  }
+
   // Store before the agent fan-out so the drawer's Screenshots tab has URLs
   // even if a later agent fails. Null anywhere = screenshots stay null.
   const screenshotUrls: ScreenshotUrls | null = screenshots

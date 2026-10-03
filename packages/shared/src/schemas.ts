@@ -291,6 +291,12 @@ export const AuditSchema = z.object({
   sales_summary: jsonb.nullable(), // talk track (v1.5)
   status: z.string().nullable(),
   error_message: z.string().nullable(),
+  /**
+   * Scores are placeholders, not measurements — e.g. bot protection blocked
+   * the audit (finding 4). Migration 0007a; optional so rows read before the
+   * column exists still parse.
+   */
+  provisional: z.boolean().nullable().optional(),
   created_at: timestamp.nullable(),
   completed_at: timestamp.nullable(),
 });
