@@ -32,6 +32,7 @@ import {
   type Search,
   unverifiedReputationIssue,
 } from "@rapidforge/shared";
+import { withBudget } from "../lib/budget";
 import type { PlacesClient } from "../lib/places";
 import type { ProbeResult, WebProbe } from "../lib/probe";
 import { parseSearchParams } from "../lib/search-params";
@@ -365,6 +366,9 @@ export interface FilterContext {
    * callers without a Places client still work (no fetch).
    */
   places?: PlacesClient;
+  /** RFL.QUEUE.8: probe budget; an overrun fails the Filter (and the job). */
+  probeBudgetMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface FilterOutput extends Record<string, unknown> {
@@ -470,7 +474,12 @@ export async function runFilter(
           guardrailNotes: null,
         };
       }
-      probeResult = await probe.probe(business.website_url ?? "");
+      probeResult = await withBudget(
+        "probe",
+        ctx.probeBudgetMs ?? 15_000,
+        () => probe.probe(business.website_url ?? ""),
+        ctx.signal,
+      );
       plan = planFilterOutcome(business, params, probeResult);
     }
 

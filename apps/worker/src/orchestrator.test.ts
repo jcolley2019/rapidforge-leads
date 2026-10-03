@@ -252,7 +252,7 @@ describe("audit pipeline on fixture data", () => {
     ]);
   });
 
-  it("logs pagespeed_call x2 and audit_run x1 usage events per audited business", async () => {
+  it("logs pagespeed_call x1 (mobile; desktop opt-in) and audit_run x1 usage events per audited business", async () => {
     const business = await seedBusiness(harness, {
       google_place_id: "fx-025",
       name: "Precision Plumbing Idaho",
@@ -265,7 +265,7 @@ describe("audit pipeline on fixture data", () => {
     const events = harness.store.listUsageEvents();
     const byType = (type: UsageEvent["event_type"]) =>
       events.filter((e) => e.event_type === type);
-    expect(byType("pagespeed_call")).toHaveLength(2);
+    expect(byType("pagespeed_call")).toHaveLength(1);
     expect(byType("audit_run")).toHaveLength(1);
   });
 
@@ -320,7 +320,7 @@ describe("audit pipeline on fixture data", () => {
       harness.store
         .listUsageEvents()
         .filter((e) => e.event_type === "pagespeed_call"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("force=true bypasses the 30-day cache and runs a fresh pipeline (Sprint 5 re-audit)", async () => {
@@ -358,7 +358,7 @@ describe("audit pipeline on fixture data", () => {
       harness.store
         .listUsageEvents()
         .filter((e) => e.event_type === "pagespeed_call"),
-    ).toHaveLength(4);
+    ).toHaveLength(2);
   });
 
   it("sorts the full mix by sellability: money + pain on top, healthy sites at the bottom", async () => {
