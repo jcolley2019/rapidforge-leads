@@ -245,6 +245,8 @@ export const BusinessSchema = z.object({
   /** Optional: columns arrive with migration 0008. */
   chain_reason: ChainReasonSchema.nullable().optional(),
   name_normalized: z.string().nullable().optional(),
+  /** Raw Places (New) details record (migration 0007; RFL-06). */
+  places_details: jsonb.nullable().optional(),
   website_kind: WebsiteKindSchema.nullable(),
   first_seen_at: timestamp.nullable(),
   last_refreshed_at: timestamp.nullable(),
@@ -309,6 +311,8 @@ export const AuditSchema = z.object({
    * column exists still parse.
    */
   provisional: z.boolean().nullable().optional(),
+  /** Structured Design Brief (migration 0007; filled by brick 7). */
+  design_brief: jsonb.nullable().optional(),
   created_at: timestamp.nullable(),
   completed_at: timestamp.nullable(),
 });
