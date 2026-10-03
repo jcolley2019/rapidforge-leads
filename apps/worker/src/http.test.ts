@@ -8,7 +8,10 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Business, SearchResult, WorkspaceConfig } from "@rapidforge/shared";
 import { createApp } from "./http";
-import { FixturePlacesClient } from "./lib/places/fixture-client";
+import {
+  FIXTURE_PHOTO_PNG,
+  FixturePlacesClient,
+} from "./lib/places/fixture-client";
 import { FixtureWebProbe } from "./lib/probe";
 import { FixturePsiClient } from "./lib/psi";
 import {
@@ -556,5 +559,32 @@ describe("workspace config", () => {
   it("rejects a non-string field", async () => {
     const res = await api("PUT", "/api/config", { your_offer: 42 });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /api/places/photo/:ref (RFL-06)", () => {
+  const ref = encodeURIComponent("places/fx-001/photos/fxphoto-a");
+
+  it("streams the photo bytes with content-type and a 1-day cache header", async () => {
+    const res = await fetch(`${base}/api/places/photo/${ref}?maxWidthPx=99999`, {
+      headers: { authorization: "Bearer dev-offline" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/^image\/png/);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(bytes).toEqual(FIXTURE_PHOTO_PNG);
+    // Spend is logged like every other Places call.
+    const photoEvents = store
+      .listUsageEvents()
+      .filter((e) => e.metadata?.endpoint === "photo");
+    expect(photoEvents.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("400s a malformed reference and 401s without a token", async () => {
+    const bad = await api("GET", `/api/places/photo/${encodeURIComponent("../../etc/passwd")}`);
+    expect(bad.status).toBe(400);
+    const anon = await api("GET", `/api/places/photo/${ref}`, undefined, "");
+    expect(anon.status).toBe(401);
   });
 });

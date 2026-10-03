@@ -21,6 +21,11 @@ import { AnalystOutputSchema } from "./agents/prompts/analyst";
 import type { CompetitorSummary } from "./agents/prompts/builder-brief";
 import { aiSummaryMode } from "./lib/ai";
 import {
+  PLACE_PHOTO_MAX_WIDTH_PX,
+  PLACE_PHOTO_NAME_RE,
+  PLACES_COST_CENTS,
+} from "./lib/places";
+import {
   buildReportHtml,
   getReportRenderer,
   reportFileStem,
@@ -308,6 +313,50 @@ export function createApp(
     } catch (err) {
       console.error("[api] GET /api/businesses/:id/costs failed:", err);
       res.status(500).json({ error: "Failed to load costs" });
+    }
+  });
+
+  /**
+   * GET /api/places/photo/:ref?maxWidthPx= → the Places photo bytes (RFL-06).
+   * :ref is the URL-encoded photo resource name ("places/{id}/photos/{ref}")
+   * from businesses.places_details.photos[].name. The server key never
+   * leaves the Places client; the browser only ever sees this route.
+   */
+  app.get("/api/places/photo/:ref", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    const ref = decodeURIComponent(req.params.ref);
+    if (!PLACE_PHOTO_NAME_RE.test(ref)) {
+      res.status(400).json({ error: "Invalid photo reference" });
+      return;
+    }
+    const requested = Number(req.query.maxWidthPx ?? PLACE_PHOTO_MAX_WIDTH_PX);
+    const maxWidthPx = Number.isFinite(requested) && requested > 0
+      ? Math.min(Math.floor(requested), PLACE_PHOTO_MAX_WIDTH_PX)
+      : PLACE_PHOTO_MAX_WIDTH_PX;
+    try {
+      const photo = await deps.places.fetchPhoto(ref, maxWidthPx);
+      if (!photo) {
+        res.status(404).json({ error: "Photo not found" });
+        return;
+      }
+      void deps.store
+        .logUsageEvent({
+          workspace_id: auth.workspaceId,
+          event_type: "places_call",
+          cost_cents: PLACES_COST_CENTS.photo,
+          metadata: { endpoint: "photo", mode: deps.places.mode },
+        })
+        .catch((err) => console.error("[api] photo usage log failed:", err));
+      res.setHeader("Content-Type", photo.contentType);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.send(Buffer.from(photo.bytes));
+    } catch (err) {
+      console.error("[api] GET /api/places/photo failed:", err);
+      res.status(502).json({ error: "Photo fetch failed" });
     }
   });
 
