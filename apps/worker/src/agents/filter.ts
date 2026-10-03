@@ -32,6 +32,7 @@ import {
   type Search,
   unverifiedReputationIssue,
 } from "@rapidforge/shared";
+import type { PlacesClient } from "../lib/places";
 import type { ProbeResult, WebProbe } from "../lib/probe";
 import { parseSearchParams } from "../lib/search-params";
 import type { DataStore } from "../store";
@@ -356,6 +357,14 @@ export interface FilterContext {
    * audit pipeline, no new audit row.
    */
   cachedAudit: Audit | null;
+  /**
+   * RFL-06: Place Details (hours/photos/reviews) are fetched HERE, only for
+   * businesses that pass the gates (pending_audit / hot_lead), and only
+   * when Scout did not already persist them. Skips, dead sites, blocked
+   * sites and cache hits never pay for the Enterprise SKU. Optional so
+   * callers without a Places client still work (no fetch).
+   */
+  places?: PlacesClient;
 }
 
 export interface FilterOutput extends Record<string, unknown> {
@@ -365,6 +374,60 @@ export interface FilterOutput extends Record<string, unknown> {
   health: number | null;
   badge: string | null;
   reason: string | null;
+  /** True when this run fetched + persisted Place Details (RFL-06). */
+  details_fetched: boolean;
+}
+
+/** Outcomes that earn the Place Details spend (CLAUDE.md 8: filter first). */
+const DETAILS_OUTCOMES: ReadonlySet<FilterPlan["outcome"]> = new Set([
+  "pending_audit",
+  "hot_lead",
+]);
+
+/**
+ * Fetch + persist Place Details for a business that passed the gates,
+ * unless Scout already stored a record. Returns true when fetched. A
+ * Places failure is logged and swallowed — enrichment never fails the job.
+ */
+async function enrichPlacesDetails(
+  ctx: FilterContext,
+  outcome: FilterPlan["outcome"],
+): Promise<boolean> {
+  if (!ctx.places || !DETAILS_OUTCOMES.has(outcome)) return false;
+  if (ctx.business.places_details) return false; // Scout already paid for it
+  // One usage_events row per Places call (CLAUDE.md 8), like Scout does.
+  const unsubscribe = ctx.places.onCall(({ endpoint, costCents }) => {
+    void ctx.store
+      .logUsageEvent({
+        workspace_id: ctx.search.workspace_id,
+        event_type: "places_call",
+        cost_cents: costCents,
+        metadata: {
+          endpoint,
+          mode: ctx.places?.mode,
+          search_id: ctx.search.id,
+          business_id: ctx.business.id,
+        },
+      })
+      .catch((err) =>
+        console.error(`[filter] usage_events log failed: ${String(err)}`),
+      );
+  });
+  try {
+    const record = await ctx.places.getDetails(ctx.business.google_place_id);
+    if (!record?.details) return false;
+    const details = record.details as unknown as Record<string, unknown>;
+    await ctx.store.setBusinessPlacesDetails(ctx.business.id, details);
+    ctx.business.places_details = details;
+    return true;
+  } catch (err) {
+    console.warn(
+      `[filter] place details for ${ctx.business.id} failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  } finally {
+    unsubscribe();
+  }
 }
 
 export async function runFilter(
@@ -396,6 +459,7 @@ export async function runFilter(
               ((cached.score_breakdown as { badge?: string } | null)?.badge ??
                 null),
             reason: "Reused completed audit within the 30-day cache window",
+            details_fetched: false,
           },
           error: null,
           modelUsed: null,
@@ -409,6 +473,8 @@ export async function runFilter(
       probeResult = await probe.probe(business.website_url ?? "");
       plan = planFilterOutcome(business, params, probeResult);
     }
+
+    const detailsFetched = await enrichPlacesDetails(ctx, plan.outcome);
 
     const completed = plan.auditStatus !== "pending";
     const audit = await store.insertAudit({
@@ -440,6 +506,7 @@ export async function runFilter(
         health: plan.health,
         badge: plan.badge,
         reason: plan.reason,
+        details_fetched: detailsFetched,
       },
       error: null,
       modelUsed: null, // deterministic path only in Sprint 2

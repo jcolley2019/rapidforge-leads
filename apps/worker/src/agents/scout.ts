@@ -23,7 +23,7 @@ import {
 } from "../lib/chains";
 import { haversineMeters, METERS_PER_MILE, planTiles } from "../lib/geo";
 import { parseSearchParams } from "../lib/search-params";
-import type { PlaceRecord, PlacesClient } from "../lib/places";
+import type { PlaceDetails, PlaceRecord, PlacesClient } from "../lib/places";
 import type { DataStore } from "../store";
 
 /** Hard cap per search — Founder plan max_results_per_search (PRD 5.1). */
@@ -199,6 +199,7 @@ export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutp
               rating: record.rating ?? details.rating,
               reviewCount: record.reviewCount ?? details.reviewCount,
               businessStatus: record.businessStatus ?? details.businessStatus,
+              details: details.details ?? null,
             }
           : record,
       );
@@ -223,6 +224,9 @@ export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutp
         business_status: record.businessStatus,
         ...chainFields(record, multiLocation.has(record.placeId)),
         website_kind: classifyWebsiteKind(record.websiteUrl),
+        // Only when this pass fetched details (website/phone were missing);
+        // otherwise leave whatever Filter persisted earlier untouched.
+        ...(record.details ? { places_details: toJson(record.details) } : {}),
       });
       await store.ensureSearchResult(search.workspace_id, search.id, business.id);
       businessIds.push(business.id);
@@ -253,6 +257,11 @@ export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutp
   } finally {
     unsubscribe();
   }
+}
+
+/** Raw details → plain jsonb object for the store. */
+function toJson(details: PlaceDetails): Record<string, unknown> {
+  return details as unknown as Record<string, unknown>;
 }
 
 /** is_chain + chain_reason for the upsert (brand → URL → multi-location). */

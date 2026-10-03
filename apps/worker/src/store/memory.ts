@@ -223,10 +223,13 @@ export class MemoryStore implements DataStore {
   // -- businesses / results / audits ----------------------------------------
 
   async upsertBusiness(input: UpsertBusinessInput): Promise<Business> {
+    const { places_details, ...fields } = input;
     const row = {
-      ...input,
+      ...fields,
       chain_reason: input.chain_reason ?? null,
       name_normalized: normalizeBusinessName(input.name),
+      // undefined = leave the stored record alone; null/object = write it.
+      ...(places_details === undefined ? {} : { places_details }),
     };
     let business = [...this.businesses.values()].find(
       (b) =>
@@ -238,6 +241,7 @@ export class MemoryStore implements DataStore {
     } else {
       business = {
         id: randomUUID(),
+        places_details: null,
         ...row,
         first_seen_at: nowIso(),
         last_refreshed_at: nowIso(),
@@ -246,6 +250,14 @@ export class MemoryStore implements DataStore {
     }
     this.markMultiLocationChains(input.workspace_id, row.name_normalized);
     return business;
+  }
+
+  async setBusinessPlacesDetails(
+    id: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    const business = this.businesses.get(id);
+    if (business) business.places_details = details;
   }
 
   /** Workspace-wide multi-location check (see DataStore.upsertBusiness). */
