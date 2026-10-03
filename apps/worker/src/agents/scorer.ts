@@ -49,6 +49,10 @@ export interface ScorerContext {
   screenshotUrls: ScreenshotUrls | null;
   /** Injected for determinism. */
   now: Date;
+  /** Stages that overran their budget (RFL.QUEUE.8) — one low issue each. */
+  stageTimeouts?: string[];
+  /** PSI returned nothing for a live site (finding 12): flagged, not hidden. */
+  psiUnmeasured?: boolean;
 }
 
 export interface AssembledScores {
@@ -70,12 +74,16 @@ export interface ScoreInputs {
   reputation: ReputationOutput | null;
   seo: SeoOutput | null;
   now: Date;
+  stageTimeouts?: string[];
+  psiUnmeasured?: boolean;
 }
 
 /** Pure score assembly — exported for the pipeline unit tests. */
 export function assembleScores(inputs: ScoreInputs): AssembledScores {
   const { business, health, conversion, presence, traffic, design, reputation, seo, now } =
     inputs;
+  const stageTimeouts = [...new Set(inputs.stageTimeouts ?? [])];
+  const psiUnmeasured = inputs.psiUnmeasured === true;
   const currentYear = now.getFullYear();
 
   const healthResult = computeHealthScore({
@@ -148,6 +156,22 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
       ? SPECIAL_CASE_BADGES.builderSite
       : null;
 
+  // Finding 12: an unmeasured PSI is a neutral 50 in health — say so.
+  if (psiUnmeasured) {
+    issues.push({
+      severity: "low",
+      label: "Performance could not be measured",
+      detail: "PageSpeed Insights returned nothing — performance scored neutral",
+    });
+  }
+  for (const stage of stageTimeouts) {
+    issues.push({
+      severity: "low",
+      label: `${stage} timed out`,
+      detail: "Stage exceeded its budget and was skipped for this audit",
+    });
+  }
+
   return {
     healthScore: healthResult.score,
     starGrade: deriveStarGrade(healthResult.score),
@@ -155,7 +179,11 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     issues,
     badge,
     scoreBreakdown: {
-      health: healthResult.breakdown,
+      health: {
+        ...healthResult.breakdown,
+        ...(psiUnmeasured ? { psi_unmeasured: true } : {}),
+      },
+      ...(stageTimeouts.length > 0 ? { stage_timeouts: stageTimeouts } : {}),
       sellability: sellabilityResult.breakdown,
       ...(badge ? { badge } : {}),
       ...(sellabilityResult.breakdown.chain ? { chain: true } : {}),
@@ -231,6 +259,8 @@ export async function runScorer(
       reputation: ctx.reputation,
       seo: ctx.seo,
       now: ctx.now,
+      ...(ctx.stageTimeouts ? { stageTimeouts: ctx.stageTimeouts } : {}),
+      ...(ctx.psiUnmeasured !== undefined ? { psiUnmeasured: ctx.psiUnmeasured } : {}),
     });
     const { health, conversion, presence, traffic, now } = ctx;
 

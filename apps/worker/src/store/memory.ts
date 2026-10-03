@@ -30,6 +30,7 @@ import {
   type JobCounts,
   type LeadView,
   type LogUsageEventInput,
+  type QueueHealth,
   type ReclaimStaleInput,
   type ReclaimStaleResult,
   type SearchDetail,
@@ -182,6 +183,34 @@ export class MemoryStore implements DataStore {
       if (job.status === "queued" || job.status === "running") count += 1;
     }
     return count;
+  }
+
+  async getQueueHealth(now: Date = new Date()): Promise<QueueHealth> {
+    const tenMinAgo = now.getTime() - 10 * 60_000;
+    let queued = 0;
+    let running = 0;
+    let runningOver = 0;
+    let oldestQueued: number | null = null;
+    for (const job of this.jobs.values()) {
+      if (job.status === "queued") {
+        queued += 1;
+        const created = job.created_at ? Date.parse(job.created_at) : NaN;
+        if (Number.isFinite(created) && (oldestQueued === null || created < oldestQueued)) {
+          oldestQueued = created;
+        }
+      } else if (job.status === "running") {
+        running += 1;
+        const started = job.started_at ? Date.parse(job.started_at) : NaN;
+        if (Number.isFinite(started) && started < tenMinAgo) runningOver += 1;
+      }
+    }
+    return {
+      queued,
+      running,
+      running_over_10m: runningOver,
+      oldest_queued_age_s:
+        oldestQueued === null ? null : Math.max(0, Math.round((now.getTime() - oldestQueued) / 1000)),
+    };
   }
 
   async reclaimStaleWork(input: ReclaimStaleInput): Promise<ReclaimStaleResult> {

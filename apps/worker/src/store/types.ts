@@ -194,6 +194,16 @@ export interface ReclaimStaleInput {
   excludeJobIds?: readonly string[];
 }
 
+/** GET /health queue readings (finding 14). */
+export interface QueueHealth {
+  queued: number;
+  running: number;
+  /** Jobs 'running' with started_at older than 10 minutes (DB view). */
+  running_over_10m: number;
+  /** Age of the oldest queued job in seconds; null when nothing is queued. */
+  oldest_queued_age_s: number | null;
+}
+
 export interface ReclaimStaleResult {
   /** Post-update rows. */
   requeued: Job[];
@@ -290,6 +300,8 @@ export interface DataStore {
   countActiveJobsForSearch(searchId: string): Promise<number>;
   /** Requeue/fail jobs and fail agent_runs stuck 'running' (finding 5). */
   reclaimStaleWork(input: ReclaimStaleInput): Promise<ReclaimStaleResult>;
+  /** Queue counters for /health (RFL.QUEUE.8). */
+  getQueueHealth(now?: Date): Promise<QueueHealth>;
 
   // businesses / results / audits
   /**

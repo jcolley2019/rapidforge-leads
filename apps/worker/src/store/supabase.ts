@@ -32,6 +32,7 @@ import {
   type JobCounts,
   type LeadView,
   type LogUsageEventInput,
+  type QueueHealth,
   type ReclaimStaleInput,
   type ReclaimStaleResult,
   type SearchDetail,
@@ -250,6 +251,38 @@ export class SupabaseStore implements DataStore {
     if (error)
       throw new Error(`[store] countActiveJobsForSearch: ${error.message}`);
     return count ?? 0;
+  }
+
+  async getQueueHealth(now: Date = new Date()): Promise<QueueHealth> {
+    const tenMinAgoIso = new Date(now.getTime() - 10 * 60_000).toISOString();
+    const [queued, running, runningOver, oldest] = await Promise.all([
+      this.db.from("jobs").select("id", { count: "exact", head: true }).eq("status", "queued"),
+      this.db.from("jobs").select("id", { count: "exact", head: true }).eq("status", "running"),
+      this.db
+        .from("jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "running")
+        .lt("started_at", tenMinAgoIso),
+      this.db
+        .from("jobs")
+        .select("created_at")
+        .eq("status", "queued")
+        .order("created_at", { ascending: true })
+        .limit(1),
+    ]);
+    for (const r of [queued, running, runningOver, oldest]) {
+      if (r.error) throw new Error(`[store] getQueueHealth: ${r.error.message}`);
+    }
+    const oldestIso = ((oldest.data ?? [])[0] as { created_at?: string } | undefined)?.created_at;
+    const oldestMs = oldestIso ? Date.parse(oldestIso) : NaN;
+    return {
+      queued: queued.count ?? 0,
+      running: running.count ?? 0,
+      running_over_10m: runningOver.count ?? 0,
+      oldest_queued_age_s: Number.isFinite(oldestMs)
+        ? Math.max(0, Math.round((now.getTime() - oldestMs) / 1000))
+        : null,
+    };
   }
 
   async reclaimStaleWork(input: ReclaimStaleInput): Promise<ReclaimStaleResult> {

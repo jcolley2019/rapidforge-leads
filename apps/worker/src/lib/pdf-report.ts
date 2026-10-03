@@ -11,6 +11,7 @@
  *     browser. Selection is logged like every other seam.
  */
 import type { Audit, Business } from "@rapidforge/shared";
+import { withPage } from "./browser";
 import { forceFixtures } from "./env";
 import { screenshotSlug } from "./screenshots";
 
@@ -215,30 +216,27 @@ export interface ReportRenderer {
 export class PuppeteerReportRenderer implements ReportRenderer {
   readonly mode = "pdf" as const;
 
+  /** Shared browser + 30s budget (RFL.QUEUE.8); no Chrome → HTML output. */
   async render(html: string): Promise<ReportOutput> {
-    const puppeteer = await import("puppeteer-core");
-    let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
-    try {
-      browser = await puppeteer.launch({
-        channel: "chrome",
-        headless: true,
-        args: ["--disable-gpu"],
-      });
-      const page = await browser.newPage();
+    const pdf = await withPage("report-pdf", REPORT_RENDER_TIMEOUT_MS, async (page) => {
       // setContent's typed waitUntil is load|domcontentloaded; "load" waits
       // for the self-contained doc's images (absolute URLs) before printing.
       await page.setContent(html, { waitUntil: "load" });
-      const pdf = await page.pdf({ format: "A4", printBackground: true });
-      return {
-        bytes: Buffer.from(pdf),
-        contentType: "application/pdf",
-        extension: "pdf",
-      };
-    } finally {
-      await browser?.close().catch(() => {});
+      return page.pdf({ format: "A4", printBackground: true });
+    });
+    if (!pdf) {
+      console.warn("[report] no browser available — serving HTML instead of PDF");
+      return new HtmlReportRenderer().render(html);
     }
+    return {
+      bytes: Buffer.from(pdf),
+      contentType: "application/pdf",
+      extension: "pdf",
+    };
   }
 }
+
+export const REPORT_RENDER_TIMEOUT_MS = 30_000;
 
 /** No Chrome: hand back the HTML — presentable in a browser, printable to PDF. */
 export class HtmlReportRenderer implements ReportRenderer {

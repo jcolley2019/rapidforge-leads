@@ -33,6 +33,8 @@ const idlePoller: QueuePoller = {
   status: "polling",
   stop() {},
   inFlight: () => 0,
+  inFlightJobs: () => [],
+  tick: async () => undefined,
 };
 
 function makeDeps(s: MemoryStore): OrchestratorDeps {
@@ -640,5 +642,44 @@ describe("POST /api/businesses/:id/design-brief (RFL.BRIEF.7)", () => {
   it("404s a foreign business", async () => {
     const res = await api("POST", "/api/businesses/nope/design-brief");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /health queue readings (RFL.QUEUE.8 / finding 14)", () => {
+  it("reports jobs_in_flight, jobs_running_over_10m and oldest_queued_age_s", async () => {
+    // The store is shared across this file's tests, so compare deltas.
+    const base0 = (await store.getQueueHealth()).queued;
+    const before = (await fetch(`${base}/health`).then((r) => r.json())) as Record<string, unknown>;
+    expect(before).toMatchObject({ ok: true, jobs_in_flight: 0, jobs_running_over_10m: 0 });
+    expect(Array.isArray(before.jobs_in_flight_detail)).toBe(true);
+
+    const search = await store.createSearch({
+      workspace_id: DEV_WORKSPACE_ID,
+      created_by: DEV_USER_ID,
+      mode: "zip_radius",
+      params: { zip: "83642", radius_miles: 5 },
+      category: "plumber",
+    });
+    for (const biz of ["biz-q", "biz-r"]) {
+      await store.enqueueJob({
+        workspace_id: DEV_WORKSPACE_ID,
+        job_type: "audit_business",
+        payload: { search_id: search.id, business_id: biz },
+      });
+    }
+    const running = (await store.claimNextQueuedJob())!;
+    // The DB view 11 minutes from now: that claim counts as running > 10m.
+    const later = await store.getQueueHealth(new Date(Date.now() + 11 * 60_000));
+    expect(later.running).toBeGreaterThanOrEqual(1);
+    expect(later.running_over_10m).toBeGreaterThanOrEqual(1);
+    expect(later.queued).toBe(base0 + 1);
+    expect(later.oldest_queued_age_s).toBeGreaterThanOrEqual(11 * 60 - 1);
+
+    const res = (await fetch(`${base}/health`).then((r) => r.json())) as Record<string, unknown>;
+    expect(res.jobs_queued).toBe(base0 + 1);
+    expect(res.jobs_running_db as number).toBeGreaterThanOrEqual(1);
+    expect(res.jobs_running_over_10m).toBe(0); // just claimed — not over 10m yet
+    expect(typeof res.oldest_queued_age_s).toBe("number");
+    await store.finishJob(running.id, { status: "done" });
   });
 });

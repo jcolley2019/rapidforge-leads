@@ -28,6 +28,14 @@ import { runScout } from "./agents/scout";
 import { runSeo } from "./agents/seo";
 import { runTraffic } from "./agents/traffic";
 import { broadcastAgentEvent } from "./events";
+import {
+  budgetedStage,
+  StageAbortedError,
+  isStageTimeout,
+  stageLogger,
+  withBudget,
+  type StageLogger,
+} from "./lib/budget";
 import { detectBotProtection } from "./lib/bot-protection";
 import type { PlacesClient } from "./lib/places";
 import type { WebProbe } from "./lib/probe";
@@ -43,6 +51,35 @@ import type { DataStore } from "./store";
 
 /** Hard cap on concurrent business audits (CLAUDE.md Section 8). */
 export const AUDIT_CONCURRENCY_CAP = 5;
+
+/**
+ * Per-stage budgets (RFL.QUEUE.8). A stage that overruns is abandoned: the
+ * audit continues with that stage's neutral value (PSI → unmeasured,
+ * screenshot → none, agent → failed run) and records a low
+ * "<stage> timed out" issue. Only probe / homepage fetch overruns fail the
+ * audit. The whole audit has a hard ceiling; the queue abandons the job at
+ * ceiling + 30s if even that does not return.
+ */
+export const STAGE_BUDGET_MS = {
+  probe: 15_000,
+  fetch: 15_000,
+  psi: 45_000,
+  screenshot: 30_000,
+  agent: 60_000,
+  analyst: 120_000,
+} as const;
+export const AUDIT_CEILING_MS = 4 * 60_000;
+
+/** Desktop PSI is off by default (one PSI call per audit, finding 12 cost). */
+export function psiDesktopEnabled(): boolean {
+  return process.env.PSI_DESKTOP === "true";
+}
+
+/** Per-job options the queue passes down. */
+export interface HandleJobOptions {
+  /** Aborted by the queue when the job is abandoned past the ceiling. */
+  signal?: AbortSignal;
+}
 
 /** Analyst auto-run threshold (CLAUDE.md Section 8) — used from Sprint 7. */
 export const ANALYST_SELLABILITY_THRESHOLD = 60;
@@ -102,12 +139,22 @@ export function payloadOf(job: Job): JobPayload {
 }
 
 /** Dispatch a claimed job. Throws on failure — the queue owns retries. */
-export async function handleJob(job: Job, deps: OrchestratorDeps): Promise<void> {
+export async function handleJob(
+  job: Job,
+  deps: OrchestratorDeps,
+  opts: HandleJobOptions = {},
+): Promise<void> {
   switch (job.job_type) {
     case "scout":
       return handleScoutJob(job, deps);
     case "audit_business":
-      return handleAuditBusinessJob(job, deps);
+      // Whole-audit ceiling: a job never stays 'running' past this.
+      return withBudget(
+        "audit",
+        AUDIT_CEILING_MS,
+        (signal) => handleAuditBusinessJob(job, deps, signal),
+        opts.signal,
+      );
     default:
       throw new Error(
         `[orchestrator] job_type '${job.job_type}' not implemented until Sprint 3+`,
@@ -160,6 +207,7 @@ function isWithinDays(iso: string, days: number, now: Date): boolean {
 async function handleAuditBusinessJob(
   job: Job,
   deps: OrchestratorDeps,
+  signal?: AbortSignal,
 ): Promise<void> {
   const { store } = deps;
   const { search_id: searchId, business_id: businessId, force } = payloadOf(job);
@@ -199,7 +247,10 @@ async function handleAuditBusinessJob(
         business,
         jobId: job.id,
         cachedAudit,
+        probeBudgetMs: STAGE_BUDGET_MS.probe,
+        signal,
       }),
+    { budgetMs: STAGE_BUDGET_MS.agent + STAGE_BUDGET_MS.probe, signal },
   );
   if (result.status === "failed" || !result.output) {
     throw new Error(result.error ?? "filter failed");
@@ -220,6 +271,7 @@ async function handleAuditBusinessJob(
     result.output.audit_id,
     latest,
     deps,
+    signal,
   );
 }
 
@@ -242,13 +294,25 @@ async function runAuditPipeline(
     ReturnType<DataStore["getLatestCompletedAuditForBusiness"]>
   >,
   deps: OrchestratorDeps,
+  signal?: AbortSignal,
 ): Promise<void> {
   const { store } = deps;
   const url = business.website_url ?? "";
   const now = new Date();
+  const log = stageLogger(job.id, business.id);
+  /** Stages that overran their budget — Scorer records one low issue each. */
+  const timedOut: string[] = [];
 
   const runPsiLogged = async (strategy: PsiStrategy) => {
-    const metrics = await deps.psi.run(url, strategy);
+    const metrics = await budgetedStage({
+      log,
+      stage: `psi-${strategy}`,
+      budgetMs: STAGE_BUDGET_MS.psi,
+      run: () => deps.psi.run(url, strategy),
+      fallback: null,
+      timedOut,
+      signal,
+    });
     await store.logUsageEvent({
       workspace_id: search.workspace_id,
       event_type: "pagespeed_call",
@@ -257,15 +321,51 @@ async function runAuditPipeline(
     });
     return metrics;
   };
-  const [site, psiMobile, psiDesktop, screenshots, hasSitemap, hasRobots] =
+  // Homepage fetch is the one shared input every page agent needs: an
+  // overrun here fails the audit (the job retries once, then fails).
+  const fetchStage = async () => {
+    const t0 = log.start("fetch");
+    try {
+      const site = await withBudget("fetch", STAGE_BUDGET_MS.fetch, () =>
+        deps.site.fetchHomepage(url), signal);
+      log.end("fetch", t0);
+      return site;
+    } catch (err) {
+      log.end("fetch", t0, isStageTimeout(err) ? "TIMEOUT" : "ERROR");
+      throw err;
+    }
+  };
+  const pathStage = (path: string) =>
+    budgetedStage({
+      log,
+      stage: `path${path}`,
+      budgetMs: STAGE_BUDGET_MS.fetch,
+      run: () => deps.site.checkPath(url, path),
+      fallback: null,
+      timedOut,
+      signal,
+    });
+  const [site, psiMobile, psiDesktopRun, screenshots, hasSitemap, hasRobots] =
     await Promise.all([
-      deps.site.fetchHomepage(url),
+      fetchStage(),
       runPsiLogged("mobile"),
-      runPsiLogged("desktop"),
-      deps.screenshotCapturer.capture(url),
-      deps.site.checkPath(url, "/sitemap.xml"),
-      deps.site.checkPath(url, "/robots.txt"),
+      psiDesktopEnabled() ? runPsiLogged("desktop") : Promise.resolve(null),
+      budgetedStage({
+        log,
+        stage: "screenshot",
+        budgetMs: STAGE_BUDGET_MS.screenshot,
+        run: () => deps.screenshotCapturer.capture(url),
+        fallback: null,
+        timedOut,
+        signal,
+      }),
+      pathStage("/sitemap.xml"),
+      pathStage("/robots.txt"),
     ]);
+  // Desktop PSI is opt-in (PSI_DESKTOP=true): without it the desktop term
+  // reuses the MEASURED mobile run rather than an invented neutral — mobile
+  // is the stricter of the two, so health is never overstated.
+  const psiDesktop = psiDesktopRun ?? psiMobile;
   // The probe passed but the homepage fetch hit bot protection (finding 4):
   // never analyse a challenge page — no agents, no screenshots of the block
   // page. Finalize as blocked: one low issue, neutral provisional scores.
@@ -316,7 +416,7 @@ async function runAuditPipeline(
       )
     : null;
 
-  const runCtx = { job, search };
+  const runCtx = { job, search, budgetMs: STAGE_BUDGET_MS.agent, signal, log };
   const [health, conversion, presence, traffic, design, reputation, seo] =
     await Promise.all([
       withAgentRun(deps, { ...runCtx, agent: "health", targetId: business.id }, () =>
@@ -369,6 +469,13 @@ async function runAuditPipeline(
         seo: seo.output,
         screenshotUrls,
         now,
+        stageTimeouts: [
+          ...timedOut,
+          ...[health, conversion, presence, traffic, design, reputation, seo]
+            .filter((r) => r.status === "failed" && /timed out/.test(r.error ?? ""))
+            .map((r) => r.agent),
+        ],
+        psiUnmeasured: psiMobile === null,
       }),
   );
   if (scorer.status === "failed" || !scorer.output) {
@@ -420,7 +527,15 @@ async function runAuditPipeline(
       const config = await store.getWorkspaceConfig(search.workspace_id);
       const analyst = await withAgentRun(
         deps,
-        { job, search, agent: "analyst", targetId: business.id },
+        {
+          job,
+          search,
+          agent: "analyst",
+          targetId: business.id,
+          budgetMs: STAGE_BUDGET_MS.analyst,
+          signal,
+          log,
+        },
         () => runAnalyst({ business, audit: auditForAnalyst, config }),
       );
       if (analyst.status === "completed" && analyst.output) {
@@ -450,11 +565,25 @@ async function runAuditPipeline(
  */
 async function withAgentRun<T extends Record<string, unknown>>(
   deps: OrchestratorDeps,
-  ctx: { job: Job; search: Search; agent: string; targetId: string | null },
+  ctx: {
+    job: Job;
+    search: Search;
+    agent: string;
+    targetId: string | null;
+    /** Stage budget (RFL.QUEUE.8); an overrun becomes a failed run. */
+    budgetMs?: number;
+    signal?: AbortSignal;
+    log?: StageLogger;
+  },
   run: () => Promise<AgentResult<T>>,
+  legacyOpts?: { budgetMs?: number; signal?: AbortSignal },
 ): Promise<AgentResult<T>> {
   const { store } = deps;
   const { job, search, agent, targetId } = ctx;
+  const budgetMs = ctx.budgetMs ?? legacyOpts?.budgetMs ?? STAGE_BUDGET_MS.agent;
+  const signal = ctx.signal ?? legacyOpts?.signal;
+  const log = ctx.log ?? stageLogger(job.id, targetId);
+  const targetField = targetId === null ? {} : { target: targetId };
 
   const runRow = await store.insertAgentRun({
     workspace_id: search.workspace_id,
@@ -466,10 +595,43 @@ async function withAgentRun<T extends Record<string, unknown>>(
   await broadcastAgentEvent(search.workspace_id, {
     type: "agent.started",
     agent,
-    ...(targetId === null ? {} : { target: targetId }),
+    ...targetField,
+  });
+  await broadcastAgentEvent(search.workspace_id, {
+    type: "agent.progress",
+    agent,
+    message: `${agent} running (budget ${Math.round(budgetMs / 1000)}s)`,
+    ...targetField,
   });
 
-  const result = await run();
+  const t0 = log.start(agent);
+  let result: AgentResult<T>;
+  try {
+    result = await withBudget(agent, budgetMs, () => run(), signal);
+    log.end(agent, t0, result.status);
+  } catch (err) {
+    if (err instanceof StageAbortedError) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    log.end(agent, t0, isStageTimeout(err) ? "TIMEOUT" : `ERROR ${message}`);
+    result = {
+      agent,
+      status: "failed",
+      output: null,
+      error: message,
+      modelUsed: null,
+      tokensUsed: 0,
+      costCents: 0,
+      durationMs: Date.now() - t0,
+      guardrailPassed: false,
+      guardrailNotes: null,
+    } as AgentResult<T>;
+  }
+  await broadcastAgentEvent(search.workspace_id, {
+    type: "agent.progress",
+    agent,
+    message: `${agent} ${result.status} in ${Date.now() - t0}ms`,
+    ...targetField,
+  });
 
   await store.updateAgentRun(runRow.id, {
     status: result.status,

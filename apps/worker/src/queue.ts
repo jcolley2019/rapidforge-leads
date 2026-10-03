@@ -13,10 +13,13 @@
  * attempts) so their search can settle.
  */
 import type { Job } from "@rapidforge/shared";
+import { StageAbortedError, withBudget } from "./lib/budget";
 import {
+  AUDIT_CEILING_MS,
   AUDIT_CONCURRENCY_CAP,
   handleJob,
   settleSearchIfDone,
+  type HandleJobOptions,
   type OrchestratorDeps,
 } from "./orchestrator";
 import type { ReclaimStaleResult } from "./store/types";
@@ -32,36 +35,118 @@ export const STALE_AFTER_MS = 10 * 60_000;
 export const RECLAIM_EVERY_TICKS = 20;
 export const STALE_REASON = "stale: reclaimed after worker restart";
 
+/**
+ * In-process hang recovery (RFL.QUEUE.8): a job this process still holds
+ * past the whole-audit ceiling + this grace is abandoned — its controller
+ * aborted, the job failed, the slot released. The DB-side reclaim above
+ * deliberately skips jobs this process holds; this covers them.
+ */
+export const ABANDON_GRACE_MS = 30_000;
+export const ABANDON_AFTER_MS = AUDIT_CEILING_MS + ABANDON_GRACE_MS;
+export const ABANDON_REASON = "worker: audit exceeded ceiling";
+/** A claim that does not answer in this long must not wedge the tick. */
+export const CLAIM_BUDGET_MS = 10_000;
+
+export interface InFlightJob {
+  id: string;
+  job_type: string;
+  business_id: string | null;
+  started_at: string;
+  age_ms: number;
+}
+
 export interface QueuePoller {
   status: "polling";
   stop(): void;
   inFlight(): number;
+  /** Jobs this process holds right now, oldest first (for /health). */
+  inFlightJobs(): InFlightJob[];
+  /** Run one poller pass now (tests; the interval calls this). */
+  tick(): Promise<void>;
 }
 
-export function startQueuePoller(deps: OrchestratorDeps): QueuePoller {
-  /** Job ids this process is running — the reclaim sweep never touches them. */
-  const inFlight = new Set<string>();
+export interface QueueOptions {
+  /** Job runner (tests inject a stub). */
+  handle?: (job: Job, deps: OrchestratorDeps, opts: HandleJobOptions) => Promise<void>;
+  cap?: number;
+  abandonAfterMs?: number;
+  /** Clock seam for tests. */
+  now?: () => number;
+}
+
+interface Slot {
+  job: Job;
+  startedAt: number;
+  controller: AbortController;
+}
+
+export function startQueuePoller(
+  deps: OrchestratorDeps,
+  options: QueueOptions = {},
+): QueuePoller {
+  const handle = options.handle ?? handleJob;
+  const cap = options.cap ?? AUDIT_CONCURRENCY_CAP;
+  const abandonAfterMs = options.abandonAfterMs ?? ABANDON_AFTER_MS;
+  const now = options.now ?? (() => Date.now());
+  /** Jobs this process is running — the reclaim sweep never touches them. */
+  const inFlight = new Map<string, Slot>();
   let stopped = false;
   let ticks = 0;
+  /** One tick at a time: a slow claim must not stack ticks on itself. */
+  let ticking = false;
+
+  async function abandonOverrun(): Promise<void> {
+    const cutoff = now() - abandonAfterMs;
+    for (const [id, slot] of inFlight) {
+      if (slot.startedAt > cutoff) continue;
+      inFlight.delete(id); // slot released first — the next claim can proceed
+      slot.controller.abort(new StageAbortedError("audit"));
+      console.error(
+        `[queue] job ${id} (${slot.job.job_type}, business ${businessIdOf(slot.job)}) abandoned after ${Math.round((now() - slot.startedAt) / 1000)}s — ${ABANDON_REASON}`,
+      );
+      try {
+        await deps.store.finishJob(id, { status: "failed", error: ABANDON_REASON });
+        await markSearchFailedIfScout(slot.job, deps, ABANDON_REASON);
+        await settleSearchIfDone(slot.job, deps);
+      } catch (err) {
+        console.error(`[queue] abandon bookkeeping for ${id} failed:`, err);
+      }
+    }
+  }
 
   async function tick(): Promise<void> {
-    while (!stopped && inFlight.size < AUDIT_CONCURRENCY_CAP) {
-      const job = await deps.store.claimNextQueuedJob();
-      if (!job) return;
-      inFlight.add(job.id);
-      void processJob(job, deps)
-        .catch((err) =>
-          console.error(`[queue] job ${job.id} crashed the runner:`, err),
-        )
-        .finally(() => {
-          inFlight.delete(job.id);
-        });
+    if (ticking || stopped) return;
+    ticking = true;
+    try {
+      await abandonOverrun();
+      // N free slots → up to N claims, every tick, regardless of what the
+      // other slots are doing.
+      while (!stopped && inFlight.size < cap) {
+        const job = await withBudget("claim", CLAIM_BUDGET_MS, () =>
+          deps.store.claimNextQueuedJob(),
+        );
+        if (!job) return;
+        const controller = new AbortController();
+        inFlight.set(job.id, { job, startedAt: now(), controller });
+        console.log(
+          `[queue] claimed job ${job.id} (${job.job_type}, business ${businessIdOf(job)}) — in flight ${inFlight.size}/${cap}`,
+        );
+        void processJob(job, deps, handle, controller.signal)
+          .catch((err) =>
+            console.error(`[queue] job ${job.id} crashed the runner:`, err),
+          )
+          .finally(() => {
+            inFlight.delete(job.id);
+          });
+      }
+    } finally {
+      ticking = false;
     }
   }
 
   async function reclaim(): Promise<void> {
     try {
-      await reclaimStaleJobs(deps, { inFlightJobIds: [...inFlight] });
+      await reclaimStaleJobs(deps, { inFlightJobIds: [...inFlight.keys()] });
     } catch (err) {
       console.error("[queue] stale reclaim failed:", err);
     }
@@ -79,7 +164,7 @@ export function startQueuePoller(deps: OrchestratorDeps): QueuePoller {
   );
 
   console.log(
-    `[queue] polling jobs every ${POLL_INTERVAL_MS}ms (store: ${deps.store.mode}, cap: ${AUDIT_CONCURRENCY_CAP})`,
+    `[queue] polling jobs every ${POLL_INTERVAL_MS}ms (store: ${deps.store.mode}, cap: ${cap}, abandon after ${Math.round(abandonAfterMs / 1000)}s)`,
   );
   return {
     status: "polling",
@@ -88,6 +173,17 @@ export function startQueuePoller(deps: OrchestratorDeps): QueuePoller {
       clearInterval(timer);
     },
     inFlight: () => inFlight.size,
+    inFlightJobs: () =>
+      [...inFlight.values()]
+        .sort((a, b) => a.startedAt - b.startedAt)
+        .map((s) => ({
+          id: s.job.id,
+          job_type: s.job.job_type,
+          business_id: businessIdOf(s.job) === "-" ? null : businessIdOf(s.job),
+          started_at: new Date(s.startedAt).toISOString(),
+          age_ms: now() - s.startedAt,
+        })),
+    tick,
   };
 }
 
@@ -139,11 +235,18 @@ function businessIdOf(job: Job): string {
   return (job.payload as { business_id?: string }).business_id ?? "-";
 }
 
-async function processJob(job: Job, deps: OrchestratorDeps): Promise<void> {
+async function processJob(
+  job: Job,
+  deps: OrchestratorDeps,
+  handle: NonNullable<QueueOptions["handle"]>,
+  signal: AbortSignal,
+): Promise<void> {
   try {
-    await handleJob(job, deps);
+    await handle(job, deps, { signal });
+    if (signal.aborted) return; // abandoned meanwhile — the queue already failed it
     await deps.store.finishJob(job.id, { status: "done" });
   } catch (err) {
+    if (signal.aborted) return; // the abandon path owns the bookkeeping
     const message = err instanceof Error ? err.message : String(err);
     const attempts = job.attempts ?? 1;
     if (attempts < MAX_JOB_ATTEMPTS) {
