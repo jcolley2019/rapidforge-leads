@@ -178,6 +178,30 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
         ...(design ? { design } : {}),
         ...(reputation ? { reputation } : {}),
         ...(seo ? { seo } : {}),
+        // RFL-06: what Conversion and Presence measured now rides the audit
+        // row too, so the Design Brief (brick 7) reads fields, not prose.
+        ...(conversion
+          ? {
+              conversion: {
+                cta_candidates: conversion.cta_candidates,
+                booking_url: conversion.booking_url,
+                visible_phone: conversion.visible_phone,
+                has_tel_link: conversion.has_tel_link,
+                has_form: conversion.has_form,
+                has_cta_above_fold: conversion.has_cta_above_fold,
+              },
+            }
+          : {}),
+        ...(presence
+          ? {
+              presence: {
+                social_links: presence.social_links,
+                hours_completeness: presence.hours_completeness,
+                gbp_photo_count: presence.gbp_photo_count,
+                nap_consistent: presence.nap.nap_consistent,
+              },
+            }
+          : {}),
       },
     },
   };

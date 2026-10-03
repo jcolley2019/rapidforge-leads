@@ -135,13 +135,61 @@ export function findSocialLinks(html: string): string[] {
 // Agent run
 // ---------------------------------------------------------------------------
 
+export type HoursCompleteness = "complete" | "partial" | "missing" | "unknown";
+
 export interface PresenceOutput extends Record<string, unknown> {
   nap: NapComparison;
   social_links: string[];
-  /** Not captured by Scout in v1 — stays unknown, never invented. */
-  gbp_photo_count: null;
-  hours_completeness: "unknown";
+  /** Places photo count from places_details; null when no details held. */
+  gbp_photo_count: number | null;
+  /** From places_details.regularOpeningHours (RFL-06); unknown without details. */
+  hours_completeness: HoursCompleteness;
   summary: PresenceSummary;
+}
+
+/** The slice of places_details Presence reads (raw Places (New) shape). */
+interface PlacesDetailsSlice {
+  regularOpeningHours?: {
+    weekdayDescriptions?: string[];
+    periods?: Array<{ open?: { day?: number } }>;
+  };
+  photos?: unknown[];
+}
+
+/**
+ * GBP hours completeness from a raw Place Details record (pure):
+ *   unknown  — no details record held (never fetched)
+ *   missing  — details held, no regularOpeningHours
+ *   partial  — fewer than 7 weekdays described / covered
+ *   complete — all 7 weekdays present (a "Closed" day still counts)
+ */
+export function hoursCompletenessFrom(
+  placesDetails: Record<string, unknown> | null | undefined,
+): HoursCompleteness {
+  if (!placesDetails) return "unknown";
+  const hours = (placesDetails as PlacesDetailsSlice).regularOpeningHours;
+  if (!hours) return "missing";
+  const described = (hours.weekdayDescriptions ?? []).filter(
+    (d) => typeof d === "string" && d.trim().length > 0,
+  ).length;
+  const coveredDays = new Set(
+    (hours.periods ?? [])
+      .map((p) => p.open?.day)
+      .filter((d): d is number => typeof d === "number"),
+  ).size;
+  const days = Math.max(described, coveredDays);
+  if (days >= 7) return "complete";
+  if (days > 0) return "partial";
+  return "missing";
+}
+
+/** Places photo count from a raw details record; null when none held. */
+export function gbpPhotoCountFrom(
+  placesDetails: Record<string, unknown> | null | undefined,
+): number | null {
+  if (!placesDetails) return null;
+  const photos = (placesDetails as PlacesDetailsSlice).photos;
+  return Array.isArray(photos) ? photos.length : 0;
 }
 
 export function buildTemplatePresenceSummary(
@@ -246,8 +294,8 @@ export async function runPresence(
       output: {
         nap,
         social_links: socialLinks,
-        gbp_photo_count: null,
-        hours_completeness: "unknown",
+        gbp_photo_count: gbpPhotoCountFrom(ctx.business.places_details),
+        hours_completeness: hoursCompletenessFrom(ctx.business.places_details),
         summary: summary.value,
       },
       error: null,

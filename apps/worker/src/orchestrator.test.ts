@@ -603,3 +603,51 @@ describe("analystEligible", () => {
     expect(detail!.agent_states.map((r) => r.agent_name)).not.toContain("analyst");
   });
 });
+
+// ---------------------------------------------------------------------------
+// RFL-06: enrichment rides the audit row
+// ---------------------------------------------------------------------------
+
+describe("Place Details enrichment through the pipeline (RFL-06)", () => {
+  it("Filter persists places_details; Presence/Reputation/Scorer consume it", async () => {
+    const business = await seedBusiness(harness, {
+      google_place_id: "fx-001",
+      name: "Snake River Plumbing Co",
+      website_url: "https://snakeriverplumbing.com",
+      address: "1120 N Main St, Meridian, ID 83642",
+      google_rating: 4.7,
+      review_count: 127,
+    });
+    await runAuditJob(harness, business.id);
+
+    const stored = await harness.store.getBusiness(business.id);
+    expect(stored?.places_details).not.toBeNull();
+
+    const lead = await leadFor(harness, business.id);
+    const v15 = (lead.audit?.score_breakdown as {
+      v15_agents?: {
+        conversion?: Record<string, unknown>;
+        presence?: Record<string, unknown>;
+        reputation?: { reviews_considered?: number };
+      };
+    }).v15_agents;
+    expect(v15?.conversion).toMatchObject({
+      has_tel_link: expect.any(Boolean),
+      cta_candidates: expect.any(Array),
+    });
+    expect(v15?.conversion).toHaveProperty("booking_url");
+    expect(v15?.conversion).toHaveProperty("visible_phone");
+    expect(v15?.presence).toMatchObject({
+      social_links: expect.any(Array),
+      hours_completeness: "complete", // fx-001's seven weekdayDescriptions
+      gbp_photo_count: 2,
+    });
+    expect(v15?.reputation?.reviews_considered).toBe(3);
+    // Only Filter fetched details: exactly one 'details' usage event.
+    expect(
+      harness.store
+        .listUsageEvents()
+        .filter((e) => e.metadata?.endpoint === "details"),
+    ).toHaveLength(1);
+  });
+});
