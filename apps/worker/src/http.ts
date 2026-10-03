@@ -109,13 +109,27 @@ export function createApp(
     express.static(FIXTURE_SCREENSHOT_DIR, { maxAge: "1h" }),
   );
 
-  app.get("/health", (_req, res) => {
+  app.get("/health", async (_req, res) => {
+    // Queue readings (finding 14 / RFL.QUEUE.8): the process view (slots
+    // held) and the DB view (running > 10m, oldest queued). Both best-effort.
+    const inFlightJobs = poller.inFlightJobs();
+    let queue: Awaited<ReturnType<DataStore["getQueueHealth"]>> | null = null;
+    try {
+      queue = await deps.store.getQueueHealth();
+    } catch (err) {
+      console.error("[health] getQueueHealth failed:", err);
+    }
     res.json({
       ok: true,
       service: "rapidforge-worker",
       uptime_s: Math.round((Date.now() - startedAt) / 1000),
       queue: poller.status,
-      jobs_in_flight: poller.inFlight(),
+      jobs_in_flight: inFlightJobs.length,
+      jobs_in_flight_detail: inFlightJobs,
+      jobs_queued: queue?.queued ?? null,
+      jobs_running_db: queue?.running ?? null,
+      jobs_running_over_10m: queue?.running_over_10m ?? null,
+      oldest_queued_age_s: queue?.oldest_queued_age_s ?? null,
       poll_interval_ms: POLL_INTERVAL_MS,
       store_mode: deps.store.mode,
       places_mode: deps.places.mode,

@@ -189,6 +189,7 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
         statuses={live.statuses}
         scored={live.scored.length}
         queued={jobs?.queued ?? 0}
+        running={jobs?.running ?? 0}
         activeTab={tab}
         onSelect={setTab}
       />
@@ -284,18 +285,21 @@ function AgentPipelineBar({
   statuses,
   scored,
   queued,
+  running,
   activeTab,
   onSelect,
 }: {
   statuses: Record<string, AgentStatus>;
   scored: number;
   queued: number;
+  /** jobs.running from the API — the table the poller claims from. */
+  running: number;
   activeTab: TabKey;
   onSelect: (tab: TabKey) => void;
 }) {
-  // "complete" = finished ≥1 run and not currently working; "running" = in
-  // flight now. Both are pipeline-level readings over the live statuses.
-  const running = AGENTS.filter((a) => statuses[a]?.state === "working").length;
+  // "complete" = finished ≥1 run and not currently working (live statuses);
+  // "running" = jobs in the running state (RFL.QUEUE.8: the poller's source,
+  // not a derivation from agent events that can miss a hung job).
   const complete = AGENTS.filter(
     (a) => (statuses[a]?.done ?? 0) > 0 && statuses[a]?.state !== "working",
   ).length;
