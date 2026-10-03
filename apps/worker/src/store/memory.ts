@@ -343,6 +343,7 @@ export class MemoryStore implements DataStore {
       status: input.status,
       error_message: input.error_message,
       provisional: input.provisional ?? false,
+      design_brief: null,
       created_at: nowIso(),
       completed_at: input.completed_at,
     };
@@ -426,6 +427,11 @@ export class MemoryStore implements DataStore {
   }
 
   /** Test/report helper — not part of the DataStore contract. */
+  /** Test helper: every agent_runs row (MemoryStore only). */
+  listAgentRuns(): readonly AgentRun[] {
+    return [...this.agentRuns.values()];
+  }
+
   listUsageEvents(): readonly UsageEvent[] {
     return this.usageEvents;
   }
