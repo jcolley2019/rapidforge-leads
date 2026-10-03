@@ -3,8 +3,8 @@
  *
  * App code NEVER imports the Anthropic SDK and NEVER fetches
  * api.anthropic.com directly (CLAUDE.md Section 4). All calls route through
- * RapidForge AI Core (github.com/jcolley2019/rapidforge-ai-core, local at
- * C:\Users\jcoll\OneDrive\Desktop\rapidforge-ai-core).
+ * RapidForge AI Core (github.com/jcolley2019/rapidforge-ai-core, pinned by
+ * commit in apps/worker/package.json).
  */
 import {
   AnthropicProvider,

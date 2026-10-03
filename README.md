@@ -20,8 +20,39 @@ supabase/         Migration SQL files — applied ONLY by hand in the Supabase w
 
 ## Prerequisites
 
-- Node.js 20+ (built on 24.x) and npm 10+
-- A Supabase project (free tier is fine) — see setup below
+- **Node.js 22+** (`engines.node` in the root `package.json`; verified on
+  22.22.0 on a cold clone; Joey builds on 24.x). Use **npm 11** when
+  changing dependencies — `package-lock.json` is written by npm 11 and
+  npm 10 rewrites its `peer` flags. `npm ci` works with either.
+- **Git on PATH + network access to GitHub.** The worker depends on
+  [RapidForge AI Core](https://github.com/jcolley2019/rapidforge-ai-core)
+  (`@rapidforge/ai-core`), installed straight from GitHub at the commit pinned
+  in `apps/worker/package.json`. npm clones it and its `prepare` script builds
+  `dist/` during install — no local checkout or `npm link` needed. Your GitHub
+  credentials must be able to read that repo. To move to a newer ai-core,
+  push it to `main`, update the commit SHA in `apps/worker/package.json`, and
+  run `npm install`.
+- A Supabase project (free tier is fine) — see setup below. **Not** needed to
+  run the tests.
+
+### Running the tests
+
+```powershell
+npm ci
+npm run typecheck
+npm test                 # packages/shared + apps/worker
+npm test -w apps/web     # web suites (run separately)
+```
+
+Tests need **no** env files and no API keys — they run every seam in
+fixture/template mode and never read `apps/worker/.env`. Three variables
+matter, because real keys in your shell switch seams out of fixture mode:
+
+| Variable | For tests |
+|---|---|
+| `ANTHROPIC_API_KEY` | Leave **unset** in the shell running the tests (set, it flips the AI seam from template to live mode) |
+| `GOOGLE_PLACES_API_KEY` | Leave **unset** (set, it flips Scout from fixture to live Places) |
+| `RAPIDFORGE_FORCE_FIXTURES` | Or set to `true` to pin every external seam to fixtures even with the keys above exported |
 
 ## Setup
 
