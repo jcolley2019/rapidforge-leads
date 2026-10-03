@@ -12,6 +12,7 @@ import {
   FIXTURE_PHOTO_PNG,
   FixturePlacesClient,
 } from "./lib/places/fixture-client";
+import { FIXTURE_DETAILS } from "./lib/places/fixtures";
 import { FixtureWebProbe } from "./lib/probe";
 import { FixturePsiClient } from "./lib/psi";
 import {
@@ -586,5 +587,58 @@ describe("GET /api/places/photo/:ref (RFL-06)", () => {
     expect(bad.status).toBe(400);
     const anon = await api("GET", `/api/places/photo/${ref}`, undefined, "");
     expect(anon.status).toBe(401);
+  });
+});
+
+describe("POST /api/businesses/:id/design-brief (RFL.BRIEF.7)", () => {
+  const detailsFor = (name: string) => ({
+    ...FIXTURE_DETAILS["fx-001"],
+    displayName: { text: name },
+    fetchedAt: "2026-07-06T07:00:00.000Z",
+  });
+  const designRuns = (businessId: string) =>
+    store
+      .listAgentRuns()
+      .filter((r) => r.target_id === businessId && r.agent_name === "design-brief").length;
+
+  it("409s without a completed audit", async () => {
+    const { business } = await seedLead();
+    const res = await api("POST", `/api/businesses/${business.id}/design-brief`);
+    expect(res.status).toBe(409);
+  });
+
+  it("generates, persists, then returns the stored brief without a new agent run; ?force=true re-runs", async () => {
+    const { business } = await seedLead({ places_details: detailsFor("Boise Drain Pros") });
+    await seedCompletedAudit(business.id);
+
+    const first = await api("POST", `/api/businesses/${business.id}/design-brief`);
+    expect(first.status).toBe(200);
+    expect(first.json.stored).toBe(false);
+    expect(first.json.design_brief).toMatchObject({
+      vertical: "plumber",
+      primary_cta: { kind: "phone" },
+      source: { template_fallback: true },
+    });
+    expect(first.json.design_brief.review_quotes).toHaveLength(3);
+    expect(first.json.design_brief.photo_urls[0]).toMatch(/^\/api\/places\/photo\//);
+    const persisted = await store.getLatestCompletedAuditForBusiness(business.id);
+    expect(persisted?.design_brief).toEqual(first.json.design_brief);
+    expect(designRuns(business.id)).toBe(1);
+
+    const second = await api("POST", `/api/businesses/${business.id}/design-brief`);
+    expect(second.status).toBe(200);
+    expect(second.json.stored).toBe(true);
+    expect(second.json.design_brief).toEqual(first.json.design_brief);
+    expect(designRuns(business.id)).toBe(1); // no new AI/agent run
+
+    const forced = await api("POST", `/api/businesses/${business.id}/design-brief?force=true`);
+    expect(forced.status).toBe(200);
+    expect(forced.json.stored).toBe(false);
+    expect(designRuns(business.id)).toBe(2);
+  });
+
+  it("404s a foreign business", async () => {
+    const res = await api("POST", "/api/businesses/nope/design-brief");
+    expect(res.status).toBe(404);
   });
 });
