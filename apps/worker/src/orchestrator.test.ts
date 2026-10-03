@@ -26,7 +26,11 @@ import {
   FixtureScreenshotStorage,
 } from "./lib/screenshots";
 import { FixtureSiteFetcher, type FetchedSite } from "./lib/site";
-import { handleJob, type OrchestratorDeps } from "./orchestrator";
+import {
+  analystEligible,
+  handleJob,
+  type OrchestratorDeps,
+} from "./orchestrator";
 import { DEV_USER_ID, DEV_WORKSPACE_ID } from "./store/types";
 import { MemoryStore } from "./store/memory";
 
@@ -132,23 +136,27 @@ describe("audit pipeline on fixture data", () => {
     expect(lead.audit?.status).toBe("completed");
     expect(lead.audit?.website_health_score).toBeGreaterThanOrEqual(85);
     expect(lead.audit?.star_grade).toBe(5);
-    expect(lead.audit?.sellability_score).toBeLessThanOrEqual(70);
-    expect(lead.audit?.sellability_score).toBeGreaterThanOrEqual(60); // ≥60 → Analyst auto-runs (S7)
+    // RFL-05: a healthy site is capped at 55 — not a rebuild prospect (the
+    // blend itself is already ~54 under the 0.50 health weight).
+    expect(lead.audit?.sellability_score).toBeLessThanOrEqual(55);
+    expect(lead.audit?.sellability_score).toBeLessThan(60); // never an Analyst candidate
+    expect(
+      (lead.audit?.score_breakdown as { capped?: string }).capped,
+    ).toBe("healthy_site");
     expect(lead.audit?.platform).toBe("custom");
     expect(lead.audit?.has_crux_data).toBe(true);
     expect(
       (lead.audit?.score_breakdown as { provisional?: boolean }).provisional,
     ).toBeUndefined(); // no more "est"
     expect(lead.audit?.issues ?? []).toEqual([]); // nothing wrong
-    // Sprint 7: Analyst auto-ran (sellability ≥ 60) and persisted a verdict.
-    expect(lead.audit?.analyst_output).not.toBeNull();
+    // RFL-05: a 5★ site is not a sales target (PRD 4.2) — no Analyst.
+    expect(lead.audit?.analyst_output).toBeNull();
 
     // agent_runs: filter + the seven-agent fan-out (S6 adds design/
-    // reputation/seo) + scorer + the S7 Analyst auto-run (sellability ≥ 60).
+    // reputation/seo) + scorer. No Analyst (star 5 > 3, sellability 55 < 60).
     const detail = await harness.store.getSearchDetail(harness.search.id);
     const agents = detail!.agent_states.map((r) => r.agent_name).sort();
     expect(agents).toEqual([
-      "analyst",
       "conversion",
       "design",
       "filter",
@@ -181,7 +189,12 @@ describe("audit pipeline on fixture data", () => {
     expect(audit.website_health_score).toBeLessThanOrEqual(45);
     expect(audit.star_grade).toBeLessThanOrEqual(2);
     expect(audit.sellability_score).toBeGreaterThanOrEqual(75);
+    expect((audit.score_breakdown as { capped?: string }).capped).toBeUndefined();
     expect(audit.platform).toBe("wix");
+    // RFL-05 gate: 2★, ≥ 60, independent, measured → the Analyst auto-ran.
+    expect(audit.analyst_output).not.toBeNull();
+    const detail = await harness.store.getSearchDetail(harness.search.id);
+    expect(detail!.agent_states.map((r) => r.agent_name)).toContain("analyst");
     expect(audit.copyright_year).toBe(2021);
 
     const labels = (audit.issues ?? []).map((i) => i.label);
@@ -538,5 +551,55 @@ describe("bot-blocked businesses (finding 4)", () => {
     expect((lead.audit?.issues ?? []).map((i) => i.label)).toContain(
       "Built on Wix",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Analyst gate (RFL-05, audit finding 2)
+// ---------------------------------------------------------------------------
+
+describe("analystEligible", () => {
+  const ok = { starGrade: 3, sellabilityScore: 60, isChain: false, provisional: false };
+
+  it("passes only when all four conditions hold", () => {
+    expect(analystEligible(ok)).toBe(true);
+    expect(analystEligible({ ...ok, starGrade: 1, sellabilityScore: 95 })).toBe(true);
+  });
+
+  it("star grade above 3 fails (4–5★ are not sales targets, PRD 4.2)", () => {
+    expect(analystEligible({ ...ok, starGrade: 4 })).toBe(false);
+    expect(analystEligible({ ...ok, starGrade: 5, sellabilityScore: 90 })).toBe(false);
+    expect(analystEligible({ ...ok, starGrade: null })).toBe(false);
+  });
+
+  it("sellability below 60 fails", () => {
+    expect(analystEligible({ ...ok, sellabilityScore: 59 })).toBe(false);
+    expect(analystEligible({ ...ok, sellabilityScore: null })).toBe(false);
+  });
+
+  it("chains fail regardless of score", () => {
+    expect(analystEligible({ ...ok, isChain: true, sellabilityScore: 95, starGrade: 1 })).toBe(false);
+  });
+
+  it("provisional (bot-blocked) audits fail regardless of score", () => {
+    expect(analystEligible({ ...ok, provisional: true, sellabilityScore: 95, starGrade: 1 })).toBe(false);
+  });
+
+  it("a chain never gets the Analyst in the pipeline even with a terrible site", async () => {
+    const business = await seedBusiness(harness, {
+      google_place_id: "fx-002",
+      name: "Boise Drain Pros",
+      website_url: "https://boisedrainpros.wixsite.com/home",
+      address: "7800 W Fairview Ave, Boise, ID 83704",
+      google_rating: 4.5,
+      review_count: 89,
+      is_chain: true,
+    });
+    await runAuditJob(harness, business.id);
+    const lead = await leadFor(harness, business.id);
+    expect(lead.audit?.sellability_score).toBeLessThanOrEqual(40);
+    expect(lead.audit?.analyst_output).toBeNull();
+    const detail = await harness.store.getSearchDetail(harness.search.id);
+    expect(detail!.agent_states.map((r) => r.agent_name)).not.toContain("analyst");
   });
 });

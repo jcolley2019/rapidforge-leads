@@ -376,6 +376,16 @@ export function createApp(
         res.status(409).json({ error: "No completed audit to analyze" });
         return;
       }
+      // Chains never get the Analyst (RFL-04/05); a deliberate click can
+      // override with ?force=true.
+      if (business.is_chain === true && req.query.force !== "true") {
+        res.status(409).json({
+          error:
+            "Analyst does not run on chains/franchises (is_chain). Add ?force=true to run it anyway.",
+          code: "is_chain",
+        });
+        return;
+      }
       const config = await deps.store.getWorkspaceConfig(auth.workspaceId);
       const result = await runOnDemandAgent({
         store: deps.store,

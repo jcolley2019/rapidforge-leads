@@ -1,6 +1,7 @@
 import {
   NO_WEBSITE_SELLABILITY_SCORE,
   SPECIAL_CASE_BADGES,
+  UNVERIFIED_REPUTATION_LABEL,
   ZipRadiusParamsSchema,
   type Business,
   type ZipRadiusParams,
@@ -88,11 +89,35 @@ describe("evaluateGates", () => {
     expect(evaluateGates(makeBusiness({ business_status: null }), params)).toBeNull();
   });
 
-  it("enforces min_reviews (null review count = 0)", () => {
+  it("enforces min_reviews; a null review count is unknown and PASSES (finding 8)", () => {
     const strict = { ...params, min_reviews: 50 };
     expect(evaluateGates(makeBusiness({ review_count: 49 }), strict)).toMatch(/49 reviews/);
-    expect(evaluateGates(makeBusiness({ review_count: null }), strict)).toMatch(/0 reviews/);
+    expect(evaluateGates(makeBusiness({ review_count: 0 }), strict)).toMatch(/0 reviews/);
+    expect(evaluateGates(makeBusiness({ review_count: null }), strict)).toBeNull();
     expect(evaluateGates(makeBusiness({ review_count: 50 }), strict)).toBeNull();
+    // Same for a null rating under a min_rating gate.
+    expect(
+      evaluateGates(makeBusiness({ google_rating: null }), { ...params, min_rating: 4 }),
+    ).toBeNull();
+  });
+
+  it("null reputation adds the low 'Unverified reputation' issue on every completed plan", () => {
+    const unknownRep = { review_count: null, google_rating: null };
+    const hot = planFilterOutcome(
+      makeBusiness({ ...unknownRep, website_url: null, website_kind: "none" }),
+      params,
+      null,
+    );
+    expect(hot.issues.map((i) => i.label)).toEqual([
+      SPECIAL_CASE_BADGES.noWebsite,
+      UNVERIFIED_REPUTATION_LABEL,
+    ]);
+    expect(hot.issues[1]?.severity).toBe("low");
+    const dead = planFilterOutcome(makeBusiness(unknownRep), params, deadProbe);
+    expect(dead.issues.map((i) => i.label)).toContain(UNVERIFIED_REPUTATION_LABEL);
+    // Measured reputation: no such issue.
+    const measured = planFilterOutcome(makeBusiness(), params, deadProbe);
+    expect(measured.issues.map((i) => i.label)).not.toContain(UNVERIFIED_REPUTATION_LABEL);
   });
 
   it("enforces min_rating only when set", () => {
@@ -238,8 +263,8 @@ describe("planFilterOutcome — real websites", () => {
     expect(plan.health).toBeNull();
     expect(plan.auditStatus).toBe("pending");
     expect(plan.breakdown?.provisional).toBe(true);
-    // neutral health 50 → 0.4·50 + 0.2·100 + 0.15·100 + 0.1·100 + 0.1·100 + 0.05·100 = 80
-    expect(plan.sellability).toBe(80);
+    // neutral health 50 → 0.5·50 + 0.15·100 + 0.1·100 + 0.1·100 + 0.1·100 + 0.05·100 = 75
+    expect(plan.sellability).toBe(75);
   });
 });
 

@@ -30,6 +30,7 @@ import {
   type HealthScoreInput,
   type Issue,
   type Search,
+  unverifiedReputationIssue,
 } from "@rapidforge/shared";
 import type { ProbeResult, WebProbe } from "../lib/probe";
 import { parseSearchParams } from "../lib/search-params";
@@ -127,15 +128,24 @@ export function planBlockedOutcome(
       blocked_by: block.blockedBy,
       ...(sellability.breakdown.chain ? { chain: true } : {}),
     },
-    issues: [
+    issues: withReputationIssue(business, [
       {
         severity: "low",
         label: BLOCKED_ISSUE_LABEL,
         detail: block.note ?? "Bot protection answered instead of the site",
       },
-    ],
+    ]),
     auditStatus: "completed",
   };
+}
+
+/** Appends the "Unverified reputation" issue when Places had no rating data. */
+function withReputationIssue(business: Business, issues: Issue[]): Issue[] {
+  const unverified = unverifiedReputationIssue(
+    business.google_rating,
+    business.review_count,
+  );
+  return unverified ? [...issues, unverified] : issues;
 }
 
 /** PRD 6.2 deterministic gates. Returns a skip reason or null (pass). */
@@ -151,12 +161,17 @@ export function evaluateGates(
   ) {
     return `Business status is ${business.business_status}`;
   }
-  const reviews = business.review_count ?? 0;
-  if (reviews < params.min_reviews) {
-    return `Only ${reviews} reviews (minimum ${params.min_reviews})`;
+  // Null reputation is UNKNOWN (finding 8): it passes the gates — the audit
+  // carries an "Unverified reputation" issue instead of being skipped.
+  if (business.review_count !== null && business.review_count < params.min_reviews) {
+    return `Only ${business.review_count} reviews (minimum ${params.min_reviews})`;
   }
-  if (params.min_rating > 0 && (business.google_rating ?? 0) < params.min_rating) {
-    return `Rating ${business.google_rating ?? "unknown"} below minimum ${params.min_rating}`;
+  if (
+    params.min_rating > 0 &&
+    business.google_rating !== null &&
+    business.google_rating < params.min_rating
+  ) {
+    return `Rating ${business.google_rating} below minimum ${params.min_rating}`;
   }
   if (params.exclude_chains && business.is_chain === true) {
     return "Chain business excluded by search settings";
@@ -213,7 +228,7 @@ export function planFilterOutcome(
       health: null, // never audited — health stays null (PRD 4.4)
       star: null,
       breakdown: { ...result.breakdown, badge },
-      issues: [
+      issues: withReputationIssue(business, [
         {
           severity: "high",
           label: badge,
@@ -222,7 +237,7 @@ export function planFilterOutcome(
               ? `Only web presence is ${business.website_url ?? "a social profile"}`
               : "No website in Google Places data",
         },
-      ],
+      ]),
       auditStatus: "completed",
     };
   }
@@ -290,13 +305,13 @@ export function planFilterOutcome(
         badge,
         ...(sellability.breakdown.chain ? { chain: true } : {}),
       },
-      issues: [
+      issues: withReputationIssue(business, [
         {
           severity: "high",
           label: badge,
           detail: probe.note ?? "Site did not respond",
         },
-      ],
+      ]),
       auditStatus: "completed",
     };
   }

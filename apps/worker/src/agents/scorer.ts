@@ -133,8 +133,10 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     // Sprint 6 agents (null = agent didn't run — no bullet invented).
     designModernity: design?.modernity_0_100 ?? null,
     designFeelsLikeYear: design?.feels_like_year ?? null,
-    googleRating: reputation?.google_rating ?? null,
-    reviewCount: reputation?.review_count ?? null,
+    // Places data is the source of truth; the Reputation agent only echoes
+    // it. Null here means Places had nothing → "Unverified reputation".
+    googleRating: reputation?.google_rating ?? business.google_rating ?? null,
+    reviewCount: reputation?.review_count ?? business.review_count ?? null,
     seoLocalFitScore: seo?.summary.local_fit_score_1_5 ?? null,
     seoHasTitle: seo?.title.found ?? null,
     seoHasMetaDescription: seo?.meta_description.found ?? null,
@@ -157,6 +159,9 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
       sellability: sellabilityResult.breakdown,
       ...(badge ? { badge } : {}),
       ...(sellabilityResult.breakdown.chain ? { chain: true } : {}),
+      ...(sellabilityResult.breakdown.capped
+        ? { capped: sellabilityResult.breakdown.capped }
+        : {}),
       agents: {
         health: health !== null,
         conversion: conversion !== null,

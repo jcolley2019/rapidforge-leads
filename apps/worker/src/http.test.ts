@@ -60,7 +60,9 @@ async function api(
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 
-async function seedLead(): Promise<{
+async function seedLead(
+  overrides: Partial<Parameters<MemoryStore["upsertBusiness"]>[0]> = {},
+): Promise<{
   business: Business;
   result: SearchResult;
 }> {
@@ -71,10 +73,13 @@ async function seedLead(): Promise<{
     params: { zip: "83704", radius_miles: 10 },
     category: "plumber",
   });
+  // Unique per call: the store's multi-location rule (RFL-04) would turn a
+  // third same-named business into a chain and break the Analyst tests.
+  const suffix = Math.random().toString(36).slice(2, 7);
   const business = await store.upsertBusiness({
     workspace_id: DEV_WORKSPACE_ID,
-    google_place_id: `fx-${Math.random().toString(36).slice(2)}`,
-    name: "Boise Drain Pros",
+    google_place_id: `fx-${suffix}`,
+    name: `Boise Drain Pros ${suffix}`,
     phone: "(208) 555-0102",
     website_url: "https://boisedrainpros.wixsite.com/home",
     address: "7800 W Fairview Ave, Boise, ID 83704",
@@ -86,6 +91,7 @@ async function seedLead(): Promise<{
     business_status: "OPERATIONAL",
     is_chain: false,
     website_kind: "real",
+    ...overrides,
   });
   const result = await store.ensureSearchResult(
     DEV_WORKSPACE_ID,
@@ -409,6 +415,22 @@ describe("POST /api/businesses/:id/analyst", () => {
   it("404s a foreign business", async () => {
     const res = await api("POST", "/api/businesses/nope/analyst");
     expect(res.status).toBe(404);
+  });
+
+  it("409s a chain unless ?force=true (RFL-05)", async () => {
+    const { business } = await seedLead({ is_chain: true, chain_reason: "known_brand" });
+    await seedCompletedAudit(business.id);
+    const refused = await api("POST", `/api/businesses/${business.id}/analyst`);
+    expect(refused.status).toBe(409);
+    expect(refused.json).toMatchObject({ code: "is_chain" });
+    expect(refused.json.error).toMatch(/force=true/);
+    expect(
+      (await store.getLatestCompletedAuditForBusiness(business.id))?.analyst_output,
+    ).toBeNull();
+
+    const forced = await api("POST", `/api/businesses/${business.id}/analyst?force=true`);
+    expect(forced.status).toBe(200);
+    expect(forced.json.analyst.verdict).toBeTruthy();
   });
 });
 
