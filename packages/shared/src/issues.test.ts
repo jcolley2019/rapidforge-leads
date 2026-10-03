@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildIssues, type IssueInputs } from "./issues";
+import {
+  UNVERIFIED_REPUTATION_LABEL,
+  buildIssues,
+  type IssueInputs,
+} from "./issues";
 
 /** A healthy site — produces zero issues. */
 function healthyInputs(overrides: Partial<IssueInputs> = {}): IssueInputs {
@@ -181,7 +185,11 @@ describe("buildIssues thresholds", () => {
         seoHasSitemap: null,
       }),
     );
-    expect(issues).toEqual([]);
+    // The one deliberate exception (finding 8): null Places reputation is
+    // flagged as unverified, not silently scored as zero.
+    expect(issues).toEqual([
+      expect.objectContaining({ severity: "low", label: UNVERIFIED_REPUTATION_LABEL }),
+    ]);
   });
 
   it("flags dated design with the feels-like year (Sprint 6, PRD 6.8)", () => {

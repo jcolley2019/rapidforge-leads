@@ -84,14 +84,18 @@ export const STAR_BANDS = [
 // Sellability Score (PRD 4.3) — 0–100, higher = better LEAD
 // ---------------------------------------------------------------------------
 
-/** Signal weights. Must sum to 1. */
+/**
+ * Signal weights. Must sum to 1. Retuned RFL-05 (audit finding 2, approved
+ * by Joey): health is now half the score so the ranking measures "needs a
+ * rebuild" more than "successful local business".
+ */
 export const SELLABILITY_WEIGHTS = {
   /** 100 − health score: money + pain */
-  invertedHealth: 0.4,
+  invertedHealth: 0.5,
   /** Review count bands — proxy for real revenue */
-  reviewCount: 0.2,
+  reviewCount: 0.15,
   /** 3.8+ stars = cares about reputation → will care about website */
-  ratingQuality: 0.15,
+  ratingQuality: 0.1,
   /** Phone in Places data = reachable */
   phoneReachable: 0.1,
   /** Independents only — chains don't buy local rebuilds */
@@ -110,6 +114,25 @@ export const REVIEW_COUNT_BANDS = [
 
 /** Google rating at/above this scores 100 on rating quality, else 0 (PRD 4.3). */
 export const RATING_QUALITY_THRESHOLD = 3.8;
+
+/**
+ * Null Places reputation is UNKNOWN, not zero (audit finding 8): a missing
+ * rating or review count scores this neutral value on its term and the
+ * audit carries an "Unverified reputation" issue (issues.ts).
+ */
+export const UNKNOWN_REPUTATION_SCORE = 50;
+
+/**
+ * Needs-rebuild cap (audit finding 2): a site whose health is at/above
+ * HEALTHY_SITE_HEALTH_MIN is not a rebuild prospect whatever its reputation,
+ * so sellability is capped at HEALTHY_SITE_SELLABILITY_CAP. A provisional
+ * audit (bot-blocked, health neutral) gets the same cap so unknown health
+ * can never rank above measured-bad health. The chain cap (40) is lower and
+ * wins when both apply. The no-website 95 special case is never capped.
+ */
+export const HEALTHY_SITE_HEALTH_MIN = 70;
+export const HEALTHY_SITE_SELLABILITY_CAP = 55;
+export const PROVISIONAL_SELLABILITY_CAP = 55;
 
 /** Special case (PRD 4.4): no website (or social-only, CLAUDE.md 6.7) → auto. */
 export const NO_WEBSITE_SELLABILITY_SCORE = 95;
@@ -342,9 +365,15 @@ export interface SellabilityInput {
   isChain: boolean;
   /** Google Places business_status, e.g. 'OPERATIONAL'. */
   businessStatus: string | null;
-  /** Blocked site (see HealthScoreInput.siteBlocked) — never a dead-site badge. */
+  /**
+   * Blocked site (see HealthScoreInput.siteBlocked): never a dead-site badge,
+   * and the audit is provisional → PROVISIONAL_SELLABILITY_CAP applies.
+   */
   siteBlocked?: boolean;
 }
+
+/** Which cap bound the final score (the lowest applicable one). */
+export type SellabilityCap = "chain" | "healthy_site" | "provisional";
 
 export interface SellabilityBreakdown {
   invertedHealth: number;
@@ -354,8 +383,12 @@ export interface SellabilityBreakdown {
   notChain: number;
   operational: number;
   specialCase: "no_website" | null;
-  /** Present (true) only when the chain cap applied. */
+  /** Present (true) whenever is_chain (the 40 cap is in force). */
   chain?: true;
+  /** Present when a cap bound the score; names the lowest cap that applied. */
+  capped?: SellabilityCap;
+  /** Present (true) when rating or review count was null → neutral terms. */
+  reputationUnknown?: true;
 }
 
 export interface SellabilityResult {
@@ -386,13 +419,30 @@ export function computeSellabilityScore(
   input: SellabilityInput,
 ): SellabilityResult {
   const result = computeUncappedSellability(input);
-  // is_chain → final score ≤ CHAIN_SELLABILITY_CAP, breakdown.chain = true.
-  // Special-case routing (no website → 95) is law and is not capped.
-  if (!input.isChain || result.breakdown.specialCase === "no_website") return result;
+  // Special-case routing (no website → 95) is law and is never capped.
+  if (result.breakdown.specialCase === "no_website") return result;
+
+  // Caps — the LOWEST applicable one wins; `capped` names it.
+  const caps: Array<[SellabilityCap, number]> = [];
+  if (input.isChain) caps.push(["chain", CHAIN_SELLABILITY_CAP]);
+  if (input.siteBlocked === true) {
+    caps.push(["provisional", PROVISIONAL_SELLABILITY_CAP]);
+  } else if (
+    input.healthScore !== null &&
+    input.healthScore >= HEALTHY_SITE_HEALTH_MIN
+  ) {
+    caps.push(["healthy_site", HEALTHY_SITE_SELLABILITY_CAP]);
+  }
+  const chainFlag = input.isChain ? { chain: true as const } : {};
+  if (caps.length === 0) {
+    return { ...result, breakdown: { ...result.breakdown, ...chainFlag } };
+  }
+  caps.sort((a, b) => a[1] - b[1]);
+  const [cap, limit] = caps[0]!;
   return {
     ...result,
-    score: Math.min(result.score, CHAIN_SELLABILITY_CAP),
-    breakdown: { ...result.breakdown, chain: true },
+    score: Math.min(result.score, limit),
+    breakdown: { ...result.breakdown, ...chainFlag, capped: cap },
   };
 }
 
@@ -416,11 +466,19 @@ function computeUncappedSellability(input: SellabilityInput): SellabilityResult 
   // Null health on an audited site shouldn't happen (dead sites score 10);
   // treat as neutral rather than inventing pain we didn't measure.
   const invertedHealth = clamp100(100 - (input.healthScore ?? 50));
-  const reviewCount = reviewCountScore(input.reviewCount);
+  // Null reputation is unknown, never zero (finding 8): neutral per term.
+  const reputationUnknown =
+    input.reviewCount === null || input.googleRating === null;
+  const reviewCount =
+    input.reviewCount === null
+      ? UNKNOWN_REPUTATION_SCORE
+      : reviewCountScore(input.reviewCount);
   const ratingQuality =
-    input.googleRating !== null && input.googleRating >= RATING_QUALITY_THRESHOLD
-      ? 100
-      : 0;
+    input.googleRating === null
+      ? UNKNOWN_REPUTATION_SCORE
+      : input.googleRating >= RATING_QUALITY_THRESHOLD
+        ? 100
+        : 0;
   const phoneReachable = input.hasPhone ? 100 : 0;
   const notChain = input.isChain ? 0 : 100;
   const operational = input.businessStatus === "OPERATIONAL" ? 100 : 0;
@@ -449,6 +507,7 @@ function computeUncappedSellability(input: SellabilityInput): SellabilityResult 
       notChain,
       operational,
       specialCase: null,
+      ...(reputationUnknown ? { reputationUnknown: true as const } : {}),
     },
     badge,
   };
