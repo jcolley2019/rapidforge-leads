@@ -11,6 +11,9 @@
  *   website_kind 'social_only' → same, badge "Social-only presence"
  *   website_kind 'real'        → probe URL; dead → health 10
  *                                "Site broken — urgent"
+ *                                blocked (WAF / bot challenge, probe
+ *                                "unknown") → never audited, neutral
+ *                                provisional health, ONE low issue
  *
  * Live real sites get a provisional 'pending' audit row (neutral health)
  * so the results table sorts meaningfully until the Sprint 3 audit agents
@@ -24,6 +27,7 @@ import {
   type AgentResult,
   type Audit,
   type Business,
+  type HealthScoreInput,
   type Issue,
   type Search,
 } from "@rapidforge/shared";
@@ -46,7 +50,13 @@ export interface FilterGateParams {
 // ---------------------------------------------------------------------------
 
 export interface FilterPlan {
-  outcome: "skip" | "hot_lead" | "dead_site" | "pending_audit" | "needs_probe";
+  outcome:
+    | "skip"
+    | "hot_lead"
+    | "dead_site"
+    | "blocked"
+    | "pending_audit"
+    | "needs_probe";
   /** Skip reason (audits.error_message) — null otherwise. */
   reason: string | null;
   badge: string | null;
@@ -56,6 +66,75 @@ export interface FilterPlan {
   breakdown: Record<string, unknown> | null;
   issues: Issue[];
   auditStatus: "completed" | "pending" | "skipped";
+}
+
+/** The one issue a bot-blocked audit carries (audit finding 4). */
+export const BLOCKED_ISSUE_LABEL = "Site could not be audited (bot protection)";
+
+/**
+ * Bot protection answered instead of the site — blocked is neither dead nor
+ * alive. Nothing about the page was measured, so: no page findings, no
+ * dead-site badge, neutral provisional health (scoring.ts siteBlocked
+ * branch), star unknown. Shared by Filter (probe "unknown") and the
+ * orchestrator's homepage guard (probe passed, homepage fetch was blocked).
+ */
+export function planBlockedOutcome(
+  business: Business,
+  block: { note: string | null; blockedBy: string | null },
+): FilterPlan {
+  const unmeasured: HealthScoreInput = {
+    siteDead: false,
+    siteBlocked: true,
+    psDesktopPerformance: null,
+    psMobilePerformance: null,
+    sslValid: false,
+    httpsEnforced: false,
+    responseMs: null,
+    hasViewportMeta: false,
+    platform: null,
+    hasVisiblePhone: false,
+    hasContactForm: false,
+    hasBookingLink: false,
+    hasCtaAboveFold: false,
+    hasClickToCall: false,
+    copyrightYear: null,
+    currentYear: new Date().getFullYear(),
+    hasRecentLastModified: false,
+    hasBrokenImages: false,
+    designScore: null,
+  };
+  const health = computeHealthScore(unmeasured);
+  const sellability = computeSellabilityScore({
+    websiteKind: "real",
+    healthScore: health.score,
+    reviewCount: business.review_count,
+    googleRating: business.google_rating,
+    hasPhone: business.phone !== null,
+    isChain: business.is_chain === true,
+    businessStatus: business.business_status,
+    siteBlocked: true,
+  });
+  return {
+    outcome: "blocked",
+    reason: null,
+    badge: null,
+    sellability: sellability.score,
+    health: health.score,
+    star: null, // unmeasured — never derived from a placeholder
+    breakdown: {
+      health: health.breakdown,
+      sellability: sellability.breakdown,
+      blocked_by: block.blockedBy,
+    },
+    issues: [
+      {
+        severity: "low",
+        label: BLOCKED_ISSUE_LABEL,
+        detail: block.note ?? "Bot protection answered instead of the site",
+      },
+    ],
+    auditStatus: "completed",
+  };
 }
 
 /** PRD 6.2 deterministic gates. Returns a skip reason or null (pass). */
@@ -162,7 +241,11 @@ export function planFilterOutcome(
     };
   }
 
-  if (!probe.alive) {
+  if (probe.alive === "unknown") {
+    return planBlockedOutcome(business, probe);
+  }
+
+  if (probe.alive === "no") {
     const health = computeHealthScore({
       siteDead: true,
       psDesktopPerformance: null,
@@ -326,6 +409,7 @@ export async function runFilter(
       status: plan.auditStatus,
       error_message: plan.reason,
       completed_at: completed ? new Date().toISOString() : null,
+      ...(plan.outcome === "blocked" ? { provisional: true as const } : {}),
     });
     await store.setLatestAudit(search.id, business.id, audit.id);
 

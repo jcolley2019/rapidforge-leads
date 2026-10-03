@@ -6,15 +6,26 @@
  * special routing and the 30-day cache intact.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Business, Job, Search, UsageEvent } from "@rapidforge/shared";
+import type {
+  Audit,
+  Business,
+  Job,
+  Search,
+  UsageEvent,
+} from "@rapidforge/shared";
+import { BLOCKED_ISSUE_LABEL } from "./agents/filter";
 import { FixturePlacesClient } from "./lib/places/fixture-client";
-import { FixtureWebProbe } from "./lib/probe";
+import {
+  FixtureWebProbe,
+  type ProbeResult,
+  type WebProbe,
+} from "./lib/probe";
 import { FixturePsiClient } from "./lib/psi";
 import {
   FixtureScreenshotCapturer,
   FixtureScreenshotStorage,
 } from "./lib/screenshots";
-import { FixtureSiteFetcher } from "./lib/site";
+import { FixtureSiteFetcher, type FetchedSite } from "./lib/site";
 import { handleJob, type OrchestratorDeps } from "./orchestrator";
 import { DEV_USER_ID, DEV_WORKSPACE_ID } from "./store/types";
 import { MemoryStore } from "./store/memory";
@@ -377,5 +388,155 @@ describe("audit pipeline on fixture data", () => {
     ]);
     const scores = detail!.leads.map((l) => l.audit?.sellability_score ?? -1);
     expect(scores).toEqual([...scores].sort((a, b) => b - a));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Blocked ≠ dead ≠ alive (audit finding 4)
+// ---------------------------------------------------------------------------
+
+/** Probe stub: answers from a script, records every probed URL. */
+class ScriptedProbe implements WebProbe {
+  readonly mode = "real" as const;
+  readonly calls: string[] = [];
+  constructor(public next: ProbeResult) {}
+  async probe(url: string): Promise<ProbeResult> {
+    this.calls.push(url);
+    return this.next;
+  }
+}
+
+const BLOCKED_PROBE: ProbeResult = {
+  alive: "unknown",
+  httpStatus: 403,
+  responseMs: 180,
+  sslValid: true,
+  note: "Cloudflare bot protection (HTTP 403)",
+  blockedBy: "cloudflare-just-a-moment",
+};
+
+const ALIVE_PROBE: ProbeResult = {
+  alive: "yes",
+  httpStatus: 200,
+  responseMs: 320,
+  sslValid: true,
+  note: null,
+  blockedBy: null,
+};
+
+/** Fixture fetcher whose homepage answer is a Cloudflare challenge page. */
+class ChallengeSiteFetcher extends FixtureSiteFetcher {
+  override async fetchHomepage(url: string): Promise<FetchedSite | null> {
+    return {
+      html: "<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>Checking your browser</body></html>",
+      httpStatus: 403,
+      responseMs: 150,
+      finalUrl: url,
+      sslValid: true,
+      headers: { "cf-mitigated": "challenge", server: "cloudflare" },
+    };
+  }
+}
+
+async function seedDrainPros(h: Harness): Promise<Business> {
+  // The Wix fixture that otherwise yields "no phone match" / builder / stale
+  // findings — none of which may appear when the site was never seen.
+  return seedBusiness(h, {
+    google_place_id: "fx-002",
+    name: "Boise Drain Pros",
+    website_url: "https://boisedrainpros.wixsite.com/home",
+    address: "7800 W Fairview Ave, Boise, ID 83704",
+    google_rating: 4.5,
+    review_count: 89,
+  });
+}
+
+function expectSingleBlockedAudit(audit: Audit | null | undefined): void {
+  expect(audit?.status).toBe("completed");
+  expect(audit?.provisional).toBe(true);
+  expect(audit?.issues).toEqual([
+    expect.objectContaining({ severity: "low", label: BLOCKED_ISSUE_LABEL }),
+  ]);
+  expect(audit?.website_health_score).toBe(50);
+  expect(audit?.star_grade).toBeNull();
+  const breakdown = audit?.score_breakdown as {
+    health?: { blocked?: boolean };
+    badge?: string;
+  };
+  expect(breakdown.health?.blocked).toBe(true);
+  expect(breakdown.badge).toBeUndefined(); // never "Site broken — urgent"
+  expect(audit?.analyst_output).toBeNull();
+}
+
+describe("bot-blocked businesses (finding 4)", () => {
+  it("probe 'unknown' → exactly one low issue, provisional, no page analysis", async () => {
+    const probe = new ScriptedProbe(BLOCKED_PROBE);
+    harness.deps.probe = probe;
+    const business = await seedDrainPros(harness);
+
+    await runAuditJob(harness, business.id);
+
+    const lead = await leadFor(harness, business.id);
+    expectSingleBlockedAudit(lead.audit);
+    expect(lead.audit?.http_status).toBe(403);
+    // Only Filter ran: no Health/Conversion/Presence/Design/…, no PSI spend.
+    const detail = await harness.store.getSearchDetail(harness.search.id);
+    expect(detail!.agent_states.map((r) => r.agent_name)).toEqual(["filter"]);
+    expect(
+      harness.store
+        .listUsageEvents()
+        .filter((e) => e.event_type === "pagespeed_call"),
+    ).toHaveLength(0);
+  });
+
+  it("probe passes but the homepage fetch is a challenge page → same single issue, agents skipped", async () => {
+    harness.deps.site = new ChallengeSiteFetcher();
+    const business = await seedDrainPros(harness);
+
+    await runAuditJob(harness, business.id);
+
+    const lead = await leadFor(harness, business.id);
+    expectSingleBlockedAudit(lead.audit);
+    expect(lead.audit?.screenshot_desktop_url).toBeNull(); // no block-page shots
+    const detail = await harness.store.getSearchDetail(harness.search.id);
+    expect(detail!.agent_states.map((r) => r.agent_name)).toEqual(["filter"]);
+  });
+
+  it("a blocked audit is never a cache hit; forced re-audit re-probes and runs the full pipeline", async () => {
+    const probe = new ScriptedProbe(BLOCKED_PROBE);
+    harness.deps.probe = probe;
+    const business = await seedDrainPros(harness);
+
+    await runAuditJob(harness, business.id);
+    const blockedAuditId = (await leadFor(harness, business.id)).result
+      .latest_audit_id;
+    expect(probe.calls).toHaveLength(1);
+
+    // Plain re-run inside the 30-day window: provisional result is not reused.
+    await runAuditJob(harness, business.id);
+    expect(probe.calls).toHaveLength(2);
+
+    // Site is reachable now; forced manual re-audit (POST /reaudit force=true).
+    probe.next = ALIVE_PROBE;
+    await harness.store.enqueueJob({
+      workspace_id: DEV_WORKSPACE_ID,
+      job_type: "audit_business",
+      payload: {
+        search_id: harness.search.id,
+        business_id: business.id,
+        force: true,
+      },
+    });
+    const job = await harness.store.claimNextQueuedJob();
+    await handleJob(job!, harness.deps);
+
+    expect(probe.calls).toHaveLength(3);
+    const lead = await leadFor(harness, business.id);
+    expect(lead.result.latest_audit_id).not.toBe(blockedAuditId);
+    expect(lead.audit?.provisional).toBe(false);
+    expect(lead.audit?.platform).toBe("wix"); // full pipeline measured it
+    expect((lead.audit?.issues ?? []).map((i) => i.label)).toContain(
+      "Built on Wix",
+    );
   });
 });

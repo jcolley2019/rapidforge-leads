@@ -306,6 +306,7 @@ export class MemoryStore implements DataStore {
       sales_summary: null,
       status: input.status,
       error_message: input.error_message,
+      provisional: input.provisional ?? false,
       created_at: nowIso(),
       completed_at: input.completed_at,
     };
