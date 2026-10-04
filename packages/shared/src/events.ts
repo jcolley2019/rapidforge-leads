@@ -76,7 +76,13 @@ export interface AgentResult<TOutput = unknown> {
   /** Model ID when an LLM was involved; null for deterministic agents. */
   modelUsed: string | null;
   tokensUsed: number;
-  costCents: number;
+  /** Derived (nearest cent) from costMicrocents; null when the model has no list price. */
+  costCents: number | null;
+  /**
+   * Exact list-price spend in microcents (1¢ = 1_000_000) — RFL.AI.9.
+   * Absent on deterministic agents (counts as 0); null when unknown.
+   */
+  costMicrocents?: number | null;
   durationMs: number;
   /**
    * Guardrail protocol (CLAUDE.md 6.2): fail → re-run once → on second

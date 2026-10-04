@@ -10,7 +10,7 @@
  * (CLAUDE.md 4.2: deterministic before AI).
  */
 import type { AgentResult, Business } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
+import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import {
   detectPlatform,
   extractCopyrightYear,
@@ -28,6 +28,8 @@ import {
 } from "./prompts/health";
 
 export interface HealthContext {
+  /** Stage budget signal (RFL.QUEUE.8) — cancels the AI request. */
+  signal?: AbortSignal;
   business: Business;
   site: FetchedSite | null;
   psiDesktop: PsiMetrics | null;
@@ -193,12 +195,14 @@ export async function runHealth(
       .reduce<number | null>((min, v) => (min === null || v < min ? v : min), null);
 
     const summary = await generateJsonSummary({
-      model: MODEL_SONNET,
+      model: MODEL_HAIKU,
+      kind: "narration",
       system: HEALTH_SUMMARY_SYSTEM,
       prompt: buildHealthSummaryPrompt(measurements),
-      parse: (raw) => HealthSummarySchema.parse(JSON.parse(raw)),
+      schema: HealthSummarySchema,
       guardrail: makeHealthSummaryGuardrail(worst),
       template: () => buildTemplateHealthSummary(measurements),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     return {
@@ -209,6 +213,7 @@ export async function runHealth(
       modelUsed: summary.modelUsed,
       tokensUsed: summary.tokensUsed,
       costCents: summary.costCents,
+      costMicrocents: summary.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: summary.guardrailPassed,
       guardrailNotes: summary.guardrailNotes,

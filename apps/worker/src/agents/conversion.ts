@@ -8,7 +8,7 @@
  * element text — never a general impression.
  */
 import type { AgentResult, Business } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
+import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import type { FetchedSite } from "../lib/site";
 import { makeConversionSummaryGuardrail } from "./guardrails/conversion-summary";
 import {
@@ -177,6 +177,8 @@ export function buildTemplateConversionSummary(
 }
 
 export interface ConversionContext {
+  /** Stage budget signal (RFL.QUEUE.8) — cancels the AI request. */
+  signal?: AbortSignal;
   business: Business;
   site: FetchedSite | null;
 }
@@ -204,12 +206,14 @@ export async function runConversion(
     const signals = parseConversionSignals(html);
 
     const summary = await generateJsonSummary({
-      model: MODEL_SONNET,
+      model: MODEL_HAIKU,
+      kind: "narration",
       system: CONVERSION_SUMMARY_SYSTEM,
       prompt: buildConversionSummaryPrompt(signals),
-      parse: (raw) => ConversionSummarySchema.parse(JSON.parse(raw)),
+      schema: ConversionSummarySchema,
       guardrail: makeConversionSummaryGuardrail(html),
       template: () => buildTemplateConversionSummary(signals, html),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     return {
@@ -220,6 +224,7 @@ export async function runConversion(
       modelUsed: summary.modelUsed,
       tokensUsed: summary.tokensUsed,
       costCents: summary.costCents,
+      costMicrocents: summary.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: summary.guardrailPassed,
       guardrailNotes: summary.guardrailNotes,

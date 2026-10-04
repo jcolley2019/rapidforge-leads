@@ -19,7 +19,7 @@
  * verbatim from that text. The deterministic template never invents themes.
  */
 import type { AgentResult, Audit, Business } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
+import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import { getYelpClient } from "../lib/yelp";
 import { makeReputationSummaryGuardrail } from "./guardrails/reputation-summary";
 import {
@@ -166,6 +166,8 @@ export function reviewTextsFrom(
 }
 
 export interface ReputationContext {
+  /** Stage budget signal (RFL.QUEUE.8) — cancels the AI request. */
+  signal?: AbortSignal;
   business: Business;
   /** Latest completed audit BEFORE this run — the velocity baseline. */
   previousAudit: Audit | null;
@@ -240,16 +242,18 @@ export async function runReputation(
     };
 
     const summary = await generateJsonSummary({
-      model: MODEL_SONNET,
+      model: MODEL_HAIKU,
+      kind: "narration",
       system: REPUTATION_SUMMARY_SYSTEM,
       prompt: buildReputationSummaryPrompt(signals),
-      parse: (raw) => ReputationSummarySchema.parse(JSON.parse(raw)),
+      schema: ReputationSummarySchema,
       guardrail: makeReputationSummaryGuardrail(
         volumeBand,
         reviews.map((r) => r.text),
       ),
       template: () =>
         buildTemplateSummary(rating, reviewCount, volumeBand, velocity),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     return {
@@ -273,6 +277,7 @@ export async function runReputation(
       modelUsed: summary.modelUsed,
       tokensUsed: summary.tokensUsed,
       costCents: summary.costCents,
+      costMicrocents: summary.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: summary.guardrailPassed,
       guardrailNotes: summary.guardrailNotes,
