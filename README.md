@@ -108,6 +108,8 @@ Copy `apps/worker/.env.example` → `apps/worker/.env`.
 | `ANTHROPIC_API_KEY` | https://console.anthropic.com → API keys (used only via RapidForge AI Core) |
 | `WORKER_PORT` | Local HTTP port, default `8788` |
 | `RAPIDFORGE_LEGACY_UA` | Debug only: `true` sends the old `RapidForge-Audit/1.0` User-Agent instead of desktop Chrome on site probes/fetches |
+| `SCREENSHOTS_ENABLED` | Off by default. `true` lets live audits capture homepage screenshots and the drawer download a PDF report with Chrome; otherwise the screenshot stage is skipped and the report route answers 503 `screenshots disabled` |
+| `PUPPETEER_EXECUTABLE_PATH` | Optional, with `SCREENSHOTS_ENABLED=true`: the Chrome/Chromium binary to launch. Unset → bundled Chrome for Testing in `~/.cache/puppeteer` (PowerShell: `npx @puppeteer/browsers install chrome@stable --path "$HOME\.cache\puppeteer"`), then Playwright Chromium, then installed Google Chrome |
 
 ### 4. First sign-in
 
