@@ -26,12 +26,13 @@ supabase/         Migration SQL files — applied ONLY by hand in the Supabase w
   npm 10 rewrites its `peer` flags. `npm ci` works with either.
 - **Git on PATH + network access to GitHub.** The worker depends on
   [RapidForge AI Core](https://github.com/jcolley2019/rapidforge-ai-core)
-  (`@rapidforge/ai-core`), installed straight from GitHub at the commit pinned
-  in `apps/worker/package.json`. npm clones it and its `prepare` script builds
-  `dist/` during install — no local checkout or `npm link` needed. Your GitHub
-  credentials must be able to read that repo. To move to a newer ai-core,
-  push it to `main`, update the commit SHA in `apps/worker/package.json`, and
-  run `npm install`.
+  (`@rapidforge/ai-core`), installed straight from GitHub at the release tag
+  pinned in `apps/worker/package.json` (currently `#v0.9.0`; ai-core needs
+  Node ≥ 20.3, satisfied by the 22+ above). npm clones it and its `prepare`
+  script builds `dist/` during install — no local checkout or `npm link`
+  needed. Your GitHub credentials must be able to read that repo. To move to
+  a newer ai-core, cut a tag there (see its RELEASING.md), update the tag in
+  `apps/worker/package.json`, and run `npm install` with npm 11.
 - A Supabase project (free tier is fine) — see setup below. **Not** needed to
   run the tests.
 
