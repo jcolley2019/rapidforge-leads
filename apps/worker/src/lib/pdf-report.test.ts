@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { Audit, Business } from "@rapidforge/shared";
 import {
   buildReportHtml,
+  createReportRenderer,
+  DisabledReportRenderer,
   HtmlReportRenderer,
   reportFileStem,
+  SCREENSHOTS_DISABLED_ERROR,
   type ReportAnalyst,
 } from "./pdf-report";
 
@@ -118,6 +121,44 @@ describe("HtmlReportRenderer", () => {
     expect(out.contentType).toBe("text/html");
     expect(out.extension).toBe("html");
     expect(out.bytes.toString("utf8")).toBe("<html>hi</html>");
+  });
+});
+
+describe("createReportRenderer (RFL.QUEUE.8a switch)", () => {
+  const saved = {
+    force: process.env.RAPIDFORGE_FORCE_FIXTURES,
+    places: process.env.GOOGLE_PLACES_API_KEY,
+    screenshots: process.env.SCREENSHOTS_ENABLED,
+  };
+  const restore = (key: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
+  afterEach(() => {
+    restore("RAPIDFORGE_FORCE_FIXTURES", saved.force);
+    restore("GOOGLE_PLACES_API_KEY", saved.places);
+    restore("SCREENSHOTS_ENABLED", saved.screenshots);
+  });
+
+  it("live mode without SCREENSHOTS_ENABLED → disabled (route answers 503)", async () => {
+    process.env.RAPIDFORGE_FORCE_FIXTURES = "false";
+    process.env.GOOGLE_PLACES_API_KEY = "test-key";
+    delete process.env.SCREENSHOTS_ENABLED;
+    const renderer = createReportRenderer();
+    expect(renderer.mode).toBe("disabled");
+    expect(renderer).toBeInstanceOf(DisabledReportRenderer);
+    await expect(renderer.render("<p/>")).rejects.toThrow(SCREENSHOTS_DISABLED_ERROR);
+  });
+
+  it("live mode with SCREENSHOTS_ENABLED=true → pdf; fixture mode → html either way", () => {
+    process.env.RAPIDFORGE_FORCE_FIXTURES = "false";
+    process.env.GOOGLE_PLACES_API_KEY = "test-key";
+    process.env.SCREENSHOTS_ENABLED = "true";
+    expect(createReportRenderer().mode).toBe("pdf");
+    delete process.env.GOOGLE_PLACES_API_KEY;
+    expect(createReportRenderer().mode).toBe("html");
+    delete process.env.SCREENSHOTS_ENABLED;
+    expect(createReportRenderer().mode).toBe("html");
   });
 });
 

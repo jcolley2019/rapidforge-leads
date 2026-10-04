@@ -8,6 +8,7 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Business, SearchResult, WorkspaceConfig } from "@rapidforge/shared";
 import { createApp } from "./http";
+import { resetReportRenderer } from "./lib/pdf-report";
 import {
   FIXTURE_PHOTO_PNG,
   FixturePlacesClient,
@@ -510,6 +511,39 @@ describe("GET /api/businesses/:id/report", () => {
     const body = await res.text();
     expect(body).toContain("Boise Drain Pros");
     expect(body).toContain("RAPIDFORGE");
+  });
+
+  it("503s 'screenshots disabled' in live mode without SCREENSHOTS_ENABLED (RFL.QUEUE.8a)", async () => {
+    const { business } = await seedLead();
+    await seedCompletedAudit(business.id);
+    const saved = {
+      places: process.env.GOOGLE_PLACES_API_KEY,
+      force: process.env.RAPIDFORGE_FORCE_FIXTURES,
+      screenshots: process.env.SCREENSHOTS_ENABLED,
+    };
+    process.env.GOOGLE_PLACES_API_KEY = "test-key";
+    process.env.RAPIDFORGE_FORCE_FIXTURES = "false";
+    delete process.env.SCREENSHOTS_ENABLED;
+    resetReportRenderer();
+    try {
+      const res = await fetch(`${base}/api/businesses/${business.id}/report`, {
+        headers: { authorization: "Bearer dev-offline" },
+      });
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { error: string; hint: string };
+      expect(body.error).toBe("screenshots disabled");
+      expect(body.hint).toContain("SCREENSHOTS_ENABLED=true");
+    } finally {
+      for (const [key, value] of [
+        ["GOOGLE_PLACES_API_KEY", saved.places],
+        ["RAPIDFORGE_FORCE_FIXTURES", saved.force],
+        ["SCREENSHOTS_ENABLED", saved.screenshots],
+      ] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      resetReportRenderer();
+    }
   });
 });
 

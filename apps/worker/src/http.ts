@@ -30,6 +30,7 @@ import {
   buildReportHtml,
   getReportRenderer,
   reportFileStem,
+  SCREENSHOTS_DISABLED_ERROR,
   type ReportAnalyst,
 } from "./lib/pdf-report";
 import {
@@ -667,6 +668,15 @@ export function createApp(
     const auth = req.auth;
     if (!auth) {
       res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    // RFL.QUEUE.8a: the PDF path needs Chrome, which is opt-in. Answer at
+    // once rather than touch the browser module.
+    if (getReportRenderer().mode === "disabled") {
+      res.status(503).json({
+        error: SCREENSHOTS_DISABLED_ERROR,
+        hint: "Set SCREENSHOTS_ENABLED=true in apps/worker/.env and restart the worker to render PDF reports.",
+      });
       return;
     }
     try {

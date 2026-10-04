@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createScreenshotCapturer,
   createScreenshotStorage,
+  DisabledScreenshotCapturer,
   FIXTURE_SCREENSHOT_ROUTE,
   FixtureScreenshotCapturer,
   FixtureScreenshotStorage,
@@ -85,6 +86,7 @@ describe("factories", () => {
     places: process.env.GOOGLE_PLACES_API_KEY,
     supabase: process.env.SUPABASE_URL,
     serviceRole: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    screenshots: process.env.SCREENSHOTS_ENABLED,
   };
 
   afterEach(() => {
@@ -97,6 +99,26 @@ describe("factories", () => {
     if (saved.serviceRole === undefined)
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     else process.env.SUPABASE_SERVICE_ROLE_KEY = saved.serviceRole;
+    if (saved.screenshots === undefined) delete process.env.SCREENSHOTS_ENABLED;
+    else process.env.SCREENSHOTS_ENABLED = saved.screenshots;
+  });
+
+  it("live mode defaults to the disabled capturer (SCREENSHOTS_ENABLED unset — RFL.QUEUE.8a)", () => {
+    process.env.RAPIDFORGE_FORCE_FIXTURES = "false";
+    process.env.GOOGLE_PLACES_API_KEY = "test-key";
+    delete process.env.SCREENSHOTS_ENABLED;
+    const capturer = createScreenshotCapturer();
+    expect(capturer.mode).toBe("disabled");
+    expect(capturer).toBeInstanceOf(DisabledScreenshotCapturer);
+    process.env.SCREENSHOTS_ENABLED = "1"; // only the literal "true" opts in
+    expect(createScreenshotCapturer().mode).toBe("disabled");
+  });
+
+  it("fixture mode keeps its pre-rendered JPEGs regardless of the switch (no browser)", () => {
+    process.env.RAPIDFORGE_FORCE_FIXTURES = "false";
+    delete process.env.GOOGLE_PLACES_API_KEY;
+    delete process.env.SCREENSHOTS_ENABLED;
+    expect(createScreenshotCapturer().mode).toBe("fixture");
   });
 
   it("RAPIDFORGE_FORCE_FIXTURES wins regardless of keys", () => {
@@ -116,6 +138,7 @@ describe("factories", () => {
   it("real capture without Supabase → real capturer, noop storage", () => {
     process.env.RAPIDFORGE_FORCE_FIXTURES = "false";
     process.env.GOOGLE_PLACES_API_KEY = "test-key";
+    process.env.SCREENSHOTS_ENABLED = "true";
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     expect(createScreenshotCapturer().mode).toBe("real");

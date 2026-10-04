@@ -47,6 +47,15 @@ export const ABANDON_REASON = "worker: audit exceeded ceiling";
 /** A claim that does not answer in this long must not wedge the tick. */
 export const CLAIM_BUDGET_MS = 10_000;
 
+/**
+ * Liveness watchdog (RFL.QUEUE.8a): one "[queue] tick" line every 10s. If
+ * these lines stop, the event loop is blocked; a line that arrives late
+ * reports how long it was blocked.
+ */
+export const WATCHDOG_INTERVAL_MS = 10_000;
+/** A watchdog firing this much later than scheduled = the loop was blocked. */
+export const WATCHDOG_LAG_WARN_MS = 2_000;
+
 export interface InFlightJob {
   id: string;
   job_type: string;
@@ -157,6 +166,23 @@ export function startQueuePoller(
     if (ticks % RECLAIM_EVERY_TICKS === 0) void reclaim();
     void tick().catch((err) => console.error("[queue] tick failed:", err));
   }, POLL_INTERVAL_MS);
+
+  let lastBeat = now();
+  const watchdog = setInterval(() => {
+    const beat = now();
+    const lagMs = Math.max(0, beat - lastBeat - WATCHDOG_INTERVAL_MS);
+    lastBeat = beat;
+    let oldestMs = 0;
+    for (const slot of inFlight.values()) oldestMs = Math.max(oldestMs, beat - slot.startedAt);
+    console.log(
+      `[queue] tick jobs_in_flight=${inFlight.size}/${cap}${inFlight.size > 0 ? ` oldest_s=${Math.round(oldestMs / 1000)}` : ""} lag_ms=${lagMs}`,
+    );
+    if (lagMs > WATCHDOG_LAG_WARN_MS) {
+      console.warn(
+        `[queue] event loop was blocked for ~${Math.round(lagMs / 1000)}s — a synchronous call stalled the worker`,
+      );
+    }
+  }, WATCHDOG_INTERVAL_MS);
   // Startup: sweep orphans from a previous process first, then an immediate
   // first pass — don't make POST wait 2s.
   void reclaim().then(() =>
@@ -171,6 +197,7 @@ export function startQueuePoller(
     stop: () => {
       stopped = true;
       clearInterval(timer);
+      clearInterval(watchdog);
     },
     inFlight: () => inFlight.size,
     inFlightJobs: () =>

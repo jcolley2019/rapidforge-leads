@@ -49,11 +49,12 @@ async function main() {
       break;
     }
     console.log(`\n=== ${target.name} — ${target.url} ===`);
-    const screenshots = await capturer.capture(target.url);
-    if (!screenshots) {
-      console.log("  screenshot capture FAILED — skipping");
-      continue;
-    }
+    // RFL.QUEUE.8a: capture throws on failure (needs SCREENSHOTS_ENABLED=true).
+    const screenshots = await capturer.capture(target.url).catch((err: unknown) => {
+      console.log(`  screenshot capture FAILED (${err instanceof Error ? err.message : String(err)}) — skipping`);
+      return null;
+    });
+    if (!screenshots) continue;
     console.log(
       `  captured desktop ${screenshots.desktop.length}B + mobile ${screenshots.mobile.length}B`,
     );

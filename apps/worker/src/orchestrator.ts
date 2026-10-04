@@ -37,12 +37,14 @@ import {
   type StageLogger,
 } from "./lib/budget";
 import { detectBotProtection } from "./lib/bot-protection";
+import { BrowserUnavailableError } from "./lib/browser";
 import type { PlacesClient } from "./lib/places";
 import type { WebProbe } from "./lib/probe";
 import type { PsiClient, PsiStrategy } from "./lib/psi";
 import {
   screenshotSlug,
   type ScreenshotCapturer,
+  type ScreenshotSet,
   type ScreenshotStorage,
   type ScreenshotUrls,
 } from "./lib/screenshots";
@@ -199,6 +201,13 @@ async function handleScoutJob(job: Job, deps: OrchestratorDeps): Promise<void> {
   }
 }
 
+/** Short "Screenshot unavailable (<reason>)" text from a capture failure. */
+function unavailableReason(err: unknown): string {
+  if (err instanceof BrowserUnavailableError) return err.reason;
+  const line = (err instanceof Error ? err.message : String(err)).split("\n")[0]!.trim();
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line || "capture failed";
+}
+
 function isWithinDays(iso: string, days: number, now: Date): boolean {
   const age = now.getTime() - Date.parse(iso);
   return Number.isFinite(age) && age >= 0 && age <= days * 86_400_000;
@@ -345,20 +354,38 @@ async function runAuditPipeline(
       timedOut,
       signal,
     });
+  // RFL.QUEUE.8a: screenshots are opt-in (SCREENSHOTS_ENABLED) — disabled
+  // means no stage at all, so no browser work. A capture that fails (not a
+  // stage overrun) records its reason as one low issue.
+  let screenshotUnavailable: string | null = null;
+  const screenshotStage = async (): Promise<ScreenshotSet | null> => {
+    if (deps.screenshotCapturer.mode === "disabled") {
+      console.log(`${log.prefix} stage=screenshot skipped (disabled)`);
+      return null;
+    }
+    return budgetedStage({
+      log,
+      stage: "screenshot",
+      budgetMs: STAGE_BUDGET_MS.screenshot,
+      run: async (stageSignal) => {
+        try {
+          return await deps.screenshotCapturer.capture(url);
+        } catch (err) {
+          if (!stageSignal.aborted) screenshotUnavailable = unavailableReason(err);
+          throw err;
+        }
+      },
+      fallback: null,
+      timedOut,
+      signal,
+    });
+  };
   const [site, psiMobile, psiDesktopRun, screenshots, hasSitemap, hasRobots] =
     await Promise.all([
       fetchStage(),
       runPsiLogged("mobile"),
       psiDesktopEnabled() ? runPsiLogged("desktop") : Promise.resolve(null),
-      budgetedStage({
-        log,
-        stage: "screenshot",
-        budgetMs: STAGE_BUDGET_MS.screenshot,
-        run: () => deps.screenshotCapturer.capture(url),
-        fallback: null,
-        timedOut,
-        signal,
-      }),
+      screenshotStage(),
       pathStage("/sitemap.xml"),
       pathStage("/robots.txt"),
     ]);
@@ -476,6 +503,7 @@ async function runAuditPipeline(
             .map((r) => r.agent),
         ],
         psiUnmeasured: psiMobile === null,
+        screenshotUnavailable,
       }),
   );
   if (scorer.status === "failed" || !scorer.output) {

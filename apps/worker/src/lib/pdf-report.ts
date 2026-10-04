@@ -9,10 +9,14 @@
  *     Chrome, same channel as screenshots). Fixture/no-Chrome = the HTML
  *     itself (text/html) — still presentable and printable, and CI needs no
  *     browser. Selection is logged like every other seam.
+ *
+ * RFL.QUEUE.8a: the PDF path shares the browser module AND its switch —
+ * live mode without SCREENSHOTS_ENABLED=true selects the disabled renderer
+ * and the route answers 503 "screenshots disabled" (never a hang).
  */
 import type { Audit, Business } from "@rapidforge/shared";
-import { withPage } from "./browser";
-import { forceFixtures } from "./env";
+import { BrowserUnavailableError, withPage } from "./browser";
+import { forceFixtures, screenshotsEnabled } from "./env";
 import { screenshotSlug } from "./screenshots";
 
 export interface ReportAnalyst {
@@ -209,23 +213,29 @@ export function buildReportHtml(input: ReportInput): string {
 // ---------------------------------------------------------------------------
 
 export interface ReportRenderer {
-  readonly mode: "pdf" | "html";
+  readonly mode: "pdf" | "html" | "disabled";
   render(html: string): Promise<ReportOutput>;
 }
+
+/** The route's 503 body when the browser path is switched off. */
+export const SCREENSHOTS_DISABLED_ERROR = "screenshots disabled";
 
 export class PuppeteerReportRenderer implements ReportRenderer {
   readonly mode = "pdf" as const;
 
   /** Shared browser + 30s budget (RFL.QUEUE.8); no Chrome → HTML output. */
   async render(html: string): Promise<ReportOutput> {
-    const pdf = await withPage("report-pdf", REPORT_RENDER_TIMEOUT_MS, async (page) => {
-      // setContent's typed waitUntil is load|domcontentloaded; "load" waits
-      // for the self-contained doc's images (absolute URLs) before printing.
-      await page.setContent(html, { waitUntil: "load" });
-      return page.pdf({ format: "A4", printBackground: true });
-    });
-    if (!pdf) {
-      console.warn("[report] no browser available — serving HTML instead of PDF");
+    let pdf: Uint8Array;
+    try {
+      pdf = await withPage("report-pdf", REPORT_RENDER_TIMEOUT_MS, async (page) => {
+        // setContent's typed waitUntil is load|domcontentloaded; "load" waits
+        // for the self-contained doc's images (absolute URLs) before printing.
+        await page.setContent(html, { waitUntil: "load" });
+        return page.pdf({ format: "A4", printBackground: true });
+      });
+    } catch (err) {
+      if (!(err instanceof BrowserUnavailableError)) throw err;
+      console.warn(`[report] ${err.message} — serving HTML instead of PDF`);
       return new HtmlReportRenderer().render(html);
     }
     return {
@@ -251,6 +261,15 @@ export class HtmlReportRenderer implements ReportRenderer {
   }
 }
 
+/** Live mode with SCREENSHOTS_ENABLED off: the route answers 503. */
+export class DisabledReportRenderer implements ReportRenderer {
+  readonly mode = "disabled" as const;
+
+  async render(): Promise<ReportOutput> {
+    throw new Error(SCREENSHOTS_DISABLED_ERROR);
+  }
+}
+
 let cached: ReportRenderer | null = null;
 
 /** Same pairing as screenshots: real Chrome only when Places is live. */
@@ -258,6 +277,7 @@ export function createReportRenderer(): ReportRenderer {
   if (forceFixtures() || !process.env.GOOGLE_PLACES_API_KEY) {
     return new HtmlReportRenderer();
   }
+  if (!screenshotsEnabled()) return new DisabledReportRenderer();
   return new PuppeteerReportRenderer();
 }
 
@@ -268,6 +288,11 @@ export function getReportRenderer(): ReportRenderer {
     console.log(`[report] renderer mode: ${cached.mode}`);
   }
   return cached;
+}
+
+/** Tests: re-select the renderer from the current env on next use. */
+export function resetReportRenderer(): void {
+  cached = null;
 }
 
 /** Report filename stem from the site/business. */
