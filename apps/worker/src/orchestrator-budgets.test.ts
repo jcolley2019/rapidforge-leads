@@ -27,6 +27,11 @@ import { DEV_USER_ID, DEV_WORKSPACE_ID } from "./store/types";
 
 const NEVER = new Promise<never>(() => undefined);
 
+/** Captured before any test fakes timers: a REAL timer to yield to I/O. */
+const realSetTimeout = globalThis.setTimeout;
+/** Fake time advanced per harness step. */
+const FAKE_STEP_MS = 250;
+
 class HangingPsi implements PsiClient {
   readonly mode = "fixture" as const;
   run(_url: string, _strategy: PsiStrategy): Promise<PsiMetrics | null> {
@@ -114,10 +119,13 @@ async function runWithFakeTime(p: Promise<void>, maxMs: number): Promise<{ settl
   );
   let elapsed = 0;
   while (!settled && elapsed < maxMs) {
-    // Let real I/O (fixture file reads) progress between fake-time steps.
-    await new Promise((r) => setImmediate(r));
-    await vi.advanceTimersByTimeAsync(1_000);
-    elapsed += 1_000;
+    // Give real I/O (fixture JPEG reads on the threadpool) real time to land
+    // between small fake-time steps. A lone setImmediate per 1s step let fake
+    // time outrun a fixture read on a loaded parallel run, tripping the 30s
+    // screenshot budget or the step limit (intermittent failures).
+    await new Promise((r) => realSetTimeout(r, 1));
+    await vi.advanceTimersByTimeAsync(FAKE_STEP_MS);
+    elapsed += FAKE_STEP_MS;
   }
   return { settled, error };
 }
