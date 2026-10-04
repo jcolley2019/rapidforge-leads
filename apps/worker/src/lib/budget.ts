@@ -63,7 +63,16 @@ export async function withBudget<T>(
       clearTimeout(timer);
       outer?.removeEventListener("abort", onOuterAbort);
     };
-    run(signal).then(
+    // A synchronous throw from `run` (a misbehaving or mocked launcher) must
+    // settle like a rejection — not escape the executor with the timer and
+    // outer-abort listener still armed.
+    let pending: Promise<T>;
+    try {
+      pending = run(signal);
+    } catch (err) {
+      pending = Promise.reject(err);
+    }
+    pending.then(
       (value) => {
         if (settled) return;
         settled = true;
