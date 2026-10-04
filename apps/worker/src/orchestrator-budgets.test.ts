@@ -10,6 +10,7 @@ import { FixturePlacesClient } from "./lib/places/fixture-client";
 import { FixtureWebProbe, type ProbeResult, type WebProbe } from "./lib/probe";
 import { FixturePsiClient, type PsiClient, type PsiMetrics, type PsiStrategy } from "./lib/psi";
 import {
+  DisabledScreenshotCapturer,
   FixtureScreenshotCapturer,
   FixtureScreenshotStorage,
   type ScreenshotCapturer,
@@ -178,7 +179,39 @@ describe("stage budgets (RFL.QUEUE.8)", () => {
     expect(audit.status).toBe("completed");
     expect(audit.screenshot_desktop_url).toBeNull();
     expect(audit.screenshot_mobile_url).toBeNull();
-    expect((audit.issues ?? []).map((i) => i.label)).not.toContainEqual(expect.stringMatching(/timed out/));
+    const labels = (audit.issues ?? []).map((i) => i.label);
+    expect(labels).not.toContainEqual(expect.stringMatching(/timed out/));
+    // RFL.QUEUE.8a: the failure reason is one low issue.
+    expect(labels).toContain("Screenshot unavailable (Failed to launch the browser process)");
+    const issue = (audit.issues ?? []).find((i) => i.label.startsWith("Screenshot unavailable"));
+    expect(issue?.severity).toBe("low");
+    expect((audit.score_breakdown as { screenshot_unavailable?: string }).screenshot_unavailable).toBe(
+      "Failed to launch the browser process",
+    );
+  });
+
+  it("screenshots disabled (the live default): stage skipped and logged, audit completes without screenshots or a screenshot issue", async () => {
+    const logSpy = console.log as unknown as { mock: { calls: unknown[][] } };
+    const capture = vi.spyOn(DisabledScreenshotCapturer.prototype, "capture");
+    const h = await harness({ screenshotCapturer: new DisabledScreenshotCapturer() });
+    const { settled, error } = await runWithFakeTime(handleJob(h.job, h.deps), 10_000);
+    expect(settled).toBe(true);
+    expect(error).toBeNull();
+    expect(capture).not.toHaveBeenCalled();
+    const lines = logSpy.mock.calls.map((c) => String(c[0]));
+    const prefix = `[job:${h.job.id} biz:${h.business.id}]`;
+    expect(lines).toContain(`${prefix} stage=screenshot skipped (disabled)`);
+    expect(lines).not.toContain(`${prefix} stage=screenshot start`);
+    // fetch, psi-mobile and every agent still log start + end.
+    for (const stage of ["fetch", "psi-mobile", "health", "conversion", "presence", "traffic", "design", "reputation", "seo", "scorer"]) {
+      expect(lines).toContain(`${prefix} stage=${stage} start`);
+      expect(lines.some((l) => l.startsWith(`${prefix} stage=${stage} end ms=`))).toBe(true);
+    }
+    const audit = (await h.store.getSearchDetail(h.search.id))!.leads[0]!.audit!;
+    expect(audit.status).toBe("completed");
+    expect(audit.website_health_score).not.toBeNull();
+    expect(audit.screenshot_desktop_url).toBeNull();
+    expect((audit.issues ?? []).map((i) => i.label)).not.toContainEqual(expect.stringMatching(/[Ss]creenshot/));
   });
 
   it("a probe that never resolves: the audit fails at the probe budget, not the ceiling", async () => {

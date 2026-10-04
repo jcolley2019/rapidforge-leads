@@ -12,6 +12,8 @@
 import "dotenv/config";
 import { createApp } from "./http";
 import { aiSummaryMode } from "./lib/ai";
+import { preloadBrowserModule } from "./lib/browser";
+import { getReportRenderer } from "./lib/pdf-report";
 import { createPlacesClient } from "./lib/places";
 import { createWebProbe } from "./lib/probe";
 import { createPsiClient } from "./lib/psi";
@@ -39,6 +41,12 @@ const deps: OrchestratorDeps = {
 console.log(
   `[ai] summary mode: ${aiSummaryMode()}${aiSummaryMode() === "template" ? " — ANTHROPIC_API_KEY absent; Sonnet summaries are deterministic templates" : ""}`,
 );
+// RFL.QUEUE.8a: Chrome work is opt-in (SCREENSHOTS_ENABLED=true). When on,
+// puppeteer-core loads here, before the poller claims a job — on Node 24 +
+// tsx that load is synchronous and must never run inside a job's stage.
+if (deps.screenshotCapturer.mode === "real" || getReportRenderer().mode === "pdf") {
+  await preloadBrowserModule();
+}
 const poller = startQueuePoller(deps);
 const app = createApp(deps, poller, startedAt);
 

@@ -53,6 +53,8 @@ export interface ScorerContext {
   stageTimeouts?: string[];
   /** PSI returned nothing for a live site (finding 12): flagged, not hidden. */
   psiUnmeasured?: boolean;
+  /** RFL.QUEUE.8a: why an enabled screenshot capture produced nothing. */
+  screenshotUnavailable?: string | null;
 }
 
 export interface AssembledScores {
@@ -76,6 +78,7 @@ export interface ScoreInputs {
   now: Date;
   stageTimeouts?: string[];
   psiUnmeasured?: boolean;
+  screenshotUnavailable?: string | null;
 }
 
 /** Pure score assembly — exported for the pipeline unit tests. */
@@ -171,6 +174,13 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
       detail: "Stage exceeded its budget and was skipped for this audit",
     });
   }
+  if (inputs.screenshotUnavailable) {
+    issues.push({
+      severity: "low",
+      label: `Screenshot unavailable (${inputs.screenshotUnavailable})`,
+      detail: "No homepage screenshots this audit — scores do not depend on them",
+    });
+  }
 
   return {
     healthScore: healthResult.score,
@@ -184,6 +194,9 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
         ...(psiUnmeasured ? { psi_unmeasured: true } : {}),
       },
       ...(stageTimeouts.length > 0 ? { stage_timeouts: stageTimeouts } : {}),
+      ...(inputs.screenshotUnavailable
+        ? { screenshot_unavailable: inputs.screenshotUnavailable }
+        : {}),
       sellability: sellabilityResult.breakdown,
       ...(badge ? { badge } : {}),
       ...(sellabilityResult.breakdown.chain ? { chain: true } : {}),
@@ -261,6 +274,7 @@ export async function runScorer(
       now: ctx.now,
       ...(ctx.stageTimeouts ? { stageTimeouts: ctx.stageTimeouts } : {}),
       ...(ctx.psiUnmeasured !== undefined ? { psiUnmeasured: ctx.psiUnmeasured } : {}),
+      ...(ctx.screenshotUnavailable ? { screenshotUnavailable: ctx.screenshotUnavailable } : {}),
     });
     const { health, conversion, presence, traffic, now } = ctx;
 

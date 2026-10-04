@@ -15,13 +15,18 @@
  *
  * Pairing rule (same as WebProbe/SiteFetcher): fixture Places URLs are
  * fake, so the fixture capturer is selected whenever GOOGLE_PLACES_API_KEY
- * is absent. Capture failures return null — screenshots are enrichment,
- * never a reason to fail an audit.
+ * is absent. Screenshots are enrichment, never a reason to fail an audit.
+ *
+ * RFL.QUEUE.8a: real (browser) capture is opt-in — without
+ * SCREENSHOTS_ENABLED=true live mode gets the DisabledScreenshotCapturer and
+ * the orchestrator skips the stage. When on, a real capture failure throws
+ * (BrowserUnavailableError or the page error) so the orchestrator can record
+ * a low "Screenshot unavailable (<reason>)" issue.
  */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { withPage } from "./browser";
-import { forceFixtures } from "./env";
+import { forceFixtures, screenshotsEnabled } from "./env";
 
 export const DESKTOP_VIEWPORT = { width: 1440, height: 900 } as const;
 export const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
@@ -54,8 +59,12 @@ export interface ScreenshotUrls {
 }
 
 export interface ScreenshotCapturer {
-  readonly mode: "real" | "fixture";
-  /** Null = capture failed (audit continues; screenshots stay null). */
+  /** "disabled" = SCREENSHOTS_ENABLED is off: the stage is skipped. */
+  readonly mode: "real" | "fixture" | "disabled";
+  /**
+   * Null or a throw = no screenshots (audit continues; screenshots stay
+   * null). A throw's message becomes the "Screenshot unavailable" reason.
+   */
   capture(url: string): Promise<ScreenshotSet | null>;
 }
 
@@ -94,9 +103,11 @@ export class PuppeteerScreenshotCapturer implements ScreenshotCapturer {
   /**
    * RFL.QUEUE.8: pages come from the process-wide shared browser (lazy
    * launch, 2 page slots); each shot runs under the 30s screenshot budget.
-   * No browser / timeout / error → null, never a throw.
+   * RFL.QUEUE.8a: no browser / timeout / page error → throws (the
+   * orchestrator turns it into a low issue); the browser module already
+   * logged a launch failure once, so nothing is logged here.
    */
-  async capture(url: string): Promise<ScreenshotSet | null> {
+  async capture(url: string): Promise<ScreenshotSet> {
     const shoot = (viewport: { width: number; height: number }, mobile: boolean) =>
       withPage(`screenshot-${mobile ? "mobile" : "desktop"}`, SCREENSHOT_NAV_TIMEOUT_MS, async (page) => {
         await page.setViewport({ ...viewport, isMobile: mobile, hasTouch: mobile });
@@ -113,18 +124,18 @@ export class PuppeteerScreenshotCapturer implements ScreenshotCapturer {
         });
         return Buffer.from(data);
       });
-    try {
-      const desktop = await shoot(DESKTOP_VIEWPORT, false);
-      if (!desktop) return null;
-      const mobile = await shoot(MOBILE_VIEWPORT, true);
-      if (!mobile) return null;
-      return { desktop, mobile, contentType: "image/jpeg" };
-    } catch (err) {
-      console.warn(
-        `[screenshots] capture failed for ${url}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return null;
-    }
+    const desktop = await shoot(DESKTOP_VIEWPORT, false);
+    const mobile = await shoot(MOBILE_VIEWPORT, true);
+    return { desktop, mobile, contentType: "image/jpeg" };
+  }
+}
+
+/** SCREENSHOTS_ENABLED off in live mode: no browser, the stage is skipped. */
+export class DisabledScreenshotCapturer implements ScreenshotCapturer {
+  readonly mode = "disabled" as const;
+
+  async capture(): Promise<ScreenshotSet | null> {
+    return null;
   }
 }
 
@@ -232,7 +243,11 @@ export function createScreenshotCapturer(): ScreenshotCapturer {
     return new FixtureScreenshotCapturer();
   }
   if (process.env.GOOGLE_PLACES_API_KEY) {
-    return new PuppeteerScreenshotCapturer();
+    if (screenshotsEnabled()) return new PuppeteerScreenshotCapturer();
+    console.log(
+      "[screenshots] capture mode: disabled — set SCREENSHOTS_ENABLED=true to capture with Chrome",
+    );
+    return new DisabledScreenshotCapturer();
   }
   console.log(
     "[screenshots] capture mode: fixture — pre-rendered fixture JPEGs",
