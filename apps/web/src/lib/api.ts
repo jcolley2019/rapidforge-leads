@@ -100,6 +100,19 @@ export async function fetchSearchDetail(id: string): Promise<SearchDetail> {
   return apiFetch(`/api/searches/${encodeURIComponent(id)}`);
 }
 
+export interface CancelSearchResult {
+  status: string;
+  queued_failed: number;
+  running_aborted: number;
+}
+
+/** Stop a running search: queued jobs fail, in-flight ones abort (RFL.WEB.10). */
+export async function cancelSearch(id: string): Promise<CancelSearchResult> {
+  return apiFetch(`/api/searches/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Sprint 5: pipeline / drawer / leads / settings / usage (PRD Section 8)
 // ---------------------------------------------------------------------------
