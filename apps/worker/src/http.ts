@@ -39,7 +39,7 @@ import {
 } from "./lib/screenshots";
 import { createRequireSupabaseJwt } from "./middleware/auth";
 import type { OrchestratorDeps } from "./orchestrator";
-import { POLL_INTERVAL_MS, type QueuePoller } from "./queue";
+import { cancelSearch, POLL_INTERVAL_MS, type QueuePoller } from "./queue";
 import type { DataStore } from "./store";
 import { currentMonthStartIso } from "./store/usage";
 import type { UpdateSearchResultPatch } from "./store/types";
@@ -221,6 +221,36 @@ export function createApp(
     } catch (err) {
       console.error("[api] GET /api/searches/:id failed:", err);
       res.status(500).json({ error: "Failed to load search" });
+    }
+  });
+
+  /**
+   * POST /api/searches/:id/cancel → stop a running search (RFL.WEB.10).
+   * Queued jobs fail with 'cancelled by user', in-flight ones are aborted
+   * through the QUEUE.8 controllers, the search settles to 'failed'. 409
+   * once the search is already terminal.
+   */
+  app.post("/api/searches/:id/cancel", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const search = await deps.store.getSearch(req.params.id);
+      if (!search || search.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Search not found" });
+        return;
+      }
+      if (search.status === "completed" || search.status === "failed") {
+        res.status(409).json({ error: `Search is already ${search.status}` });
+        return;
+      }
+      const outcome = await cancelSearch(search.id, deps, poller);
+      res.json({ status: "failed", ...outcome });
+    } catch (err) {
+      console.error("[api] POST /api/searches/:id/cancel failed:", err);
+      res.status(500).json({ error: "Failed to cancel search" });
     }
   });
 

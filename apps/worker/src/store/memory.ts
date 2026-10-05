@@ -190,6 +190,19 @@ export class MemoryStore implements DataStore {
     return count;
   }
 
+  async failQueuedJobsForSearch(searchId: string, reason: string): Promise<Job[]> {
+    const failed: Job[] = [];
+    for (const job of this.jobs.values()) {
+      if ((job.payload as { search_id?: string }).search_id !== searchId) continue;
+      if (job.status !== "queued") continue;
+      job.status = "failed";
+      job.error = reason;
+      job.finished_at = nowIso();
+      failed.push({ ...job });
+    }
+    return failed;
+  }
+
   async getQueueHealth(now: Date = new Date()): Promise<QueueHealth> {
     const tenMinAgo = now.getTime() - 10 * 60_000;
     let queued = 0;

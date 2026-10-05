@@ -46,6 +46,8 @@ export const ABANDON_AFTER_MS = AUDIT_CEILING_MS + ABANDON_GRACE_MS;
 export const ABANDON_REASON = "worker: audit exceeded ceiling";
 /** A claim that does not answer in this long must not wedge the tick. */
 export const CLAIM_BUDGET_MS = 10_000;
+/** jobs.error for jobs a user cancelled (RFL.WEB.10). */
+export const CANCEL_REASON = "cancelled by user";
 
 /**
  * Liveness watchdog (RFL.QUEUE.8a): one "[queue] tick" line every 10s. If
@@ -72,6 +74,12 @@ export interface QueuePoller {
   inFlightJobs(): InFlightJob[];
   /** Run one poller pass now (tests; the interval calls this). */
   tick(): Promise<void>;
+  /**
+   * Cancel (RFL.WEB.10): abort every in-flight job of a search through its
+   * AbortController, fail the job rows with `reason`, release the slots.
+   * Returns the aborted job ids. Queued jobs are the store's to fail.
+   */
+  abortJobsForSearch(searchId: string, reason: string): Promise<string[]>;
 }
 
 export interface QueueOptions {
@@ -121,6 +129,27 @@ export function startQueuePoller(
         console.error(`[queue] abandon bookkeeping for ${id} failed:`, err);
       }
     }
+  }
+
+  /**
+   * Same shape as the abandon path: the slot goes first so the next claim
+   * can proceed, the controller fires (stages racing on it reject with
+   * StageAbortedError), and the job row is failed here — processJob sees
+   * signal.aborted and leaves the bookkeeping to us.
+   */
+  async function abortJobsForSearch(searchId: string, reason: string): Promise<string[]> {
+    const aborted: string[] = [];
+    for (const [id, slot] of inFlight) {
+      if (searchIdOf(slot.job) !== searchId) continue;
+      inFlight.delete(id);
+      slot.controller.abort(new StageAbortedError("audit"));
+      aborted.push(id);
+      console.warn(
+        `[queue] job ${id} (${slot.job.job_type}, business ${businessIdOf(slot.job)}) aborted after ${Math.round((now() - slot.startedAt) / 1000)}s — ${reason}`,
+      );
+      await deps.store.finishJob(id, { status: "failed", error: reason });
+    }
+    return aborted;
   }
 
   async function tick(): Promise<void> {
@@ -211,6 +240,35 @@ export function startQueuePoller(
           age_ms: now() - s.startedAt,
         })),
     tick,
+    abortJobsForSearch,
+  };
+}
+
+/**
+ * Cancel a running search (POST /api/searches/:id/cancel, RFL.WEB.10):
+ * queued jobs fail, in-flight ones are aborted through the QUEUE.8
+ * controllers, and the search settles to 'failed'. The queued sweep runs
+ * again after the abort so a job claimed between the two steps cannot slip
+ * through — settleSearchIfDone never sees it 'auditing' again.
+ */
+export async function cancelSearch(
+  searchId: string,
+  deps: OrchestratorDeps,
+  poller: Pick<QueuePoller, "abortJobsForSearch">,
+): Promise<{ queued_failed: number; running_aborted: number }> {
+  const first = await deps.store.failQueuedJobsForSearch(searchId, CANCEL_REASON);
+  const aborted = await poller.abortJobsForSearch(searchId, CANCEL_REASON);
+  const late = await deps.store.failQueuedJobsForSearch(searchId, CANCEL_REASON);
+  await deps.store.updateSearch(searchId, {
+    status: "failed",
+    completed_at: new Date().toISOString(),
+  });
+  console.warn(
+    `[queue] search ${searchId} cancelled by user — ${first.length + late.length} queued failed, ${aborted.length} in flight aborted`,
+  );
+  return {
+    queued_failed: first.length + late.length,
+    running_aborted: aborted.length,
   };
 }
 
@@ -260,6 +318,10 @@ export async function reclaimStaleJobs(
 
 function businessIdOf(job: Job): string {
   return (job.payload as { business_id?: string }).business_id ?? "-";
+}
+
+function searchIdOf(job: Job): string | null {
+  return (job.payload as { search_id?: string }).search_id ?? null;
 }
 
 async function processJob(

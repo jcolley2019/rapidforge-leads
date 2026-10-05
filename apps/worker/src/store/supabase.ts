@@ -259,6 +259,18 @@ export class SupabaseStore implements DataStore {
     return count ?? 0;
   }
 
+  async failQueuedJobsForSearch(searchId: string, reason: string): Promise<Job[]> {
+    const { data, error } = await this.db
+      .from("jobs")
+      .update({ status: "failed", error: reason, finished_at: nowIso() })
+      .contains("payload", { search_id: searchId })
+      .eq("status", "queued") // never touches a job a slot already claimed
+      .select();
+    if (error)
+      throw new Error(`[store] failQueuedJobsForSearch: ${error.message}`);
+    return (data ?? []) as Job[];
+  }
+
   async getQueueHealth(now: Date = new Date()): Promise<QueueHealth> {
     const tenMinAgoIso = new Date(now.getTime() - 10 * 60_000).toISOString();
     const [queued, running, runningOver, oldest] = await Promise.all([
