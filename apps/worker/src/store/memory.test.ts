@@ -107,3 +107,135 @@ describe("MemoryStore.upsertBusiness multi-location (workspace-wide)", () => {
     ).toBe("multi_location");
   });
 });
+
+// ---------------------------------------------------------------------------
+// RFL.WEB.10 — display audit resolution + pointer protection
+// ---------------------------------------------------------------------------
+
+describe("MemoryStore lead audit resolution (RFL.WEB.10)", () => {
+  async function seed(store: MemoryStore) {
+    const search = await store.createSearch({
+      workspace_id: DEV_WORKSPACE_ID,
+      created_by: DEV_USER_ID,
+      mode: "zip_radius",
+      params: { zip: "83686", radius_miles: 10 },
+      category: "plumber",
+    });
+    const business = await store.upsertBusiness(
+      input({ google_place_id: "accurbore", name: "Accurbore, Inc.", website_url: "https://accurbore.com" }),
+    );
+    const result = await store.ensureSearchResult(DEV_WORKSPACE_ID, search.id, business.id);
+    const completed = await store.insertAudit({
+      workspace_id: DEV_WORKSPACE_ID,
+      business_id: business.id,
+      website_url: business.website_url,
+      http_status: 200,
+      response_ms: 300,
+      ssl_valid: true,
+      website_health_score: 72,
+      star_grade: 4,
+      sellability_score: 55,
+      score_breakdown: null,
+      issues: [],
+      status: "completed",
+      error_message: null,
+      completed_at: "2026-10-04T07:34:00.000Z",
+    });
+    await store.setLatestAudit(search.id, business.id, completed.id);
+    return { search, business, result, completed };
+  }
+
+  function pendingAudit(businessId: string) {
+    return {
+      workspace_id: DEV_WORKSPACE_ID,
+      business_id: businessId,
+      website_url: "https://accurbore.com",
+      http_status: null,
+      response_ms: null,
+      ssl_valid: null,
+      website_health_score: null,
+      star_grade: null,
+      sellability_score: null,
+      score_breakdown: null,
+      issues: null,
+      status: "pending",
+      error_message: null,
+      completed_at: null,
+    };
+  }
+
+  it("Leads and Workspace show the completed audit even when the pointer sits on a newer failed one", async () => {
+    const store = new MemoryStore();
+    const { search, business, completed } = await seed(store);
+    const failed = await store.insertAudit(pendingAudit(business.id));
+    await store.updateAudit(failed.id, { status: "failed", error_message: "stale: reclaimed" });
+    // Force the stale pointer the old write path left behind.
+    (await store.getSearchResult((await store.getLatestSearchResultForBusiness(business.id))!.id))!
+      .latest_audit_id = failed.id;
+
+    const leads = await store.listWorkspaceLeads(DEV_WORKSPACE_ID);
+    expect(leads.map((l) => l.business.id)).toContain(business.id);
+    expect(leads.find((l) => l.business.id === business.id)?.audit?.id).toBe(completed.id);
+    expect(leads.find((l) => l.business.id === business.id)?.audit?.sellability_score).toBe(55);
+
+    const detail = await store.getSearchDetail(search.id);
+    expect(detail?.leads[0]?.audit?.id).toBe(completed.id);
+  });
+
+  it("falls back to the newest audit of any status when none completed (RFL-03 chips)", async () => {
+    const store = new MemoryStore();
+    const search = await store.createSearch({
+      workspace_id: DEV_WORKSPACE_ID,
+      created_by: DEV_USER_ID,
+      mode: "zip_radius",
+      params: { zip: "83686", radius_miles: 10 },
+      category: "plumber",
+    });
+    const business = await store.upsertBusiness(input({ google_place_id: "p-only", name: "Pending Only" }));
+    await store.ensureSearchResult(DEV_WORKSPACE_ID, search.id, business.id);
+    const first = await store.insertAudit(pendingAudit(business.id));
+    await store.updateAudit(first.id, { status: "failed", error_message: "boom" });
+    const second = await store.insertAudit(pendingAudit(business.id));
+    // created_at ties within a tick — make the second strictly newer (the
+    // store hands back the live row, so this edits what it holds).
+    (second as { created_at: string | null }).created_at = "2099-01-01T00:00:00.000Z";
+
+    const leads = await store.listWorkspaceLeads(DEV_WORKSPACE_ID);
+    expect(leads[0]?.audit?.id).toBe(second.id);
+    expect(leads[0]?.audit?.status).toBe("pending");
+  });
+
+  it("setLatestAudit: a failed audit does not overwrite a completed pointer; a completed one does", async () => {
+    const store = new MemoryStore();
+    const { search, business, completed } = await seed(store);
+
+    const failed = await store.insertAudit(pendingAudit(business.id));
+    await store.updateAudit(failed.id, { status: "failed", error_message: "cancelled by user" });
+    await store.setLatestAudit(search.id, business.id, failed.id);
+    expect((await store.getLatestSearchResultForBusiness(business.id))?.latest_audit_id).toBe(completed.id);
+
+    const pending = await store.insertAudit(pendingAudit(business.id));
+    await store.setLatestAudit(search.id, business.id, pending.id);
+    expect((await store.getLatestSearchResultForBusiness(business.id))?.latest_audit_id).toBe(completed.id);
+
+    await store.updateAudit(pending.id, { status: "completed", completed_at: "2026-10-05T10:00:00.000Z" });
+    await store.setLatestAudit(search.id, business.id, pending.id);
+    expect((await store.getLatestSearchResultForBusiness(business.id))?.latest_audit_id).toBe(pending.id);
+  });
+
+  it("setLatestAudit: a pending audit takes an empty pointer (first audit shows 'auditing…')", async () => {
+    const store = new MemoryStore();
+    const search = await store.createSearch({
+      workspace_id: DEV_WORKSPACE_ID,
+      created_by: DEV_USER_ID,
+      mode: "zip_radius",
+      params: { zip: "83686", radius_miles: 10 },
+      category: "plumber",
+    });
+    const business = await store.upsertBusiness(input({ google_place_id: "fresh", name: "Fresh Co" }));
+    await store.ensureSearchResult(DEV_WORKSPACE_ID, search.id, business.id);
+    const pending = await store.insertAudit(pendingAudit(business.id));
+    await store.setLatestAudit(search.id, business.id, pending.id);
+    expect((await store.getLatestSearchResultForBusiness(business.id))?.latest_audit_id).toBe(pending.id);
+  });
+});

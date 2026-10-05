@@ -43,6 +43,11 @@ import {
   MULTI_LOCATION_CHAIN_THRESHOLD,
   normalizeBusinessName,
 } from "../lib/chains";
+import {
+  groupAuditsByBusiness,
+  pickDisplayAudit,
+  shouldRepointLatestAudit,
+} from "./latest-audit";
 import { summarizeUsage } from "./usage";
 
 function nowIso(): string {
@@ -106,14 +111,14 @@ export class MemoryStore implements DataStore {
     const search = this.searches.get(id);
     if (!search) return null;
 
+    const auditsByBusiness = groupAuditsByBusiness([...this.audits.values()]);
     const leads: LeadView[] = [];
     for (const result of this.searchResults.values()) {
       if (result.search_id !== id) continue;
       const business = this.businesses.get(result.business_id);
       if (!business) continue;
-      const audit = result.latest_audit_id
-        ? (this.audits.get(result.latest_audit_id) ?? null)
-        : null;
+      // RFL.WEB.10: newest completed audit, never the raw pointer.
+      const audit = pickDisplayAudit(auditsByBusiness.get(business.id) ?? []);
       leads.push({ result, business, audit });
     }
 
@@ -404,8 +409,14 @@ export class MemoryStore implements DataStore {
     businessId: string,
     auditId: string,
   ): Promise<void> {
+    const next = this.audits.get(auditId) ?? null;
     for (const result of this.searchResults.values()) {
       if (result.search_id === searchId && result.business_id === businessId) {
+        const current = result.latest_audit_id
+          ? (this.audits.get(result.latest_audit_id) ?? null)
+          : null;
+        // RFL.WEB.10: a failed/pending audit never displaces a completed one.
+        if (!shouldRepointLatestAudit(current, next)) return;
         result.latest_audit_id = auditId;
         return;
       }
@@ -482,14 +493,14 @@ export class MemoryStore implements DataStore {
   }
 
   async listWorkspaceLeads(workspaceId: string): Promise<LeadView[]> {
+    const auditsByBusiness = groupAuditsByBusiness([...this.audits.values()]);
     const leads: LeadView[] = [];
     for (const result of this.searchResults.values()) {
       if (result.workspace_id !== workspaceId) continue;
       const business = this.businesses.get(result.business_id);
       if (!business) continue;
-      const audit = result.latest_audit_id
-        ? (this.audits.get(result.latest_audit_id) ?? null)
-        : null;
+      // RFL.WEB.10: newest completed audit, never the raw pointer.
+      const audit = pickDisplayAudit(auditsByBusiness.get(business.id) ?? []);
       leads.push({ result, business, audit });
     }
     return sortLeads(leads);
