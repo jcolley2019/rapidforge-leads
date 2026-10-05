@@ -13,7 +13,7 @@
  * title/meta/H1 is rejected, re-run once, then persisted flagged.
  */
 import type { AgentResult, Business } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
+import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import type { FetchedSite } from "../lib/site";
 import { stripTags } from "./conversion";
 import {
@@ -260,6 +260,8 @@ export interface SeoOutput extends SeoChecks {
 }
 
 export interface SeoContext {
+  /** Stage budget signal (RFL.QUEUE.8) — cancels the AI request. */
+  signal?: AbortSignal;
   business: Business;
   site: FetchedSite | null;
   /** Probed by the orchestrator through the SiteFetcher seam. */
@@ -298,12 +300,14 @@ export async function runSeo(ctx: SeoContext): Promise<AgentResult<SeoOutput>> {
     }
 
     const summary = await generateJsonSummary({
-      model: MODEL_SONNET,
+      model: MODEL_HAIKU,
+      kind: "narration",
       system: SEO_SUMMARY_SYSTEM,
       prompt: buildSeoSummaryPrompt(checks),
-      parse: (raw) => SeoSummarySchema.parse(JSON.parse(raw)),
+      schema: SeoSummarySchema,
       guardrail: makeSeoSummaryGuardrail(checks),
       template: () => buildTemplateSeoSummary(checks),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     return {
@@ -314,6 +318,7 @@ export async function runSeo(ctx: SeoContext): Promise<AgentResult<SeoOutput>> {
       modelUsed: summary.modelUsed,
       tokensUsed: summary.tokensUsed,
       costCents: summary.costCents,
+      costMicrocents: summary.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: summary.guardrailPassed,
       guardrailNotes: summary.guardrailNotes,

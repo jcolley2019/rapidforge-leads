@@ -23,8 +23,6 @@ import {
 import {
   generateJsonSummary,
   MODEL_HAIKU,
-  stripJsonFences,
-  type SummarySpec,
 } from "../lib/ai";
 import { designBriefGuardrail } from "./guardrails/design-brief";
 import {
@@ -257,15 +255,14 @@ export interface DesignBriefContext {
   siteHtmlExcerpt: string | null;
   /** Injected for determinism. */
   now?: Date;
-  /** Test seam: replaces the model transport inside generateJsonSummary. */
-  call?: SummarySpec<DesignBriefJudgment>["call"];
 }
 
 export interface DesignBriefBuild {
   brief: DesignBrief;
   modelUsed: string | null;
   tokensUsed: number;
-  costCents: number;
+  costCents: number | null;
+  costMicrocents: number | null;
   guardrailPassed: boolean;
   guardrailNotes: string | null;
 }
@@ -290,7 +287,7 @@ export async function buildDesignBrief(ctx: DesignBriefContext): Promise<DesignB
       review_texts: reviewTexts.slice(0, 5).map((t) => t.slice(0, 400)),
     }),
     maxTokens: 600,
-    parse: (raw) => DesignBriefJudgmentSchema.parse(JSON.parse(stripJsonFences(raw))),
+    schema: DesignBriefJudgmentSchema,
     guardrail: (value) =>
       value.tone_descriptors.length > 0 && value.services.length > 0
         ? { passed: true, notes: null }
@@ -299,7 +296,6 @@ export async function buildDesignBrief(ctx: DesignBriefContext): Promise<DesignB
       tone_descriptors: templateTone(vertical),
       services: templateServices(business, audit),
     }),
-    ...(ctx.call ? { call: ctx.call } : {}),
   });
 
   const brief: DesignBrief = {
@@ -334,6 +330,7 @@ export async function buildDesignBrief(ctx: DesignBriefContext): Promise<DesignB
     modelUsed: judgment.modelUsed,
     tokensUsed: judgment.tokensUsed,
     costCents: judgment.costCents,
+    costMicrocents: judgment.costMicrocents,
     guardrailPassed: judgment.guardrailPassed,
     guardrailNotes: judgment.guardrailNotes,
   };
@@ -354,6 +351,7 @@ export async function runDesignBrief(
       modelUsed: built.modelUsed,
       tokensUsed: built.tokensUsed,
       costCents: built.costCents,
+      costMicrocents: built.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: built.guardrailPassed,
       guardrailNotes: built.guardrailNotes,

@@ -1,6 +1,7 @@
 /**
  * Analyst — PRD 6.11 (v1.5). Runs on **Opus 4.8** (Sprint 8 — the stack no
- * longer depends on Fable 5's availability), at effort "low" for cost.
+ * longer depends on Fable 5's availability); RFL.AI.9 moved it to Sonnet 5.5 at
+ * effort "low" (audit §e).
  *
  * Narrative synthesis over the deterministic scores: an executive verdict,
  * top-3 improvements, and reasoning that cites the audit agents by name and
@@ -12,7 +13,7 @@
  * otherwise via POST /api/businesses/:id/analyst.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_OPUS } from "../lib/ai";
+import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
 import { makeAnalystGuardrail } from "./guardrails/analyst";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
 import {
@@ -29,10 +30,16 @@ import {
   type Improvement,
 } from "./prompts/analyst";
 
-/** Opus effort — "low" keeps cost down; raise later if verdict depth needs it. */
-const ANALYST_EFFORT = "low" as const;
+/**
+ * Sonnet 5.5 at effort "low" (RFL.AI.9, audit §e): the verdict space is
+ * bounded by the deterministic scores and the guardrail (star band, three
+ * agents cited, three items). Opus stays one constant away if an eval says so.
+ */
+export const ANALYST_EFFORT = "low" as const;
 
 export interface AnalystContext {
+  /** Budget signal when run inside a job (RFL.QUEUE.8); absent on demand. */
+  signal?: AbortSignal;
   business: Business;
   /** The completed audit to synthesize (its measured data + scores). */
   audit: Audit;
@@ -211,14 +218,15 @@ export async function runAnalyst(
     const vars: CascadingVars = resolveConfigVars(ctx.config);
 
     const outcome = await generateJsonSummary<AnalystOutput>({
-      model: MODEL_OPUS,
+      model: MODEL_SONNET,
       effort: ANALYST_EFFORT,
       system: ANALYST_SYSTEM,
       prompt: buildAnalystPrompt(facts, vars),
       maxTokens: 1500,
-      parse: (raw) => AnalystOutputSchema.parse(JSON.parse(raw)),
+      schema: AnalystOutputSchema,
       guardrail: makeAnalystGuardrail(facts.scores.star_grade),
       template: () => buildTemplateAnalyst(facts),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     return {
@@ -229,6 +237,7 @@ export async function runAnalyst(
       modelUsed: outcome.modelUsed,
       tokensUsed: outcome.tokensUsed,
       costCents: outcome.costCents,
+      costMicrocents: outcome.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: outcome.guardrailPassed,
       guardrailNotes: outcome.guardrailNotes,

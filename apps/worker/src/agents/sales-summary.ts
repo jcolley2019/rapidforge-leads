@@ -23,7 +23,12 @@ export interface SalesSummaryContext {
   business: Business;
   audit: Audit;
   config: WorkspaceConfig | null;
+  /** Budget signal when run inside a job (RFL.QUEUE.8); absent on demand. */
+  signal?: AbortSignal;
 }
+
+/** Sonnet 5.5 effort — voice + specificity hold at "low" (audit §e). */
+export const SALES_SUMMARY_EFFORT = "low" as const;
 
 /** The Analyst verdict persisted on the audit, if it ran (best-effort). */
 function analystFrom(audit: Audit): AnalystOutput | null {
@@ -100,12 +105,14 @@ export async function runSalesSummary(
 
     const outcome = await generateJsonSummary<SalesSummaryOutput>({
       model: MODEL_SONNET,
+      effort: SALES_SUMMARY_EFFORT,
       system: buildSalesSummarySystem(vars),
       prompt: buildSalesSummaryPrompt(facts, vars, analyst),
       maxTokens: 1200,
-      parse: (raw) => SalesSummaryOutputSchema.parse(JSON.parse(raw)),
+      schema: SalesSummaryOutputSchema,
       guardrail: salesSummaryGuardrail,
       template: () => buildTemplateSalesSummary(facts),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     return {
@@ -116,6 +123,7 @@ export async function runSalesSummary(
       modelUsed: outcome.modelUsed,
       tokensUsed: outcome.tokensUsed,
       costCents: outcome.costCents,
+      costMicrocents: outcome.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: outcome.guardrailPassed,
       guardrailNotes: outcome.guardrailNotes,

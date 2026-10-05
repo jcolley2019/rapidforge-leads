@@ -4,34 +4,62 @@
  * App code NEVER imports the Anthropic SDK and NEVER fetches
  * api.anthropic.com directly (CLAUDE.md Section 4). All calls route through
  * RapidForge AI Core (github.com/jcolley2019/rapidforge-ai-core, pinned by
- * commit in apps/worker/package.json).
+ * release tag in apps/worker/package.json).
+ *
+ * RFL.AI.9 (ai-core v0.9.0):
+ *   - Retries live in ONE layer: the provider (`maxRetries: 2`). Nothing
+ *     here re-issues a failed transport call.
+ *   - Strict-JSON agents use structured output: `outputConfig.format` built
+ *     from the agent's Zod schema, `parseJson` to validate, and
+ *     `OutputParseError.reason` mapped onto the fallback paths.
+ *   - A refusal (`stop_reason: "refusal"`, HTTP 200) on ANY model retries the
+ *     identical request on MODEL_REFUSAL_FALLBACK once (finding 20).
+ *   - Cost comes from ai-core's price table (`estimateCostUsd`), carried as
+ *     exact integer microcents; `cost_cents` is derived. An unknown model id
+ *     records tokens and a null cost — never a guess (finding 19).
+ *   - The stage budget's AbortSignal (RFL.QUEUE.8) is the request signal.
  */
 import {
   AnthropicProvider,
+  estimateCostUsd,
+  jsonSchemaFormat,
+  OutputParseError,
+  parseJson,
+  PRICE_TABLE_DATE,
+  type AIProvider,
+  type CompletionRequest,
+  type CompletionResponse,
   type ContentPart,
+  type JsonSchemaFormat,
   type Message,
+  type TokenUsage,
 } from "@rapidforge/ai-core";
+import type { ZodType } from "zod";
 import { forceFixtures } from "./env";
 
 // Model assignments (CLAUDE.md 4.1 — retired names appear nowhere).
-/** Filter edge-pass; cheap classification. */
+/** Filter edge-pass, cheap classification, and the five narration summaries when AI_SUMMARIES=haiku. */
 export const MODEL_HAIKU = "claude-haiku-4-5";
-/** Audit summaries, Design (vision), Reputation, SEO, Sales Summary, Keyword Parser. */
-export const MODEL_SONNET = "claude-sonnet-4-6";
-/**
- * Top-tier synthesis — Analyst + Builder Brief (Sprint 8). Opus is the
- * PRIMARY so the stack never depends on Fable 5's availability. Thinking is
- * tuned via output_config.effort (we run these at effort "low").
- */
+/** Design (vision), Sales Summary, Analyst — all at effort "low". */
+export const MODEL_SONNET = "claude-sonnet-5-5";
+/** Builder Brief (effort "low") and the refusal fallback for every model. */
 export const MODEL_OPUS = "claude-opus-4-8";
-/**
- * Fable 5 — an OPTIONAL alternative for Analyst/Builder Brief (not selected by
- * default since Sprint 8). If ever used, a stop_reason "refusal" retries the
- * identical request on Opus (below). Adaptive thinking always on; temp unset.
- */
+/** Fable 5 — an OPTIONAL alternative for Analyst/Builder Brief; not selected by default. */
 export const MODEL_FABLE = "claude-fable-5";
-/** Refusal fallback for Fable 5 — the same model id as MODEL_OPUS. */
-export const MODEL_FABLE_FALLBACK = "claude-opus-4-8";
+/**
+ * Any model's `stop_reason: "refusal"` retries the identical request here
+ * (CLAUDE.md 4.1 generalised per finding 20). Opus itself is never retried.
+ */
+export const MODEL_REFUSAL_FALLBACK = MODEL_OPUS;
+
+export type ModelId =
+  | typeof MODEL_HAIKU
+  | typeof MODEL_SONNET
+  | typeof MODEL_OPUS
+  | typeof MODEL_FABLE;
+
+/** Adaptive-thinking effort (Sonnet 5.5, Opus, Fable). Never sent for Haiku. */
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Image input for vision calls (Design agent, PRD 6.8). */
 export interface AiImage {
@@ -41,24 +69,22 @@ export interface AiImage {
 }
 
 export interface AiCallOptions {
-  model:
-    | typeof MODEL_HAIKU
-    | typeof MODEL_SONNET
-    | typeof MODEL_OPUS
-    | typeof MODEL_FABLE
-    | typeof MODEL_FABLE_FALLBACK;
+  model: ModelId;
   system?: string;
   prompt: string;
-  /** Vision inputs — placed before the prompt text (Sonnet vision, PRD 6.8). */
+  /** Vision inputs — placed before the prompt text (PRD 6.8). */
   images?: AiImage[];
   maxTokens?: number;
   /**
-   * Adaptive-thinking effort for the thinking models (Opus, Fable 5) —
-   * controls cost, not a temperature. Forwarded to AI Core as
-   * output_config.effort (v0.3.0+); the Anthropic adapter emits it and leaves
-   * temperature unset. Inert for Sonnet/Haiku, which ignore output_config.
+   * Adaptive-thinking effort, forwarded as output_config.effort. ai-core
+   * rejects it before any network call on models that do not take it
+   * (Haiku 4.5), so callers only set it for Sonnet 5.5 / Opus / Fable.
    */
-  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  effort?: Effort;
+  /** Structured output: the JSON Schema the reply must satisfy. */
+  format?: JsonSchemaFormat;
+  /** The stage budget's signal (RFL.QUEUE.8): an abort cancels the request. */
+  signal?: AbortSignal;
 }
 
 export interface AiCallResult {
@@ -66,43 +92,86 @@ export interface AiCallResult {
   /** Model that actually answered (differs from requested after a fallback). */
   modelUsed: string;
   tokensUsed: number;
-  costCents: number;
+  /**
+   * Exact list-price cost in microcents (1¢ = 1_000_000), summed over both
+   * attempts after a refusal fallback. Null when ai-core has no price for
+   * the model that answered.
+   */
+  costMicrocents: number | null;
+  /** Anthropic's own stop reason (`end_turn` / `max_tokens` / `refusal` / …). */
   stopReason: string;
+  /** The ai-core response, for `parseJson`. */
+  response: CompletionResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Cost (finding 19): integer microcents in flight, cents derived at the edge
+// ---------------------------------------------------------------------------
+
+export const MICROCENTS_PER_CENT = 1_000_000;
+
+/** Nearest cent (not ceil — per-call ceil was inflating summary spend 2×). */
+export function centsFromMicrocents(microcents: number | null): number | null {
+  return microcents === null ? null : Math.round(microcents / MICROCENTS_PER_CENT);
 }
 
 /**
- * Model pricing in CENTS PER MILLION TOKENS (input / output) — used to
- * compute cost_cents on every call (CLAUDE.md 6.5/8). Values from the
- * Claude API pricing table, 2026-06. Matched by model-id prefix; unknown
- * models bill at the Fable rate so cost is never understated.
+ * Sum per-run costs for one audit. `undefined` (a deterministic agent that
+ * carries no cost field) counts as 0; `null` (an unknown model) makes the
+ * total unknown rather than understated.
  */
-const MODEL_PRICING_CENTS_PER_MTOK: ReadonlyArray<
-  [prefix: string, input: number, output: number]
-> = [
-  [MODEL_HAIKU, 100, 500],
-  [MODEL_SONNET, 300, 1_500],
-  [MODEL_FABLE, 1_000, 5_000],
-  [MODEL_FABLE_FALLBACK, 500, 2_500],
-];
-
-/** Integer cents (agent_runs/usage_events columns are int), rounded UP. */
-export function computeCostCents(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-): number {
-  const row = MODEL_PRICING_CENTS_PER_MTOK.find(([prefix]) =>
-    model.startsWith(prefix),
-  );
-  const [, inRate, outRate] = row ?? ["", 1_000, 5_000];
-  return Math.ceil((inputTokens * inRate + outputTokens * outRate) / 1_000_000);
+export function sumMicrocents(
+  values: ReadonlyArray<number | null | undefined>,
+): number | null {
+  let total = 0;
+  for (const v of values) {
+    if (v === null) return null;
+    total += v ?? 0;
+  }
+  return total;
 }
 
-/** Default output budget — strict-JSON agent replies, not essays. */
-const DEFAULT_MAX_TOKENS = 2048;
+/** Model ids already reported as unpriced — one log line per id per process. */
+const unpricedModelsLogged = new Set<string>();
 
-/** One retry on transient provider failures is handled by AI Core itself. */
-const provider = new AnthropicProvider();
+/** Microcents for one response, or null (logged once per model id) when ai-core has no price. */
+export function costMicrocentsFor(model: string, usage: TokenUsage | undefined): number | null {
+  const estimate = usage ? estimateCostUsd(model, usage) : undefined;
+  if (!estimate) {
+    if (!unpricedModelsLogged.has(model)) {
+      unpricedModelsLogged.add(model);
+      console.warn(
+        `[ai] no list price for model ${model} (ai-core PRICE_TABLE ${PRICE_TABLE_DATE}) — recording tokens only, cost_cents null`,
+      );
+    }
+    return null;
+  }
+  return Math.round(estimate.usd * 100 * MICROCENTS_PER_CENT);
+}
+
+// ---------------------------------------------------------------------------
+// Transport
+// ---------------------------------------------------------------------------
+
+/** ai-core's own default; thinking tokens count against it on Sonnet 5.5 / Opus. */
+export const DEFAULT_MAX_TOKENS = 4096;
+
+/** The one retry layer (ai-core README "Timeouts and retries"): up to 3 attempts. */
+export const PROVIDER_MAX_RETRIES = 2;
+
+type Transport = Pick<AIProvider, "complete">;
+
+function defaultProvider(): Transport {
+  return new AnthropicProvider({ maxRetries: PROVIDER_MAX_RETRIES });
+}
+
+let provider: Transport = defaultProvider();
+
+/** Test seam: a fake provider (and a fresh unpriced-model log). Null restores the real one. */
+export function setAiProviderForTests(fake: Transport | null): void {
+  provider = fake ?? defaultProvider();
+  unpricedModelsLogged.clear();
+}
 
 function buildMessages(options: AiCallOptions): Message[] {
   const messages: Message[] = [];
@@ -123,51 +192,23 @@ function buildMessages(options: AiCallOptions): Message[] {
   return messages;
 }
 
-/**
- * Call a Claude model via RapidForge AI Core (the ONLY Anthropic path —
- * CLAUDE.md Section 4). Fable 5 refusals arrive as HTTP 200 with
- * stop_reason "refusal" (AI Core maps it to finishReason
- * "content_filter") — the IDENTICAL request retries on claude-opus-4-8
- * per CLAUDE.md 4.1; tokens/cost of both attempts are summed.
- */
-export async function callModel(options: AiCallOptions): Promise<AiCallResult> {
-  const runOnce = async (model: AiCallOptions["model"]) => {
-    const response = await provider.complete({
-      messages: buildMessages(options),
-      model,
-      maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
-      ...(options.effort ? { outputConfig: { effort: options.effort } } : {}),
-    });
-    const inputTokens = response.usage?.inputTokens ?? 0;
-    const outputTokens = response.usage?.outputTokens ?? 0;
-    return {
-      text: response.text,
-      modelUsed: response.model,
-      tokensUsed: response.usage?.totalTokens ?? 0,
-      costCents: computeCostCents(response.model, inputTokens, outputTokens),
-      stopReason: mapStopReason(response.finishReason),
-    } satisfies AiCallResult;
+function buildRequest(options: AiCallOptions, model: string): CompletionRequest {
+  const outputConfig = {
+    ...(options.effort ? { effort: options.effort } : {}),
+    ...(options.format ? { format: options.format } : {}),
   };
-
-  const first = await runOnce(options.model);
-  if (options.model === MODEL_FABLE && first.stopReason === "refusal") {
-    console.warn(
-      "[ai] fable-5 refusal — retrying identical request on claude-opus-4-8 (CLAUDE.md 4.1)",
-    );
-    const second = await runOnce(MODEL_FABLE_FALLBACK);
-    return {
-      ...second,
-      tokensUsed: first.tokensUsed + second.tokensUsed,
-      costCents: first.costCents + second.costCents,
-    };
-  }
-  return first;
+  return {
+    messages: buildMessages(options),
+    model,
+    maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+    ...(Object.keys(outputConfig).length > 0 ? { outputConfig } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
 }
 
-function mapStopReason(
-  finishReason: "stop" | "length" | "content_filter" | "other" | undefined,
-): string {
-  switch (finishReason) {
+function stopReasonOf(response: CompletionResponse): string {
+  if (response.rawStopReason) return response.rawStopReason;
+  switch (response.finishReason) {
     case "stop":
       return "end_turn";
     case "length":
@@ -179,8 +220,44 @@ function mapStopReason(
   }
 }
 
+async function runOnce(options: AiCallOptions, model: string): Promise<AiCallResult> {
+  const response = await provider.complete(buildRequest(options, model));
+  return {
+    text: response.text,
+    modelUsed: response.model,
+    tokensUsed: response.usage?.totalTokens ?? 0,
+    costMicrocents: costMicrocentsFor(response.model, response.usage),
+    stopReason: stopReasonOf(response),
+    response,
+  };
+}
+
+/**
+ * Call a Claude model via RapidForge AI Core (the ONLY Anthropic path —
+ * CLAUDE.md Section 4). The provider retries transport failures itself;
+ * nothing here does. A refusal (HTTP 200, stop_reason "refusal") on any
+ * model other than the fallback retries the IDENTICAL request once on
+ * MODEL_REFUSAL_FALLBACK; tokens/cost of both attempts are summed.
+ */
+export async function callModel(options: AiCallOptions): Promise<AiCallResult> {
+  const first = await runOnce(options, options.model);
+  if (first.stopReason !== "refusal" || options.model === MODEL_REFUSAL_FALLBACK) {
+    return first;
+  }
+  const category = first.response.stopDetails?.category ?? "uncategorised";
+  console.warn(
+    `[ai] ${first.modelUsed} refused (${category}) — retrying identical request on ${MODEL_REFUSAL_FALLBACK} (CLAUDE.md 4.1)`,
+  );
+  const second = await runOnce(options, MODEL_REFUSAL_FALLBACK);
+  return {
+    ...second,
+    tokensUsed: first.tokensUsed + second.tokensUsed,
+    costMicrocents: sumMicrocents([first.costMicrocents, second.costMicrocents]),
+  };
+}
+
 // ---------------------------------------------------------------------------
-// Sprint 3 AI seam — Sonnet summaries with a deterministic template fallback
+// Modes
 // ---------------------------------------------------------------------------
 
 /**
@@ -194,6 +271,63 @@ export function aiSummaryMode(): "core" | "template" {
   return process.env.ANTHROPIC_API_KEY ? "core" : "template";
 }
 
+/**
+ * Narration summaries (Health, Conversion, Presence, Reputation, SEO) only
+ * restate numbers the worker measured; their guardrails are mechanical and
+ * the deterministic templates pass them (audit §e). They are template by
+ * default; AI_SUMMARIES=haiku routes them to Haiku 4.5 (no effort).
+ */
+export function narrationSummaryMode(): "template" | "haiku" {
+  return process.env.AI_SUMMARIES === "haiku" ? "haiku" : "template";
+}
+
+// ---------------------------------------------------------------------------
+// Structured output
+// ---------------------------------------------------------------------------
+
+/**
+ * JSON Schema keywords the Messages API rejects in output_config.format
+ * (ai-core README "Structured output"). The wire schema carries only the
+ * shape; `parseJson` still enforces the full Zod schema locally, so a reply
+ * outside a bound is a schema_mismatch, never silently accepted.
+ */
+const WIRE_UNSUPPORTED_KEYWORDS = new Set([
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "format",
+  "minItems",
+  "maxItems",
+  "uniqueItems",
+  "minProperties",
+  "maxProperties",
+]);
+
+function stripUnsupported(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(stripUnsupported);
+  if (node === null || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (WIRE_UNSUPPORTED_KEYWORDS.has(key) && typeof value !== "object") continue;
+    out[key] = stripUnsupported(value);
+  }
+  return out;
+}
+
+/** The agent's Zod schema as an API-safe output_config.format. */
+export function wireFormat<T>(schema: ZodType<T>, name?: string): JsonSchemaFormat {
+  const built = jsonSchemaFormat(schema, name);
+  return {
+    ...built,
+    schema: stripUnsupported(built.schema) as Record<string, unknown>,
+  };
+}
+
 /** Pure guardrail verdict (CLAUDE.md 6.2). */
 export interface GuardrailResult {
   passed: boolean;
@@ -201,20 +335,26 @@ export interface GuardrailResult {
 }
 
 export interface SummarySpec<T> {
-  model: AiCallOptions["model"];
+  model: ModelId;
+  /**
+   * "narration" (default "judgment"): template unless AI_SUMMARIES=haiku
+   * — see narrationSummaryMode. Narration specs name MODEL_HAIKU.
+   */
+  kind?: "judgment" | "narration";
   system: string;
   prompt: string;
   /** Vision inputs forwarded to callModel (Design agent, PRD 6.8). */
   images?: AiImage[];
   maxTokens?: number;
-  /** Fable 5 adaptive-thinking effort forwarded to callModel (Analyst/Brief). */
-  effort?: AiCallOptions["effort"];
-  /** Zod-parse the model's strict-JSON reply (CLAUDE.md 6.1). */
-  parse: (raw: string) => T;
+  /** Adaptive-thinking effort (Sonnet 5.5 / Opus / Fable only). */
+  effort?: Effort;
+  /** The reply's Zod schema: sent as output_config.format, enforced by parseJson. */
+  schema: ZodType<T>;
   guardrail: (value: T) => GuardrailResult;
   /** Deterministic fallback — template mode AND terminal AI failures. */
-  template: () => T;  /** Test seam: replaces callModel (transport) — never set in production. */
-  call?: (options: AiCallOptions) => Promise<AiCallResult>;
+  template: () => T;
+  /** Stage budget signal (RFL.QUEUE.8). */
+  signal?: AbortSignal;
 }
 
 export interface SummaryOutcome<T> {
@@ -222,79 +362,108 @@ export interface SummaryOutcome<T> {
   /** Null when the deterministic template answered. */
   modelUsed: string | null;
   tokensUsed: number;
-  costCents: number;
+  /** Exact spend; null when the answering model has no list price. */
+  costMicrocents: number | null;
+  /** Derived from costMicrocents (nearest cent); null when unknown. */
+  costCents: number | null;
   guardrailPassed: boolean;
   guardrailNotes: string | null;
 }
 
-/** Strip markdown fences some models wrap around JSON. */
-export function stripJsonFences(raw: string): string {
-  return raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```\s*$/, "")
-    .trim();
+function templateOutcome<T>(spec: { template: () => T; guardrail: (v: T) => GuardrailResult }): SummaryOutcome<T> {
+  const value = spec.template();
+  const verdict = spec.guardrail(value);
+  return {
+    value,
+    modelUsed: null,
+    tokensUsed: 0,
+    costMicrocents: 0,
+    costCents: 0,
+    guardrailPassed: verdict.passed,
+    guardrailNotes: verdict.notes,
+  };
+}
+
+function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
- * Guardrail protocol (CLAUDE.md 6.2): run → fail → re-run once → on the
- * second failure persist flagged (guardrail_passed:false + notes), never
- * silently accept bad output, never stall the job. Any hard AI failure
- * (unwired Core, network, unparseable JSON twice) falls back to the
- * deterministic template so the audit always completes.
+ * Guardrail protocol (CLAUDE.md 6.2) on top of structured output:
+ *   call → parseJson → guardrail → pass.
+ *   guardrail fail → re-run once → second fail persists flagged
+ *     (guardrail_passed:false + notes); never silently accept bad output.
+ *   OutputParseError.reason: refused → template (the model already got its
+ *     one refusal fallback inside callModel); truncated → retry once with
+ *     max_tokens doubled, then template; invalid_json / schema_mismatch →
+ *     template. Transport errors → template (the provider already retried).
+ * At most two model calls per summary; the audit always completes.
  */
 export async function generateJsonSummary<T>(
   spec: SummarySpec<T>,
 ): Promise<SummaryOutcome<T>> {
-  if (aiSummaryMode() === "template") {
-    const value = spec.template();
-    const verdict = spec.guardrail(value);
-    return {
-      value,
-      modelUsed: null,
-      tokensUsed: 0,
-      costCents: 0,
-      guardrailPassed: verdict.passed,
-      guardrailNotes: verdict.notes,
-    };
+  if (aiSummaryMode() === "template") return templateOutcome(spec);
+  if (spec.kind === "narration" && narrationSummaryMode() === "template") {
+    return templateOutcome(spec);
   }
 
+  const format = wireFormat(spec.schema);
+  let maxTokens = spec.maxTokens ?? DEFAULT_MAX_TOKENS;
   let tokensUsed = 0;
-  let costCents = 0;
+  let costMicrocents: number | null = 0;
   let lastFailure = "";
   let flagged: { value: T; modelUsed: string; notes: string } | null = null;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     let result: AiCallResult;
     try {
-      result = await (spec.call ?? callModel)({
+      result = await callModel({
         model: spec.model,
         system: spec.system,
         prompt: spec.prompt,
+        format,
+        maxTokens,
         ...(spec.images ? { images: spec.images } : {}),
-        ...(spec.maxTokens ? { maxTokens: spec.maxTokens } : {}),
-        ...(spec.effort ? { effort: spec.effort } : {}),
+        ...(spec.effort && spec.model !== MODEL_HAIKU ? { effort: spec.effort } : {}),
+        ...(spec.signal ? { signal: spec.signal } : {}),
       });
     } catch (err) {
-      lastFailure = `AI call failed: ${err instanceof Error ? err.message : String(err)}`;
-      break; // transport/wiring failure — retrying won't change it
+      lastFailure = `AI call failed: ${describeError(err)}`;
+      break; // ai-core already retried what was retryable
     }
     tokensUsed += result.tokensUsed;
-    costCents += result.costCents;
+    costMicrocents = sumMicrocents([costMicrocents, result.costMicrocents]);
+
     let value: T;
     try {
-      value = spec.parse(stripJsonFences(result.text));
+      value = parseJson(result.response, spec.schema);
     } catch (err) {
-      lastFailure = `Unparseable model output: ${err instanceof Error ? err.message : String(err)}`;
-      continue;
+      if (!(err instanceof OutputParseError)) {
+        lastFailure = `Unparseable model output: ${describeError(err)}`;
+        break;
+      }
+      if (err.reason === "truncated" && attempt === 1) {
+        lastFailure = `Truncated at max_tokens ${maxTokens}`;
+        maxTokens *= 2;
+        continue;
+      }
+      lastFailure =
+        err.reason === "refused"
+          ? `Refused by ${result.modelUsed}${err.stopDetails?.category ? ` (${err.stopDetails.category})` : ""}`
+          : err.reason === "truncated"
+            ? `Truncated at max_tokens ${maxTokens} after one doubled retry`
+            : `${err.reason}: ${err.message}`;
+      break;
     }
+
     const verdict = spec.guardrail(value);
     if (verdict.passed) {
       return {
         value,
         modelUsed: result.modelUsed,
         tokensUsed,
-        costCents,
+        costMicrocents,
+        costCents: centsFromMicrocents(costMicrocents),
         guardrailPassed: true,
         guardrailNotes: null,
       };
@@ -313,7 +482,8 @@ export async function generateJsonSummary<T>(
       value: flagged.value,
       modelUsed: flagged.modelUsed,
       tokensUsed,
-      costCents,
+      costMicrocents,
+      costCents: centsFromMicrocents(costMicrocents),
       guardrailPassed: false,
       guardrailNotes: flagged.notes,
     };
@@ -324,7 +494,8 @@ export async function generateJsonSummary<T>(
     value,
     modelUsed: null,
     tokensUsed,
-    costCents,
+    costMicrocents,
+    costCents: centsFromMicrocents(costMicrocents),
     guardrailPassed: false,
     guardrailNotes: `Fell back to deterministic template — ${lastFailure}`,
   };
@@ -337,26 +508,19 @@ export async function generateJsonSummary<T>(
 // ---------------------------------------------------------------------------
 
 export interface MarkdownSpec {
-  model: AiCallOptions["model"];
+  model: ModelId;
   system: string;
   prompt: string;
   images?: AiImage[];
   maxTokens?: number;
-  effort?: AiCallOptions["effort"];
+  effort?: Effort;
   guardrail: (markdown: string) => GuardrailResult;
   /** Deterministic fallback — template mode AND terminal AI failures. */
-  template: () => string;  /** Test seam: replaces callModel (transport) — never set in production. */
-  call?: (options: AiCallOptions) => Promise<AiCallResult>;
+  template: () => string;
+  signal?: AbortSignal;
 }
 
-export interface MarkdownOutcome {
-  value: string;
-  modelUsed: string | null;
-  tokensUsed: number;
-  costCents: number;
-  guardrailPassed: boolean;
-  guardrailNotes: string | null;
-}
+export type MarkdownOutcome = SummaryOutcome<string>;
 
 /** Remove a wrapping ```markdown … ``` fence if the whole reply is fenced. */
 export function stripMarkdownFence(raw: string): string {
@@ -368,47 +532,48 @@ export function stripMarkdownFence(raw: string): string {
 
 /**
  * Guardrail protocol (CLAUDE.md 6.2) for a markdown deliverable: run → fail →
- * re-run once → on the second failure persist flagged; any hard AI failure
- * falls back to the deterministic template so the deliverable always exists.
+ * re-run once → on the second failure persist flagged. A refusal (after
+ * callModel's fallback) or transport error falls back to the template; a
+ * reply cut off at max_tokens retries once with the cap doubled.
  */
 export async function generateMarkdown(
   spec: MarkdownSpec,
 ): Promise<MarkdownOutcome> {
-  if (aiSummaryMode() === "template") {
-    const value = spec.template();
-    const verdict = spec.guardrail(value);
-    return {
-      value,
-      modelUsed: null,
-      tokensUsed: 0,
-      costCents: 0,
-      guardrailPassed: verdict.passed,
-      guardrailNotes: verdict.notes,
-    };
-  }
+  if (aiSummaryMode() === "template") return templateOutcome(spec);
 
+  let maxTokens = spec.maxTokens ?? DEFAULT_MAX_TOKENS;
   let tokensUsed = 0;
-  let costCents = 0;
+  let costMicrocents: number | null = 0;
   let lastFailure = "";
   let flagged: { value: string; modelUsed: string; notes: string } | null = null;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     let result: AiCallResult;
     try {
-      result = await (spec.call ?? callModel)({
+      result = await callModel({
         model: spec.model,
         system: spec.system,
         prompt: spec.prompt,
+        maxTokens,
         ...(spec.images ? { images: spec.images } : {}),
-        ...(spec.maxTokens ? { maxTokens: spec.maxTokens } : {}),
-        ...(spec.effort ? { effort: spec.effort } : {}),
+        ...(spec.effort && spec.model !== MODEL_HAIKU ? { effort: spec.effort } : {}),
+        ...(spec.signal ? { signal: spec.signal } : {}),
       });
     } catch (err) {
-      lastFailure = `AI call failed: ${err instanceof Error ? err.message : String(err)}`;
+      lastFailure = `AI call failed: ${describeError(err)}`;
       break;
     }
     tokensUsed += result.tokensUsed;
-    costCents += result.costCents;
+    costMicrocents = sumMicrocents([costMicrocents, result.costMicrocents]);
+    if (result.stopReason === "refusal") {
+      lastFailure = `Refused by ${result.modelUsed}${result.response.stopDetails?.category ? ` (${result.response.stopDetails.category})` : ""}`;
+      break;
+    }
+    if (result.stopReason === "max_tokens" && attempt === 1) {
+      lastFailure = `Truncated at max_tokens ${maxTokens}`;
+      maxTokens *= 2;
+      continue;
+    }
     const value = stripMarkdownFence(result.text);
     const verdict = spec.guardrail(value);
     if (verdict.passed) {
@@ -416,7 +581,8 @@ export async function generateMarkdown(
         value,
         modelUsed: result.modelUsed,
         tokensUsed,
-        costCents,
+        costMicrocents,
+        costCents: centsFromMicrocents(costMicrocents),
         guardrailPassed: true,
         guardrailNotes: null,
       };
@@ -434,7 +600,8 @@ export async function generateMarkdown(
       value: flagged.value,
       modelUsed: flagged.modelUsed,
       tokensUsed,
-      costCents,
+      costMicrocents,
+      costCents: centsFromMicrocents(costMicrocents),
       guardrailPassed: false,
       guardrailNotes: flagged.notes,
     };
@@ -445,7 +612,8 @@ export async function generateMarkdown(
     value,
     modelUsed: null,
     tokensUsed,
-    costCents,
+    costMicrocents,
+    costCents: centsFromMicrocents(costMicrocents),
     guardrailPassed: false,
     guardrailNotes: `Fell back to deterministic template — ${lastFailure}`,
   };

@@ -36,6 +36,7 @@ import {
   withBudget,
   type StageLogger,
 } from "./lib/budget";
+import { centsFromMicrocents, sumMicrocents } from "./lib/ai";
 import { detectBotProtection } from "./lib/bot-protection";
 import { BrowserUnavailableError } from "./lib/browser";
 import type { PlacesClient } from "./lib/places";
@@ -446,18 +447,18 @@ async function runAuditPipeline(
   const runCtx = { job, search, budgetMs: STAGE_BUDGET_MS.agent, signal, log };
   const [health, conversion, presence, traffic, design, reputation, seo] =
     await Promise.all([
-      withAgentRun(deps, { ...runCtx, agent: "health", targetId: business.id }, () =>
-        runHealth({ business, site, psiDesktop, psiMobile, now }),
+      withAgentRun(deps, { ...runCtx, agent: "health", targetId: business.id }, (signal) =>
+        runHealth({ business, site, psiDesktop, psiMobile, now, signal }),
       ),
       withAgentRun(
         deps,
         { ...runCtx, agent: "conversion", targetId: business.id },
-        () => runConversion({ business, site }),
+        (signal) => runConversion({ business, site, signal }),
       ),
       withAgentRun(
         deps,
         { ...runCtx, agent: "presence", targetId: business.id },
-        () => runPresence({ business, site }),
+        (signal) => runPresence({ business, site, signal }),
       ),
       withAgentRun(
         deps,
@@ -467,15 +468,15 @@ async function runAuditPipeline(
       withAgentRun(
         deps,
         { ...runCtx, agent: "design", targetId: business.id },
-        () => runDesign({ business, site, screenshots, now }),
+        (signal) => runDesign({ business, site, screenshots, now, signal }),
       ),
       withAgentRun(
         deps,
         { ...runCtx, agent: "reputation", targetId: business.id },
-        () => runReputation({ business, previousAudit, now }),
+        (signal) => runReputation({ business, previousAudit, now, signal }),
       ),
-      withAgentRun(deps, { ...runCtx, agent: "seo", targetId: business.id }, () =>
-        runSeo({ business, site, hasSitemap, hasRobots }),
+      withAgentRun(deps, { ...runCtx, agent: "seo", targetId: business.id }, (signal) =>
+        runSeo({ business, site, hasSitemap, hasRobots, signal }),
       ),
     ]);
 
@@ -510,17 +511,14 @@ async function runAuditPipeline(
     throw new Error(scorer.error ?? "scorer failed");
   }
 
+  // Finding 19: exact microcents summed, rounded ONCE per audit (per-call
+  // ceil was logging ~2× the real summary spend). Null if any agent answered
+  // on a model ai-core cannot price.
+  const auditAgents = [health, conversion, presence, traffic, design, reputation, seo];
   await store.logUsageEvent({
     workspace_id: search.workspace_id,
     event_type: "audit_run",
-    cost_cents:
-      health.costCents +
-      conversion.costCents +
-      presence.costCents +
-      traffic.costCents +
-      design.costCents +
-      reputation.costCents +
-      seo.costCents,
+    cost_cents: centsFromMicrocents(sumMicrocents(auditAgents.map((r) => r.costMicrocents))),
     metadata: {
       business_id: business.id,
       audit_id: auditId,
@@ -564,7 +562,7 @@ async function runAuditPipeline(
           signal,
           log,
         },
-        () => runAnalyst({ business, audit: auditForAnalyst, config }),
+        (signal) => runAnalyst({ business, audit: auditForAnalyst, config, signal }),
       );
       if (analyst.status === "completed" && analyst.output) {
         await store.updateAudit(auditForAnalyst.id, {
@@ -603,7 +601,8 @@ async function withAgentRun<T extends Record<string, unknown>>(
     signal?: AbortSignal;
     log?: StageLogger;
   },
-  run: () => Promise<AgentResult<T>>,
+  /** Receives the stage budget's signal (RFL.QUEUE.8) to hand to the AI call. */
+  run: (signal: AbortSignal) => Promise<AgentResult<T>>,
   legacyOpts?: { budgetMs?: number; signal?: AbortSignal },
 ): Promise<AgentResult<T>> {
   const { store } = deps;
@@ -635,7 +634,7 @@ async function withAgentRun<T extends Record<string, unknown>>(
   const t0 = log.start(agent);
   let result: AgentResult<T>;
   try {
-    result = await withBudget(agent, budgetMs, () => run(), signal);
+    result = await withBudget(agent, budgetMs, (stageSignal) => run(stageSignal), signal);
     log.end(agent, t0, result.status);
   } catch (err) {
     if (err instanceof StageAbortedError) throw err;

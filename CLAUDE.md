@@ -59,12 +59,14 @@
 
 | Model | ID | Used for |
 |---|---|---|
-| Claude Haiku 4.5 | `claude-haiku-4-5` | Filter edge-pass; cheap classification |
-| Claude Sonnet 4.6 | `claude-sonnet-4-6` | Audit summaries, Design (vision), Reputation, SEO, Sales Summary, Keyword Parser |
-| Claude Opus 4.8 | `claude-opus-4-8` | **Analyst + Builder Brief (primary top tier — Sprint 8)**, at `effort: "low"` |
+| Claude Haiku 4.5 | `claude-haiku-4-5` | Filter edge-pass; cheap classification; Design Brief field extraction; the five **narration summaries** (Health, Conversion, Presence, Reputation, SEO) **only when `AI_SUMMARIES=haiku`** — deterministic template otherwise. Takes no `effort` (AI Core rejects it before the network) |
+| Claude Sonnet 5.5 | `claude-sonnet-5-5` | Design (vision), Sales Summary, **Analyst** — all at `effort: "low"` (RFL.AI.9; Analyst gate from RFL-05 unchanged) |
+| Claude Opus 4.8 | `claude-opus-4-8` | **Builder Brief** at `effort: "low"`; the refusal fallback for every model |
 | Claude Fable 5 | `claude-fable-5` | Optional alternative for Analyst/Builder Brief; not selected by default |
 
-**Top-tier rule (Sprint 8):** the stack runs fully on **Opus/Sonnet/Haiku** and does NOT depend on Fable 5's availability. Analyst + Builder Brief call `claude-opus-4-8` directly, with adaptive-thinking `effort` controlled via AI Core `output_config` (currently `low`; raise later for depth). **Fable 5 is optional:** if a call ever specifies `claude-fable-5`, its `stop_reason: "refusal"` (HTTP 200) still retries the identical request on `claude-opus-4-8` — that safety path stays wired in `lib/ai.ts` but is dormant. Never crash, never stall a job. "Opus 4.7" and "GPT-5.5" are not real model IDs — flag them if seen.
+Sonnet 4.6 was retired on 2026-10-04 (RFL.AI.9) — it appears nowhere.
+
+**Top-tier rule (Sprint 8, revised RFL.AI.9):** the stack runs fully on **Opus/Sonnet/Haiku** and does NOT depend on Fable 5's availability. Builder Brief calls `claude-opus-4-8`; Analyst, Design and Sales Summary call `claude-sonnet-5-5`; adaptive-thinking `effort` goes through AI Core `output_config` (currently `low` everywhere; raise later for depth). **Refusal rule (finding 20):** ANY model's `stop_reason: "refusal"` (HTTP 200 — Sonnet 5.5 and Fable can return one with a category) retries the identical request once on `claude-opus-4-8`; a refusal from Opus itself falls back to the deterministic template. Retries for transport failures live in AI Core only (`maxRetries: 2`) — never add a second loop in `lib/ai.ts`. Never crash, never stall a job. "Opus 4.7" and "GPT-5.5" are not real model IDs — flag them if seen.
 
 ### 4.2 Scoring Doctrine
 Scores are **deterministic math** (PRD Section 4; constants in `packages/shared/scoring.ts`). LLMs never assign Health, star, or Sellability scores — they interpret, critique, and write narrative on top of measured data. **Deterministic before AI:** if the worker can measure it, the worker measures it and the model receives it as fact.

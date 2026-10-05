@@ -8,7 +8,7 @@
  * twice-failed guardrail falls back to a complete deterministic template.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
-import { generateMarkdown, MODEL_OPUS } from "../lib/ai";
+import { centsFromMicrocents, generateMarkdown, MODEL_OPUS, sumMicrocents } from "../lib/ai";
 import { buildDesignBrief, embedDesignBrief } from "./design-brief";
 import { builderBriefGuardrail, h2Headings } from "./guardrails/builder-brief";
 import { countWords } from "./guardrails/analyst";
@@ -41,6 +41,8 @@ export interface BuilderBriefContext {
   competitors: CompetitorSummary[];
   /** Excerpt of the current homepage (route fetches it), or null. */
   siteHtmlExcerpt: string | null;
+  /** Budget signal when run inside a job (RFL.QUEUE.8); absent on demand. */
+  signal?: AbortSignal;
 }
 
 /** Deterministic, placeholder-free, all-sections brief (< 2000 words). */
@@ -151,6 +153,7 @@ export async function runBuilderBrief(
         ctx.siteHtmlExcerpt,
       ),
       maxTokens: 4000,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
       guardrail: builderBriefGuardrail,
       template: () =>
         buildTemplateBrief(
@@ -166,7 +169,7 @@ export async function runBuilderBrief(
     // block so the generator reads fields while the markdown stays the human
     // view. Its failure never fails the Builder Brief — the block is omitted.
     let markdown = outcome.value;
-    let designBriefCost = 0;
+    let designBriefMicrocents: number | null = 0;
     let designBriefTokens = 0;
     let designBriefNote: string | null = null;
     try {
@@ -176,7 +179,7 @@ export async function runBuilderBrief(
         siteHtmlExcerpt: ctx.siteHtmlExcerpt,
       });
       markdown = embedDesignBrief(markdown, design.brief);
-      designBriefCost = design.costCents;
+      designBriefMicrocents = design.costMicrocents;
       designBriefTokens = design.tokensUsed;
     } catch (err) {
       designBriefNote = `Design Brief JSON omitted: ${err instanceof Error ? err.message : String(err)}`;
@@ -187,6 +190,7 @@ export async function runBuilderBrief(
       headings.some((h) => h === s.toLowerCase() || h.startsWith(`${s.toLowerCase()} `)),
     );
 
+    const costMicrocents = sumMicrocents([outcome.costMicrocents, designBriefMicrocents]);
     return {
       agent: "builder-brief",
       status: "completed",
@@ -198,7 +202,8 @@ export async function runBuilderBrief(
       error: null,
       modelUsed: outcome.modelUsed,
       tokensUsed: outcome.tokensUsed + designBriefTokens,
-      costCents: outcome.costCents + designBriefCost,
+      costCents: centsFromMicrocents(costMicrocents),
+      costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: outcome.guardrailPassed,
       guardrailNotes:

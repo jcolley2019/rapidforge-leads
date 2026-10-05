@@ -2,7 +2,7 @@
  * Design Brief agent (RFL.BRIEF.7): deterministic assembly over a fixture
  * business with full places_details, the verbatim-quote guardrail, the CTA
  * priority chain, hours normalization, and the Haiku → template fallback
- * (throws / refusal / bad JSON) through lib/ai's transport seam.
+ * (throws / refusal / bad JSON) through lib/ai's provider seam.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,7 +12,8 @@ import {
   type DesignBrief,
 } from "@rapidforge/shared";
 import { FIXTURE_DETAILS } from "../lib/places/fixtures";
-import type { AiCallOptions, AiCallResult } from "../lib/ai";
+import { setAiProviderForTests } from "../lib/ai";
+import { fakeProvider, jsonReply, refusalReply, type FakeReply } from "../lib/ai.testkit";
 import {
   buildDesignBrief,
   embedDesignBrief,
@@ -245,6 +246,7 @@ describe("buildDesignBrief", () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
   afterEach(() => {
+    setAiProviderForTests(null);
     if (savedKey === undefined) delete process.env.ANTHROPIC_API_KEY;
     else process.env.ANTHROPIC_API_KEY = savedKey;
     vi.restoreAllMocks();
@@ -273,23 +275,21 @@ describe("buildDesignBrief", () => {
 
   it("core mode: the Haiku judgment fills tone/services and is recorded in source", async () => {
     process.env.ANTHROPIC_API_KEY = "test-key";
-    const call = vi.fn(async (_options: AiCallOptions): Promise<AiCallResult> => ({
+    const p = fakeProvider({
       text: '```json\n{"tone_descriptors":["warm","expert","local"],"services":["Water heater repair","Drain cleaning","Repiping"]}\n```',
-      modelUsed: "claude-haiku-4-5",
-      tokensUsed: 420,
-      costCents: 1,
-      stopReason: "end_turn",
-    }));
+    });
     const built = await buildDesignBrief({
       business: business(),
       audit: audit(),
       siteHtmlExcerpt: "Snake River Plumbing — water heaters, drains, repipes.",
       now: NOW,
-      call,
     });
-    expect(call).toHaveBeenCalledTimes(1);
-    expect(call.mock.calls[0]![0]).toMatchObject({ model: "claude-haiku-4-5" });
-    expect(call.mock.calls[0]![0]).not.toHaveProperty("effort");
+    expect(p.complete).toHaveBeenCalledTimes(1);
+    expect(p.requests[0]).toMatchObject({
+      model: "claude-haiku-4-5",
+      outputConfig: { format: { type: "json_schema" } },
+    });
+    expect(p.requests[0]!.outputConfig?.effort).toBeUndefined();
     expect(built.brief.tone_descriptors).toEqual(["warm", "expert", "local"]);
     expect(built.brief.services).toEqual(["Water heater repair", "Drain cleaning", "Repiping"]);
     expect(built.brief.source).toEqual({
@@ -297,22 +297,24 @@ describe("buildDesignBrief", () => {
       haiku_model: "claude-haiku-4-5",
       template_fallback: false,
     });
-    expect(built.costCents).toBe(1);
+    // 1000 in @ $1/M + 500 out @ $5/M = 0.35¢: exact microcents, 0 whole cents.
+    expect(built.costMicrocents).toBe(350_000);
+    expect(built.costCents).toBe(0);
   });
 
-  it.each([
-    ["the call throws", async (): Promise<AiCallResult> => { throw new Error("AI Core unreachable"); }],
-    ["the model refuses", async (): Promise<AiCallResult> => ({ text: "", modelUsed: "claude-haiku-4-5", tokensUsed: 10, costCents: 1, stopReason: "refusal" })],
-    ["the reply is not JSON", async (): Promise<AiCallResult> => ({ text: "Sure! Here are some tones: warm, friendly", modelUsed: "claude-haiku-4-5", tokensUsed: 30, costCents: 1, stopReason: "end_turn" })],
-    ["the JSON misses the schema", async (): Promise<AiCallResult> => ({ text: '{"tone_descriptors":["only-one"],"services":[]}', modelUsed: "claude-haiku-4-5", tokensUsed: 30, costCents: 1, stopReason: "end_turn" })],
-  ])("falls back to the template when %s", async (_label, impl) => {
+  it.each<[string, FakeReply]>([
+    ["the provider throws", new Error("AI Core unreachable")],
+    ["the model refuses (and so does the Opus fallback)", refusalReply()],
+    ["the reply is not JSON", { text: "Sure! Here are some tones: warm, friendly" }],
+    ["the JSON misses the schema", jsonReply({ tone_descriptors: ["only-one"], services: [] })],
+  ])("falls back to the template when %s", async (_label, reply) => {
     process.env.ANTHROPIC_API_KEY = "test-key";
+    fakeProvider(reply);
     const built = await buildDesignBrief({
       business: business(),
       audit: audit(),
       siteHtmlExcerpt: null,
       now: NOW,
-      call: vi.fn(impl),
     });
     expect(built.brief.tone_descriptors).toEqual(["dependable", "straight-talking", "fast-response"]);
     expect(built.brief.source.template_fallback).toBe(true);

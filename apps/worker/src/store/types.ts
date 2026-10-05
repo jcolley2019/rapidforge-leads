@@ -172,7 +172,8 @@ export interface UpdateAgentRunPatch {
   error?: string | null;
   model_used?: string | null;
   tokens_used?: number;
-  cost_cents?: number;
+  /** Null when the answering model has no list price (never a guess). */
+  cost_cents?: number | null;
   guardrail_passed?: boolean;
   guardrail_notes?: string | null;
   duration_ms?: number;
@@ -214,7 +215,8 @@ export interface ReclaimStaleResult {
 export interface LogUsageEventInput {
   workspace_id: string;
   event_type: UsageEventType;
-  cost_cents: number;
+  /** Null when part of the spend is on an unpriced model. */
+  cost_cents: number | null;
   metadata: Record<string, unknown> | null;
 }
 

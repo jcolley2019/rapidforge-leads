@@ -40,6 +40,8 @@ import {
 
 /** Output budget: five dimension notes + reasoning + issues, strict JSON. */
 const DESIGN_MAX_TOKENS = 1600;
+/** Sonnet 5.5 adaptive-thinking effort — visual judgment at the cheap end (audit §e). */
+export const DESIGN_EFFORT = "low" as const;
 
 export interface DesignOutput extends Record<string, unknown> {
   modernity_0_100: number;
@@ -52,6 +54,8 @@ export interface DesignOutput extends Record<string, unknown> {
 }
 
 export interface DesignContext {
+  /** Stage budget signal (RFL.QUEUE.8) — cancels the AI request. */
+  signal?: AbortSignal;
   business: Business;
   site: FetchedSite | null;
   screenshots: ScreenshotSet | null;
@@ -220,6 +224,7 @@ function templateOutcome(
     value,
     modelUsed: null,
     tokensUsed: 0,
+    costMicrocents: 0,
     costCents: 0,
     guardrailPassed: verdict.passed,
     guardrailNotes: verdict.notes,
@@ -253,13 +258,15 @@ export async function runDesign(
     const summary = images
       ? await generateJsonSummary({
           model: MODEL_SONNET,
+          effort: DESIGN_EFFORT,
           system: DESIGN_CRITIQUE_SYSTEM,
           prompt: buildDesignPrompt(url),
           images,
           maxTokens: DESIGN_MAX_TOKENS,
-          parse: (raw) => DesignCritiqueSchema.parse(JSON.parse(raw)),
+          schema: DesignCritiqueSchema,
           guardrail: designCritiqueGuardrail,
           template,
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
         })
       : templateOutcome(template, designCritiqueGuardrail);
 
@@ -279,6 +286,7 @@ export async function runDesign(
       modelUsed: summary.modelUsed,
       tokensUsed: summary.tokensUsed,
       costCents: summary.costCents,
+      costMicrocents: summary.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: summary.guardrailPassed,
       guardrailNotes: summary.guardrailNotes,

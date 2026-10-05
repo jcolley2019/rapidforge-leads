@@ -8,7 +8,7 @@
  * template) narrates; a Sonnet call may only adjudicate near-misses.
  */
 import type { AgentResult, Business } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
+import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import type { FetchedSite } from "../lib/site";
 import { makePresenceSummaryGuardrail } from "./guardrails/presence-summary";
 import {
@@ -246,6 +246,8 @@ export function buildTemplatePresenceSummary(
 }
 
 export interface PresenceContext {
+  /** Stage budget signal (RFL.QUEUE.8) — cancels the AI request. */
+  signal?: AbortSignal;
   business: Business;
   site: FetchedSite | null;
 }
@@ -273,19 +275,21 @@ export async function runPresence(
     const socialLinks = findSocialLinks(ctx.site.html);
 
     const summary = await generateJsonSummary({
-      model: MODEL_SONNET,
+      model: MODEL_HAIKU,
+      kind: "narration",
       system: PRESENCE_SUMMARY_SYSTEM,
       prompt: buildPresenceSummaryPrompt({
         business_name: ctx.business.name,
         ...nap,
         social_links: socialLinks,
       }),
-      parse: (raw) => PresenceSummarySchema.parse(JSON.parse(raw)),
+      schema: PresenceSummarySchema,
       guardrail: makePresenceSummaryGuardrail({
         napConsistent: nap.nap_consistent,
       }),
       template: () =>
         buildTemplatePresenceSummary(ctx.business, nap, socialLinks),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
     return {
@@ -302,6 +306,7 @@ export async function runPresence(
       modelUsed: summary.modelUsed,
       tokensUsed: summary.tokensUsed,
       costCents: summary.costCents,
+      costMicrocents: summary.costMicrocents,
       durationMs: Date.now() - startedAt,
       guardrailPassed: summary.guardrailPassed,
       guardrailNotes: summary.guardrailNotes,

@@ -26,12 +26,13 @@ supabase/         Migration SQL files — applied ONLY by hand in the Supabase w
   npm 10 rewrites its `peer` flags. `npm ci` works with either.
 - **Git on PATH + network access to GitHub.** The worker depends on
   [RapidForge AI Core](https://github.com/jcolley2019/rapidforge-ai-core)
-  (`@rapidforge/ai-core`), installed straight from GitHub at the commit pinned
-  in `apps/worker/package.json`. npm clones it and its `prepare` script builds
-  `dist/` during install — no local checkout or `npm link` needed. Your GitHub
-  credentials must be able to read that repo. To move to a newer ai-core,
-  push it to `main`, update the commit SHA in `apps/worker/package.json`, and
-  run `npm install`.
+  (`@rapidforge/ai-core`), installed straight from GitHub at the release tag
+  pinned in `apps/worker/package.json` (currently `#v0.9.0`; ai-core needs
+  Node ≥ 20.3, satisfied by the 22+ above). npm clones it and its `prepare`
+  script builds `dist/` during install — no local checkout or `npm link`
+  needed. Your GitHub credentials must be able to read that repo. To move to
+  a newer ai-core, cut a tag there (see its RELEASING.md), update the tag in
+  `apps/worker/package.json`, and run `npm install` with npm 11.
 - A Supabase project (free tier is fine) — see setup below. **Not** needed to
   run the tests.
 
@@ -110,6 +111,7 @@ Copy `apps/worker/.env.example` → `apps/worker/.env`.
 | `RAPIDFORGE_LEGACY_UA` | Debug only: `true` sends the old `RapidForge-Audit/1.0` User-Agent instead of desktop Chrome on site probes/fetches |
 | `SCREENSHOTS_ENABLED` | Off by default. `true` lets live audits capture homepage screenshots and the drawer download a PDF report with Chrome; otherwise the screenshot stage is skipped and the report route answers 503 `screenshots disabled` |
 | `PUPPETEER_EXECUTABLE_PATH` | Optional, with `SCREENSHOTS_ENABLED=true`: the Chrome/Chromium binary to launch. Unset → bundled Chrome for Testing in `~/.cache/puppeteer` (PowerShell: `npx @puppeteer/browsers install chrome@stable --path "$HOME\.cache\puppeteer"`), then Playwright Chromium, then installed Google Chrome |
+| `AI_SUMMARIES` | Off by default: the Health/Conversion/Presence/Reputation/SEO summaries are deterministic templates built from the measured data. `haiku` routes them to Claude Haiku 4.5 (≈1¢ per audited lead). Design, Sales Summary and Analyst use Sonnet 5.5; Builder Brief uses Opus 4.8 — see CLAUDE.md §4.1 |
 
 ### 4. First sign-in
 
