@@ -65,6 +65,7 @@ function sortValue(lead: DedupedLead, key: SortKey): string | number | null {
 
 export function LeadsView() {
   const {
+    lead: drawerLead,
     openLead,
     leadsVersion,
     notifyLeadsChanged,
@@ -101,6 +102,13 @@ export function LeadsView() {
   useEffect(() => {
     void load();
   }, [load, leadsVersion]);
+
+  // Keep an open drawer on the fresh row (re-audit scores, RFL.WEB.10).
+  useEffect(() => {
+    if (!drawerLead || !leads) return;
+    const fresh = leads.find((l) => l.result.id === drawerLead.result.id);
+    if (fresh && fresh !== drawerLead) openLead(fresh);
+  }, [leads, drawerLead, openLead]);
 
   const platforms = useMemo(() => {
     const set = new Set<string>();
