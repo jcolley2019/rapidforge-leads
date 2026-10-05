@@ -300,6 +300,12 @@ export interface DataStore {
     outcome: { status: Extract<JobStatus, "done" | "failed" | "queued">; error?: string | null },
   ): Promise<void>;
   countActiveJobsForSearch(searchId: string): Promise<number>;
+  /**
+   * Cancel (RFL.WEB.10): every 'queued' job of a search → 'failed' with the
+   * given error. Returns the rows changed. In-flight jobs are the poller's
+   * to abort (QueuePoller.abortJobsForSearch).
+   */
+  failQueuedJobsForSearch(searchId: string, reason: string): Promise<Job[]>;
   /** Requeue/fail jobs and fail agent_runs stuck 'running' (finding 5). */
   reclaimStaleWork(input: ReclaimStaleInput): Promise<ReclaimStaleResult>;
   /** Queue counters for /health (RFL.QUEUE.8). */

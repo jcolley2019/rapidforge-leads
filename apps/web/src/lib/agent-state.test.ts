@@ -6,6 +6,10 @@ import {
   emptyLiveState,
   FEED_CAP,
   recoverFromRuns,
+  isBusinessInFlight,
+  latestActivityFor,
+  reauditDisabled,
+  reauditPhase,
 } from "./agent-state";
 
 const started = (agent: string, target?: string): AgentEvent => ({
@@ -138,5 +142,93 @@ describe("recoverFromRuns", () => {
     state = applyAgentEvent(state, completed("scorer", "b1"), 10_500);
     expect(state.statuses.scorer!.done).toBe(2);
     expect(state.statuses.scorer!.avgRuntimeMs).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RFL.WEB.10 — per-business readings behind the Re-audit button
+// ---------------------------------------------------------------------------
+
+describe("isBusinessInFlight / latestActivityFor", () => {
+  const started: AgentEvent = { type: "agent.started", agent: "health", target: "biz-1" };
+  const progress: AgentEvent = {
+    type: "agent.progress",
+    agent: "health",
+    target: "biz-1",
+    message: "health running (budget 60s)",
+  };
+  const completed: AgentEvent = { type: "agent.completed", agent: "health", target: "biz-1", result: {} };
+
+  it("is in flight from agent.started until that agent's completed/failed", () => {
+    let state = applyAgentEvent(emptyLiveState(), started, 1000);
+    expect(isBusinessInFlight(state, "biz-1")).toBe(true);
+    expect(isBusinessInFlight(state, "biz-2")).toBe(false);
+    state = applyAgentEvent(state, progress, 1500);
+    expect(isBusinessInFlight(state, "biz-1")).toBe(true);
+    expect(latestActivityFor(state, "biz-1")?.message).toBe("health running (budget 60s)");
+    state = applyAgentEvent(state, completed, 2000);
+    expect(isBusinessInFlight(state, "biz-1")).toBe(false);
+    expect(latestActivityFor(state, "biz-1")?.kind).toBe("agent.completed");
+  });
+
+  it("stays in flight while ANY agent for the business is still running", () => {
+    let state = applyAgentEvent(emptyLiveState(), started, 1000);
+    state = applyAgentEvent(state, { type: "agent.started", agent: "seo", target: "biz-1" }, 1000);
+    state = applyAgentEvent(state, completed, 2000);
+    expect(isBusinessInFlight(state, "biz-1")).toBe(true);
+    state = applyAgentEvent(state, { type: "agent.failed", agent: "seo", target: "biz-1", error: "x" }, 2100);
+    expect(isBusinessInFlight(state, "biz-1")).toBe(false);
+  });
+
+  it("a business id that is a suffix of another never matches", () => {
+    const state = applyAgentEvent(emptyLiveState(), { ...started, target: "xbiz-1" }, 1000);
+    expect(isBusinessInFlight(state, "biz-1")).toBe(false);
+  });
+
+  it("recovered running runs count as in flight after a reload", () => {
+    const run = {
+      id: "run-1",
+      workspace_id: "w",
+      agent_name: "health",
+      job_id: "j",
+      target_id: "biz-1",
+      status: "running",
+      input: null,
+      output: null,
+      error: null,
+      model_used: null,
+      tokens_used: 0,
+      cost_cents: 0,
+      guardrail_passed: true,
+      guardrail_notes: null,
+      duration_ms: null,
+      started_at: "2026-10-05T10:00:00.000Z",
+      ended_at: null,
+    } as AgentRun;
+    let state = recoverFromRuns([run]);
+    expect(isBusinessInFlight(state, "biz-1")).toBe(true);
+    state = applyAgentEvent(state, completed, Date.parse("2026-10-05T10:00:05.000Z"));
+    expect(isBusinessInFlight(state, "biz-1")).toBe(false);
+    expect(state.statuses.health?.avgRuntimeMs).toBe(5000);
+  });
+});
+
+describe("reauditPhase (button disabled while a job is queued/running)", () => {
+  it("idle → queued on click → running on events → done when they stop", () => {
+    expect(reauditPhase({ requested: false, seenRunning: false, inFlight: false })).toBe("idle");
+    expect(reauditPhase({ requested: true, seenRunning: false, inFlight: false })).toBe("queued");
+    expect(reauditPhase({ requested: true, seenRunning: true, inFlight: true })).toBe("running");
+    expect(reauditPhase({ requested: true, seenRunning: true, inFlight: false })).toBe("done");
+  });
+
+  it("running even when someone else queued the job (bulk re-audit, another tab)", () => {
+    expect(reauditPhase({ requested: false, seenRunning: false, inFlight: true })).toBe("running");
+  });
+
+  it("is disabled exactly while queued or running", () => {
+    expect(reauditDisabled("idle")).toBe(false);
+    expect(reauditDisabled("queued")).toBe(true);
+    expect(reauditDisabled("running")).toBe(true);
+    expect(reauditDisabled("done")).toBe(false);
   });
 });

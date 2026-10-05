@@ -421,6 +421,8 @@ async function runAuditPipeline(
       completed_at: now.toISOString(),
       provisional: true,
     });
+    // RFL.WEB.10: the pointer follows the audit that just finalized.
+    await store.setLatestAudit(search.id, business.id, auditId);
     console.warn(
       `[orchestrator] business ${business.id} blocked on homepage fetch (${siteBlock.reason}) — audit ${auditId} provisional`,
     );
@@ -510,6 +512,11 @@ async function runAuditPipeline(
   if (scorer.status === "failed" || !scorer.output) {
     throw new Error(scorer.error ?? "scorer failed");
   }
+  // RFL.WEB.10: the pointer follows the audit that just completed. Filter
+  // pointed at this row when it was 'pending' only if the lead had no
+  // completed audit yet; a forced re-audit keeps showing the previous
+  // completed audit until this moment.
+  await store.setLatestAudit(search.id, business.id, auditId);
 
   // Finding 19: exact microcents summed, rounded ONCE per audit (per-call
   // ceil was logging ~2× the real summary spend). Null if any agent answered

@@ -30,12 +30,19 @@ let store: MemoryStore;
 let server: Server;
 let base: string;
 
+/** Search ids the fake poller was asked to abort (cancel route tests). */
+const abortCalls: Array<{ searchId: string; reason: string }> = [];
+
 const idlePoller: QueuePoller = {
   status: "polling",
   stop() {},
   inFlight: () => 0,
   inFlightJobs: () => [],
   tick: async () => undefined,
+  abortJobsForSearch: async (searchId, reason) => {
+    abortCalls.push({ searchId, reason });
+    return [];
+  },
 };
 
 function makeDeps(s: MemoryStore): OrchestratorDeps {
@@ -715,5 +722,62 @@ describe("GET /health queue readings (RFL.QUEUE.8 / finding 14)", () => {
     expect(res.jobs_running_over_10m).toBe(0); // just claimed — not over 10m yet
     expect(typeof res.oldest_queued_age_s).toBe("number");
     await store.finishJob(running.id, { status: "done" });
+  });
+});
+
+describe("POST /api/searches/:id/cancel (RFL.WEB.10)", () => {
+  async function seedRunningSearch() {
+    const search = await store.createSearch({
+      workspace_id: DEV_WORKSPACE_ID,
+      created_by: DEV_USER_ID,
+      mode: "zip_radius",
+      params: { zip: "83686", radius_miles: 10 },
+      category: "plumber",
+    });
+    await store.updateSearch(search.id, { status: "auditing" });
+    const jobs = [];
+    for (let i = 0; i < 3; i += 1) {
+      jobs.push(
+        await store.enqueueJob({
+          workspace_id: DEV_WORKSPACE_ID,
+          job_type: "audit_business",
+          payload: { search_id: search.id, business_id: `biz-${i}` },
+        }),
+      );
+    }
+    return { search, jobs };
+  }
+
+  it("fails the queued jobs, asks the poller to abort in-flight ones, settles the search to failed", async () => {
+    const { search } = await seedRunningSearch();
+    abortCalls.length = 0;
+
+    const res = await api("POST", `/api/searches/${search.id}/cancel`);
+    expect(res.status).toBe(200);
+    // In-flight aborts are the poller's (queue-cancel.test.ts covers the real
+    // one); the route hands it the search id and the user-facing reason.
+    expect(res.json).toEqual({ status: "failed", queued_failed: 3, running_aborted: 0 });
+    expect(abortCalls).toEqual([{ searchId: search.id, reason: "cancelled by user" }]);
+
+    const detail = await store.getSearchDetail(search.id);
+    expect(detail?.search.status).toBe("failed");
+    expect(detail?.search.completed_at).toBeTruthy();
+    expect(detail?.job_counts).toEqual({ queued: 0, running: 0, done: 0, failed: 3 });
+    // Nothing left to cancel on a second call — the rows are already failed.
+    expect(await store.failQueuedJobsForSearch(search.id, "x")).toEqual([]);
+  });
+
+  it("409s once the search is terminal and 404s an unknown id", async () => {
+    const { search } = await seedRunningSearch();
+    await store.updateSearch(search.id, { status: "completed" });
+    const done = await api("POST", `/api/searches/${search.id}/cancel`);
+    expect(done.status).toBe(409);
+    expect(done.json.error).toMatch(/already completed/);
+
+    const missing = await api(
+      "POST",
+      "/api/searches/00000000-0000-4000-8000-00000000dead/cancel",
+    );
+    expect(missing.status).toBe(404);
   });
 });

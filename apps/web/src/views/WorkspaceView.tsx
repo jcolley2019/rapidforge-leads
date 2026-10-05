@@ -6,10 +6,14 @@
  *
  * Data: Realtime events via LiveContext drive statuses/feed instantly;
  * GET /api/searches/:id polling stays as the results fallback (PRD 5.6)
- * and is nudged immediately whenever a lead.scored event arrives.
+ * through ONE poller (useSearchDetail, RFL.WEB.10): ordered responses,
+ * every fetch error in the red banner, and a terminal response whose list
+ * lags its counts is retried, not rendered as "No results.". lead.scored
+ * events and drawer edits nudge that same poller.
  */
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Ban,
   CheckCircle2,
   CircleDashed,
   Filter,
@@ -29,23 +33,23 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MapDrawParams, ZipRadiusParams } from "@rapidforge/shared";
+import { ReauditButton } from "@/components/leads/ReauditButton";
 import { ResultsTable } from "@/components/leads/ResultsTable";
 import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import { useLive } from "@/features/live/useWorkspaceLive";
+import { useSearchDetail } from "@/features/workspace/useSearchDetail";
 import {
   AGENTS,
   type AgentActivity,
   type AgentStatus,
 } from "@/lib/agent-state";
-import { fetchSearchDetail, type SearchDetail } from "@/lib/api";
+import { cancelSearch } from "@/lib/api";
 import { spring } from "@/lib/motion";
+import { isTerminalStatus, resultsPending } from "@/lib/search-detail";
 import { cn } from "@/lib/utils";
-
-const POLL_MS = 2000;
-const TERMINAL_STATUSES = new Set(["completed", "failed"]);
 
 type TabKey = "all" | (typeof AGENTS)[number];
 
@@ -56,76 +60,45 @@ export interface WorkspaceViewProps {
 
 export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
   const { live, connection } = useLive();
-  const { openLead, leadsVersion } = useLeadDrawer();
+  const { lead: drawerLead, openLead, leadsVersion } = useLeadDrawer();
   const [tab, setTab] = useState<TabKey>("all");
-  const [detail, setDetail] = useState<SearchDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const stopped = useRef(false);
+  const { detail, error: fetchError, refresh } = useSearchDetail(searchId);
+  const [cancelling, setCancelling] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // Drawer edits (status/notes) refresh the table without waiting on a poll.
+  // Drawer edits (status/notes) and re-audits refresh the table without
+  // waiting on a poll — through the same poller, so nothing races it.
   useEffect(() => {
-    if (!searchId || leadsVersion === 0) return;
-    let cancelled = false;
-    void fetchSearchDetail(searchId).then(
-      (next) => {
-        if (!cancelled) setDetail(next);
-      },
-      () => undefined,
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [searchId, leadsVersion]);
-
-  // Polling fallback while the search is active (PRD 5.6).
-  useEffect(() => {
-    if (!searchId) return;
-    stopped.current = false;
-    setDetail(null);
-    let timer: ReturnType<typeof setInterval> | null = null;
-
-    async function poll() {
-      if (!searchId) return;
-      try {
-        const next = await fetchSearchDetail(searchId);
-        if (stopped.current) return;
-        setDetail(next);
-        setError(null);
-        if (TERMINAL_STATUSES.has(next.search.status ?? "") && timer) {
-          clearInterval(timer);
-          timer = null;
-        }
-      } catch (err) {
-        if (!stopped.current) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      }
-    }
-
-    void poll();
-    timer = setInterval(() => void poll(), POLL_MS);
-    return () => {
-      stopped.current = true;
-      if (timer) clearInterval(timer);
-    };
-  }, [searchId]);
+    if (leadsVersion > 0) refresh();
+  }, [leadsVersion, refresh]);
 
   // Realtime nudge: a lead.scored broadcast refreshes results immediately,
   // even after the poller has gone terminal (e.g. re-audits).
   const scoredCount = live.scored.length;
   useEffect(() => {
-    if (!searchId || scoredCount === 0) return;
-    let cancelled = false;
-    void fetchSearchDetail(searchId).then(
-      (next) => {
-        if (!cancelled) setDetail(next);
-      },
-      () => undefined,
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [searchId, scoredCount]);
+    if (scoredCount > 0) refresh();
+  }, [scoredCount, refresh]);
+
+  // Keep an open drawer on the fresh row (re-audit scores, status edits).
+  useEffect(() => {
+    if (!drawerLead || !detail) return;
+    const fresh = detail.leads.find((l) => l.result.id === drawerLead.result.id);
+    if (fresh && fresh !== drawerLead) openLead(fresh);
+  }, [detail, drawerLead, openLead]);
+
+  async function cancel() {
+    if (!searchId || cancelling) return;
+    setCancelling(true);
+    setActionError(null);
+    try {
+      await cancelSearch(searchId);
+      refresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   // business_id → display name, for feed cards and "current business".
   const nameById = useMemo(() => {
@@ -147,6 +120,7 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
       : "—");
   const status = search?.status ?? (searchId ? "loading" : "idle");
   const jobs = detail?.job_counts;
+  const error = actionError ?? fetchError;
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -172,14 +146,31 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
             </p>
           )}
         </div>
-        <Button variant="outline" size="sm" onClick={onNewSearch}>
-          <Search className="h-4 w-4" aria-hidden /> New search
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Cancel (RFL.WEB.10 §4): only while audits are queued/running. */}
+          {searchId && status === "auditing" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void cancel()}
+              disabled={cancelling}
+              title="Fail the queued audits, abort the running ones, mark the search failed"
+              className="border-agent-error/50 text-agent-error hover:bg-agent-error/10"
+            >
+              <Ban className="h-4 w-4" aria-hidden />
+              {cancelling ? "Cancelling…" : "Cancel"}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onNewSearch}>
+            <Search className="h-4 w-4" aria-hidden /> New search
+          </Button>
+        </div>
       </div>
 
       {error && (
         <p className="rounded-xl border border-agent-error/40 bg-agent-error/10 px-4 py-2.5 text-xs text-agent-error">
-          {error} — retrying; Realtime {connection}.
+          {error}
+          {actionError ? "" : ` — retrying; Realtime ${connection}.`}
         </p>
       )}
 
@@ -197,8 +188,12 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
       {tab === "all" ? (
         <ResultsTable
           leads={detail?.leads ?? []}
-          terminal={TERMINAL_STATUSES.has(status) || !searchId}
+          terminal={isTerminalStatus(status) || !searchId}
+          pending={resultsPending(detail)}
           onSelect={openLead}
+          renderAction={(lead) => (
+            <ReauditButton businessId={lead.business.id} compact />
+          )}
         />
       ) : (
         <AgentDetail

@@ -37,6 +37,7 @@ import {
 } from "@rapidforge/shared";
 import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
+import { ReauditButton } from "./ReauditButton";
 import {
   downloadReport,
   fetchBusinessAudits,
@@ -166,6 +167,17 @@ function DrawerBody({ lead, onClose }: { lead: LeadView; onClose: () => void }) 
           <X />
         </Button>
       </header>
+      {/* Re-audit (RFL.WEB.10 §3): force a fresh audit, follow it live. */}
+      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-6 py-2">
+        <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+          {lead.audit?.completed_at
+            ? `Audited ${relativeTime(lead.audit.completed_at)}`
+            : lead.audit
+              ? `Audit ${lead.audit.status ?? "pending"}`
+              : "Not audited yet"}
+        </p>
+        <ReauditButton businessId={lead.business.id} />
+      </div>
 
       <nav
         className="flex gap-1 border-b border-border/70 px-4 pt-2"

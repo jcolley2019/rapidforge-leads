@@ -45,10 +45,26 @@ import {
   MULTI_LOCATION_CHAIN_THRESHOLD,
   normalizeBusinessName,
 } from "../lib/chains";
+import {
+  groupAuditsByBusiness,
+  pickDisplayAudit,
+  shouldRepointLatestAudit,
+} from "./latest-audit";
 import { summarizeUsage, type UsageRollupRow } from "./usage";
 
 /** Row cap for the month rollup fetch — logged when hit, never silent. */
 const USAGE_ROLLUP_ROW_CAP = 10_000;
+
+/** `in (...)` filters go in the URL — keep each request well under its cap. */
+const IN_FILTER_CHUNK = 50;
+/** PostgREST returns at most this many rows per request (project default). */
+const PAGE_SIZE = 1000;
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -126,17 +142,12 @@ export class SupabaseStore implements DataStore {
     const resultRows = (results ?? []) as SearchResult[];
 
     const businessIds = resultRows.map((r) => r.business_id);
-    const auditIds = resultRows
-      .map((r) => r.latest_audit_id)
-      .filter((v): v is string => v !== null);
 
-    const [businesses, audits, agentRuns, jobs] = await Promise.all([
+    const [businesses, auditsByBusiness, agentRuns, jobs] = await Promise.all([
       businessIds.length
         ? this.db.from("businesses").select("*").in("id", businessIds)
         : Promise.resolve({ data: [], error: null }),
-      auditIds.length
-        ? this.db.from("audits").select("*").in("id", auditIds)
-        : Promise.resolve({ data: [], error: null }),
+      this.fetchAuditsForBusinesses(businessIds, "getSearchDetail"),
       this.db
         .from("agent_runs")
         .select("*")
@@ -146,7 +157,6 @@ export class SupabaseStore implements DataStore {
     ]);
     for (const [label, res] of [
       ["businesses", businesses],
-      ["audits", audits],
       ["agent_runs", agentRuns],
       ["jobs", jobs],
     ] as const) {
@@ -157,9 +167,6 @@ export class SupabaseStore implements DataStore {
     const businessById = new Map(
       ((businesses.data ?? []) as Business[]).map((b) => [b.id, b]),
     );
-    const auditById = new Map(
-      ((audits.data ?? []) as Audit[]).map((a) => [a.id, a]),
-    );
 
     const leads: LeadView[] = [];
     for (const result of resultRows) {
@@ -168,9 +175,8 @@ export class SupabaseStore implements DataStore {
       leads.push({
         result,
         business,
-        audit: result.latest_audit_id
-          ? (auditById.get(result.latest_audit_id) ?? null)
-          : null,
+        // RFL.WEB.10: newest completed audit, never the raw pointer.
+        audit: pickDisplayAudit(auditsByBusiness.get(business.id) ?? []),
       });
     }
 
@@ -251,6 +257,18 @@ export class SupabaseStore implements DataStore {
     if (error)
       throw new Error(`[store] countActiveJobsForSearch: ${error.message}`);
     return count ?? 0;
+  }
+
+  async failQueuedJobsForSearch(searchId: string, reason: string): Promise<Job[]> {
+    const { data, error } = await this.db
+      .from("jobs")
+      .update({ status: "failed", error: reason, finished_at: nowIso() })
+      .contains("payload", { search_id: searchId })
+      .eq("status", "queued") // never touches a job a slot already claimed
+      .select();
+    if (error)
+      throw new Error(`[store] failQueuedJobsForSearch: ${error.message}`);
+    return (data ?? []) as Job[];
   }
 
   async getQueueHealth(now: Date = new Date()): Promise<QueueHealth> {
@@ -494,12 +512,44 @@ export class SupabaseStore implements DataStore {
     businessId: string,
     auditId: string,
   ): Promise<void> {
+    // RFL.WEB.10: a failed/pending audit never displaces a completed one.
+    const next = await this.auditStatus(auditId);
+    if (next !== null && next.status !== "completed") {
+      const { data: row, error: rowErr } = await this.db
+        .from("search_results")
+        .select("latest_audit_id")
+        .eq("search_id", searchId)
+        .eq("business_id", businessId)
+        .maybeSingle();
+      if (rowErr) throw new Error(`[store] setLatestAudit read: ${rowErr.message}`);
+      const currentId = (row as { latest_audit_id?: string | null } | null)
+        ?.latest_audit_id;
+      const current = currentId ? await this.auditStatus(currentId) : null;
+      if (!shouldRepointLatestAudit(current, next)) {
+        console.log(
+          `[store] latest_audit_id for business ${businessId} kept on completed audit ${currentId} (new audit ${auditId} is ${next.status})`,
+        );
+        return;
+      }
+    }
     const { error } = await this.db
       .from("search_results")
       .update({ latest_audit_id: auditId })
       .eq("search_id", searchId)
       .eq("business_id", businessId);
     if (error) throw new Error(`[store] setLatestAudit: ${error.message}`);
+  }
+
+  private async auditStatus(
+    auditId: string,
+  ): Promise<Pick<Audit, "status"> | null> {
+    const { data, error } = await this.db
+      .from("audits")
+      .select("status")
+      .eq("id", auditId)
+      .maybeSingle();
+    if (error) throw new Error(`[store] setLatestAudit audit: ${error.message}`);
+    return (data as Pick<Audit, "status"> | null) ?? null;
   }
 
   // -- agent_runs / usage_events ---------------------------------------------
@@ -562,30 +612,18 @@ export class SupabaseStore implements DataStore {
     if (resultRows.length === 0) return [];
 
     const businessIds = [...new Set(resultRows.map((r) => r.business_id))];
-    const auditIds = resultRows
-      .map((r) => r.latest_audit_id)
-      .filter((v): v is string => v !== null);
 
-    const [businesses, audits] = await Promise.all([
+    const [businesses, auditsByBusiness] = await Promise.all([
       this.db.from("businesses").select("*").in("id", businessIds),
-      auditIds.length
-        ? this.db.from("audits").select("*").in("id", auditIds)
-        : Promise.resolve({ data: [], error: null }),
+      this.fetchAuditsForBusinesses(businessIds, "listWorkspaceLeads"),
     ]);
     if (businesses.error)
       throw new Error(
         `[store] listWorkspaceLeads businesses: ${businesses.error.message}`,
       );
-    if (audits.error)
-      throw new Error(
-        `[store] listWorkspaceLeads audits: ${audits.error.message}`,
-      );
 
     const businessById = new Map(
       ((businesses.data ?? []) as Business[]).map((b) => [b.id, b]),
-    );
-    const auditById = new Map(
-      ((audits.data ?? []) as Audit[]).map((a) => [a.id, a]),
     );
     const leads: LeadView[] = [];
     for (const result of resultRows) {
@@ -594,12 +632,40 @@ export class SupabaseStore implements DataStore {
       leads.push({
         result,
         business,
-        audit: result.latest_audit_id
-          ? (auditById.get(result.latest_audit_id) ?? null)
-          : null,
+        // RFL.WEB.10: newest completed audit, never the raw pointer.
+        audit: pickDisplayAudit(auditsByBusiness.get(business.id) ?? []),
       });
     }
     return sortLeads(leads);
+  }
+
+  /**
+   * Every audit row for the given businesses, grouped by business, for
+   * pickDisplayAudit (RFL.WEB.10). Chunked `in` filters (URL length) and
+   * paged reads (PostgREST's per-request row cap) so a long audit history
+   * is never silently truncated.
+   */
+  private async fetchAuditsForBusinesses(
+    businessIds: readonly string[],
+    op: string,
+  ): Promise<Map<string, Audit[]>> {
+    const unique = [...new Set(businessIds)];
+    const rows: Audit[] = [];
+    for (const ids of chunk(unique, IN_FILTER_CHUNK)) {
+      for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await this.db
+          .from("audits")
+          .select("*")
+          .in("business_id", ids)
+          .order("created_at", { ascending: true }) // oldest first — see pickDisplayAudit
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw new Error(`[store] ${op} audits: ${error.message}`);
+        const page = (data ?? []) as Audit[];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) break;
+      }
+    }
+    return groupAuditsByBusiness(rows);
   }
 
   async listAuditsForBusiness(businessId: string): Promise<Audit[]> {

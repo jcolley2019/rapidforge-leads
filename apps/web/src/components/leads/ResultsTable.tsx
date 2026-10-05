@@ -5,7 +5,7 @@
  */
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronRight, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Issue } from "@rapidforge/shared";
 import type { LeadView } from "@/lib/api";
 import {
@@ -21,12 +21,26 @@ export interface ResultsTableProps {
   leads: LeadView[];
   /** Search status — drives the empty-state copy. */
   terminal: boolean;
+  /**
+   * Counts say rows exist but the list has not arrived (RFL.WEB.10): show a
+   * loading state instead of "No results." while the poller catches up.
+   */
+  pending?: boolean;
   /** Row click → lead drawer (Sprint 5). Chevron still inline-expands issues. */
   onSelect?: (lead: LeadView) => void;
+  /** Per-row action cell (Workspace: the Re-audit button, RFL.WEB.10). */
+  renderAction?: (lead: LeadView) => ReactNode;
 }
 
-export function ResultsTable({ leads, terminal, onSelect }: ResultsTableProps) {
+export function ResultsTable({
+  leads,
+  terminal,
+  pending = false,
+  onSelect,
+  renderAction,
+}: ResultsTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const columns = renderAction ? 9 : 8;
 
   return (
     <div className="card-panel dense-surface overflow-hidden">
@@ -40,6 +54,7 @@ export function ResultsTable({ leads, terminal, onSelect }: ResultsTableProps) {
           <col className="w-[84px]" />
           <col className="w-[104px]" />
           <col className="w-[168px]" />
+          {renderAction && <col className="w-[44px]" />}
         </colgroup>
         <thead>
           <tr className="border-b border-border text-left font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -51,6 +66,11 @@ export function ResultsTable({ leads, terminal, onSelect }: ResultsTableProps) {
             <th className="px-3 py-[7px] text-right font-medium">Health</th>
             <th className="px-3 py-[7px] text-right font-medium">Sell</th>
             <th className="px-3 py-[7px] font-medium">State</th>
+            {renderAction && (
+              <th className="px-1 py-[7px] font-medium">
+                <span className="sr-only">Actions</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -66,15 +86,25 @@ export function ResultsTable({ leads, terminal, onSelect }: ResultsTableProps) {
                 )
               }
               onSelect={onSelect}
+              renderAction={renderAction}
+              columns={columns}
             />
           ))}
           {leads.length === 0 && (
             <tr>
               <td
-                colSpan={8}
+                colSpan={columns}
                 className="px-4 py-14 text-center text-sm text-muted-foreground"
               >
-                {terminal ? (
+                {pending ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2
+                      className="h-4 w-4 animate-spin text-primary"
+                      aria-hidden
+                    />
+                    Loading results…
+                  </span>
+                ) : terminal ? (
                   "No results."
                 ) : (
                   <span className="inline-flex items-center gap-2">
@@ -100,12 +130,16 @@ function LeadRow({
   expanded,
   onToggle,
   onSelect,
+  renderAction,
+  columns,
 }: {
   lead: LeadView;
   rank: number;
   expanded: boolean;
   onToggle: () => void;
   onSelect?: (lead: LeadView) => void;
+  renderAction?: (lead: LeadView) => ReactNode;
+  columns: number;
 }) {
   const { business, audit } = lead;
   const sellability = audit?.sellability_score ?? null;
@@ -226,9 +260,14 @@ function LeadRow({
         <td className="whitespace-nowrap px-3 py-[7px]">
           <StateChip lead={lead} />
         </td>
+        {renderAction && (
+          <td className="px-1 py-[7px] text-center" onClick={(e) => e.stopPropagation()}>
+            {renderAction(lead)}
+          </td>
+        )}
       </tr>
       <tr className="border-0">
-        <td colSpan={8} className="p-0">
+        <td colSpan={columns} className="p-0">
           <AnimatePresence initial={false}>
             {expanded && expandable && (
               <motion.div
