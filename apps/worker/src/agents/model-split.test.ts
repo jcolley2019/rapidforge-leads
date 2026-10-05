@@ -3,7 +3,7 @@
  * and output format each agent asks ai-core for.
  *   Health / Conversion / Presence / Reputation / SEO → template by default;
  *     Haiku 4.5 (no effort) only with AI_SUMMARIES=haiku.
- *   Design, Sales Summary, Analyst → Sonnet 5.5 at effort "low".
+ *   Design, Sales Summary → Sonnet 5.5 at effort "low"; Analyst stays Opus 4.8 (RFL.AI.9a).
  *   Builder Brief → Opus 4.8 at effort "low" (its Design Brief block: Haiku).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -199,13 +199,13 @@ describe("judgment agents", () => {
     });
   });
 
-  it("Analyst → Sonnet 5.5, effort low (gate unchanged — this is the agent itself)", async () => {
+  it("Analyst stays Opus 4.8, effort low (RFL.AI.9a; gate unchanged)", async () => {
     const p = fakeProvider({ text: "not json" });
     restoreProvider = p.restore;
     const result = await runAnalyst({ business, audit, config: null });
     expect(result.status).toBe("completed");
     expect(p.requests[0]).toMatchObject({
-      model: MODEL_SONNET,
+      model: MODEL_OPUS,
       maxTokens: 1_500,
       outputConfig: { effort: "low", format: { type: "json_schema" } },
     });

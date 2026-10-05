@@ -13,7 +13,7 @@
  * otherwise via POST /api/businesses/:id/analyst.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_SONNET } from "../lib/ai";
+import { generateJsonSummary, MODEL_OPUS } from "../lib/ai";
 import { makeAnalystGuardrail } from "./guardrails/analyst";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
 import {
@@ -218,7 +218,7 @@ export async function runAnalyst(
     const vars: CascadingVars = resolveConfigVars(ctx.config);
 
     const outcome = await generateJsonSummary<AnalystOutput>({
-      model: MODEL_SONNET,
+      model: MODEL_OPUS,
       effort: ANALYST_EFFORT,
       system: ANALYST_SYSTEM,
       prompt: buildAnalystPrompt(facts, vars),

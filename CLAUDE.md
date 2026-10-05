@@ -60,13 +60,13 @@
 | Model | ID | Used for |
 |---|---|---|
 | Claude Haiku 4.5 | `claude-haiku-4-5` | Filter edge-pass; cheap classification; Design Brief field extraction; the five **narration summaries** (Health, Conversion, Presence, Reputation, SEO) **only when `AI_SUMMARIES=haiku`** — deterministic template otherwise. Takes no `effort` (AI Core rejects it before the network) |
-| Claude Sonnet 5.5 | `claude-sonnet-5-5` | Design (vision), Sales Summary, **Analyst** — all at `effort: "low"` (RFL.AI.9; Analyst gate from RFL-05 unchanged) |
-| Claude Opus 4.8 | `claude-opus-4-8` | **Builder Brief** at `effort: "low"`; the refusal fallback for every model |
+| Claude Sonnet 5.5 | `claude-sonnet-5-5` | Design (vision), Sales Summary — both at `effort: "low"` (RFL.AI.9) |
+| Claude Opus 4.8 | `claude-opus-4-8` | **Analyst + Builder Brief** at `effort: "low"` (Analyst kept on Opus in RFL.AI.9a — the human-read verdict; gate from RFL-05 unchanged); the refusal fallback for every model |
 | Claude Fable 5 | `claude-fable-5` | Optional alternative for Analyst/Builder Brief; not selected by default |
 
 Sonnet 4.6 was retired on 2026-10-04 (RFL.AI.9) — it appears nowhere.
 
-**Top-tier rule (Sprint 8, revised RFL.AI.9):** the stack runs fully on **Opus/Sonnet/Haiku** and does NOT depend on Fable 5's availability. Builder Brief calls `claude-opus-4-8`; Analyst, Design and Sales Summary call `claude-sonnet-5-5`; adaptive-thinking `effort` goes through AI Core `output_config` (currently `low` everywhere; raise later for depth). **Refusal rule (finding 20):** ANY model's `stop_reason: "refusal"` (HTTP 200 — Sonnet 5.5 and Fable can return one with a category) retries the identical request once on `claude-opus-4-8`; a refusal from Opus itself falls back to the deterministic template. Retries for transport failures live in AI Core only (`maxRetries: 2`) — never add a second loop in `lib/ai.ts`. Never crash, never stall a job. "Opus 4.7" and "GPT-5.5" are not real model IDs — flag them if seen.
+**Top-tier rule (Sprint 8, revised RFL.AI.9):** the stack runs fully on **Opus/Sonnet/Haiku** and does NOT depend on Fable 5's availability. Analyst and Builder Brief call `claude-opus-4-8`; Design and Sales Summary call `claude-sonnet-5-5`; adaptive-thinking `effort` goes through AI Core `output_config` (currently `low` everywhere; raise later for depth). **Refusal rule (finding 20):** ANY model's `stop_reason: "refusal"` (HTTP 200 — Sonnet 5.5 and Fable can return one with a category) retries the identical request once on `claude-opus-4-8`; a refusal from Opus itself falls back to the deterministic template. Retries for transport failures live in AI Core only (`maxRetries: 2`) — never add a second loop in `lib/ai.ts`. Never crash, never stall a job. "Opus 4.7" and "GPT-5.5" are not real model IDs — flag them if seen.
 
 ### 4.2 Scoring Doctrine
 Scores are **deterministic math** (PRD Section 4; constants in `packages/shared/scoring.ts`). LLMs never assign Health, star, or Sellability scores — they interpret, critique, and write narrative on top of measured data. **Deterministic before AI:** if the worker can measure it, the worker measures it and the model receives it as fact.
@@ -130,7 +130,7 @@ Pre-commit: tsc clean in touched workspaces → no stray `console.log` → no se
 
 ## 8. Cost Discipline
 
-Haiku for classification, Sonnet by default, Fable ONLY for Analyst + Builder Brief (and Analyst auto-runs only at sellability ≥ 60; Brief + Sales Summary are on-demand). 30-day audit cache. Filter before any spend. 5-business concurrency cap. Log tokens + cost on every call. Places calls logged to `usage_events`. **Monthly target <$200** — flag anything that risks it.
+Haiku for classification and opt-in narration (`AI_SUMMARIES=haiku`), deterministic templates for the five narration summaries by default, Sonnet 5.5 for Design + Sales Summary, Opus 4.8 ONLY for Analyst + Builder Brief (Analyst auto-runs only at star ≤ 3 AND sellability ≥ 60; Brief + Sales Summary are on-demand). 30-day audit cache. Filter before any spend. 5-business concurrency cap. Log tokens + cost on every call. Places calls logged to `usage_events`. **Monthly target <$200** — flag anything that risks it.
 
 ---
 
