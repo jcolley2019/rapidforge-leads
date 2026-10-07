@@ -41,14 +41,36 @@ export interface PsiClient {
 
 /** PSI can take a while on slow sites — generous timeout. */
 export const PSI_TIMEOUT_MS = 60_000;
+/** RFL.FIX.3i: one retry on 429/5xx after this backoff (mirrors Places). */
+export const PSI_RETRY_BACKOFF_MS = 2_000;
 
 const PSI_ENDPOINT =
   "https://www.googleapis.com/pagespeedonline/v5/runPagespeed";
 
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+/** Test seams — production uses global fetch and a real sleep. */
+export interface RealPsiClientOptions {
+  fetch?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+}
+
 export class RealPsiClient implements PsiClient {
   readonly mode = "real" as const;
 
-  constructor(private readonly apiKey: string) {}
+  private readonly fetchImpl: typeof fetch;
+  private readonly sleep: (ms: number) => Promise<void>;
+
+  constructor(
+    private readonly apiKey: string,
+    options: RealPsiClientOptions = {},
+  ) {
+    this.fetchImpl = options.fetch ?? fetch;
+    this.sleep =
+      options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  }
 
   async run(url: string, strategy: PsiStrategy): Promise<PsiMetrics | null> {
     const qs = new URLSearchParams({ url, strategy, key: this.apiKey });
@@ -61,14 +83,29 @@ export class RealPsiClient implements PsiClient {
       qs.append("category", category);
     }
     try {
-      const res = await fetch(`${PSI_ENDPOINT}?${qs.toString()}`, {
-        signal: AbortSignal.timeout(PSI_TIMEOUT_MS),
-      });
-      if (!res.ok) {
-        console.warn(`[psi] ${strategy} run for ${url} → HTTP ${res.status}`);
+      // A 429/5xx is retried once after a 2s backoff (google-client.ts
+      // pattern); a second failure, any other status or a timeout → null.
+      for (let attempt = 1; ; attempt += 1) {
+        const res = await this.fetchImpl(`${PSI_ENDPOINT}?${qs.toString()}`, {
+          signal: AbortSignal.timeout(PSI_TIMEOUT_MS),
+        });
+        if (res.ok) {
+          return extractPsiMetrics((await res.json()) as PsiApiResponse);
+        }
+        if (isRetryableStatus(res.status) && attempt === 1) {
+          await res.body?.cancel().catch(() => undefined);
+          console.warn(
+            `[psi] ${strategy} run for ${url} → HTTP ${res.status} — retrying once in ${PSI_RETRY_BACKOFF_MS}ms`,
+          );
+          await this.sleep(PSI_RETRY_BACKOFF_MS);
+          continue;
+        }
+        const retried = attempt > 1 ? " (after 1 retry)" : "";
+        console.warn(
+          `[psi] ${strategy} run for ${url} → HTTP ${res.status}${retried}`,
+        );
         return null;
       }
-      return extractPsiMetrics((await res.json()) as PsiApiResponse);
     } catch (err) {
       console.warn(
         `[psi] ${strategy} run for ${url} failed: ${err instanceof Error ? err.message : String(err)}`,

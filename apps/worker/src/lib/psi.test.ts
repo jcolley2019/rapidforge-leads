@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { extractPsiMetrics, FixturePsiClient } from "./psi";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  extractPsiMetrics,
+  FixturePsiClient,
+  PSI_RETRY_BACKOFF_MS,
+  RealPsiClient,
+} from "./psi";
 import { fallbackPsiProfile, PSI_FIXTURES } from "./psi-fixtures";
 
 describe("extractPsiMetrics", () => {
@@ -76,5 +81,67 @@ describe("FixturePsiClient", () => {
         profile.desktop.performance!,
       );
     }
+  });
+});
+
+describe("RealPsiClient retry (RFL.FIX.3i)", () => {
+  const PSI_OK = {
+    lighthouseResult: { categories: { performance: { score: 0.5 } } },
+  };
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("retries once on 429 then returns null", async () => {
+    const fetchMock = vi.fn(async () => json({ error: "RATE_LIMITED" }, 429));
+    const sleep = vi.fn(async (_ms: number) => undefined);
+    const client = new RealPsiClient("test-key", {
+      fetch: fetchMock as unknown as typeof fetch,
+      sleep,
+    });
+
+    expect(await client.run("https://example.com", "mobile")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(PSI_RETRY_BACKOFF_MS);
+  });
+
+  it("a 503 followed by a 200 returns the second run's metrics", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ error: "UNAVAILABLE" }, 503))
+      .mockResolvedValueOnce(json(PSI_OK));
+    const sleep = vi.fn(async (_ms: number) => undefined);
+    const client = new RealPsiClient("test-key", {
+      fetch: fetchMock as unknown as typeof fetch,
+      sleep,
+    });
+
+    const metrics = await client.run("https://example.com", "mobile");
+    expect(metrics?.performance).toBe(50);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("a 400 is not retried", async () => {
+    const fetchMock = vi.fn(async () => json({ error: "BAD_URL" }, 400));
+    const sleep = vi.fn(async (_ms: number) => undefined);
+    const client = new RealPsiClient("test-key", {
+      fetch: fetchMock as unknown as typeof fetch,
+      sleep,
+    });
+
+    expect(await client.run("https://example.com", "mobile")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
   });
 });
