@@ -240,6 +240,12 @@ describe("buildIssues thresholds", () => {
         label: "Only 4 Google reviews",
       }),
     );
+    // Zero reviews emits its own issue (RFL.FIX.3f) — not "Only 0 reviews", not silence.
+    const zero = buildIssues(healthyInputs({ googleRating: null, reviewCount: 0 }));
+    expect(zero).toContainEqual(
+      expect.objectContaining({ severity: "medium", label: "No Google reviews yet" }),
+    );
+    expect(zero.filter((i) => i.label.startsWith("Only "))).toEqual([]);
     // A poor rating on 5 reviews is a volume problem, not a rating verdict.
     expect(
       buildIssues(
