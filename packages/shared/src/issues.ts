@@ -34,7 +34,27 @@ export const ISSUE_THRESHOLDS = {
   ratingPoorBelow: 3.5,
   /** SEO local-fit score (1–5) at/below this is weak targeting (medium). */
   seoWeakFitAtOrBelow: 2,
+  /** Last-Modified older than this many days = "not updated in N years" (low). */
+  lastModifiedStaleDays: 730,
 } as const;
+
+/**
+ * Titles a page builder or editor leaves behind (RFL.FIX.3k): a found
+ * <title> that says nothing is a high issue, same as a missing one.
+ */
+export const PLACEHOLDER_TITLES: ReadonlySet<string> = new Set([
+  "untitled document",
+  "home",
+  "welcome",
+  "index",
+  "new page",
+  "home page",
+]);
+
+export function isPlaceholderTitle(title: string | null | undefined): boolean {
+  if (!title) return false;
+  return PLACEHOLDER_TITLES.has(title.trim().toLowerCase());
+}
 
 /** Detected platform keys → sales-readable names for issue bullets. */
 export const PLATFORM_DISPLAY_NAMES: Readonly<Record<string, string>> = {
@@ -57,6 +77,11 @@ export interface IssueInputs {
   platform: string | null;
   copyrightYear: number | null;
   currentYear: number;
+  /**
+   * RFL.FIX.3k: days since the Last-Modified header; null = header absent
+   * / unparseable / Health didn't run (no bullet — unknown is not stale).
+   */
+  lastModifiedAgeDays?: number | null;
   hasVisiblePhone: boolean;
   hasClickToCall: boolean;
   hasForm: boolean;
@@ -79,6 +104,8 @@ export interface IssueInputs {
   reviewCount: number | null;
   seoLocalFitScore: number | null;
   seoHasTitle: boolean | null;
+  /** RFL.FIX.3k: the <title> text when found, for placeholder detection. */
+  seoTitleValue?: string | null;
   seoHasMetaDescription: boolean | null;
   seoHasSitemap: boolean | null;
 }
@@ -215,6 +242,17 @@ export function buildIssues(input: IssueInputs): Issue[] {
 
   // -- freshness ------------------------------------------------------------
   if (
+    typeof input.lastModifiedAgeDays === "number" &&
+    input.lastModifiedAgeDays > ISSUE_THRESHOLDS.lastModifiedStaleDays
+  ) {
+    const years = Math.floor(input.lastModifiedAgeDays / 365);
+    add(
+      "low",
+      `Site not updated in ${years} year${years === 1 ? "" : "s"} (Last-Modified)`,
+      "The server's Last-Modified header is more than two years old",
+    );
+  }
+  if (
     input.copyrightYear !== null &&
     input.currentYear - input.copyrightYear > COPYRIGHT_RECENT_YEARS
   ) {
@@ -309,6 +347,12 @@ export function buildIssues(input: IssueInputs): Issue[] {
   // -- seo (Sprint 6, PRD 6.10) -----------------------------------------------
   if (input.seoHasTitle === false) {
     add("high", "Homepage is missing a <title> tag");
+  } else if (input.seoHasTitle === true && isPlaceholderTitle(input.seoTitleValue)) {
+    add(
+      "high",
+      "Placeholder page title",
+      `The <title> is "${input.seoTitleValue!.trim()}" — Google shows that as the page name`,
+    );
   }
   if (input.seoHasMetaDescription === false) {
     add("medium", "Homepage has no meta description");

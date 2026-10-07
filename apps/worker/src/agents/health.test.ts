@@ -95,7 +95,24 @@ describe("measureHealth", () => {
     expect(m.platform).toBeNull();
     expect(m.copyright_year).toBeNull();
     expect(m.has_recent_last_modified).toBe(false);
+    expect(m.last_modified_at).toBeNull();
     expect(m.ps_mobile_performance).toBe(mobile.performance);
+  });
+
+  it("plumbs the Last-Modified date through as ISO beside the recent/not boolean (RFL.FIX.3k)", () => {
+    const m = measureHealth({ business, site, psiDesktop: mobile, psiMobile: mobile, now: NOW });
+    // Fixture header: Sat, 20 Jun 2026 08:12:00 GMT — 15 days before NOW.
+    expect(m.last_modified_at).toBe("2026-06-20T08:12:00.000Z");
+    expect(m.has_recent_last_modified).toBe(true);
+    const old = measureHealth({
+      business,
+      site: { ...site, headers: { ...site.headers, "last-modified": "Wed, 21 Jun 2023 19:31:28 GMT" } },
+      psiDesktop: mobile,
+      psiMobile: mobile,
+      now: NOW,
+    });
+    expect(old.last_modified_at).toBe("2023-06-21T19:31:28.000Z");
+    expect(old.has_recent_last_modified).toBe(false);
   });
 });
 
@@ -119,6 +136,7 @@ describe("buildTemplateHealthSummary", () => {
       platform: "custom",
       copyright_year: null,
       has_recent_last_modified: false,
+      last_modified_at: null,
       ...over,
     };
   }

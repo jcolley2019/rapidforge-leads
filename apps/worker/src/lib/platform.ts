@@ -116,6 +116,20 @@ export function extractCopyrightYear(
   return latest;
 }
 
+/**
+ * The Last-Modified header as an ISO date, or null when absent/unparseable
+ * (RFL.FIX.3k: the Scorer needs the date, not just the recent/not boolean).
+ */
+export function extractLastModified(
+  headers: Record<string, string>,
+): string | null {
+  const raw = headers["last-modified"];
+  if (!raw) return null;
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) return null;
+  return new Date(parsed).toISOString();
+}
+
 /** Freshness signal: Last-Modified header within the past ~year. */
 export const LAST_MODIFIED_RECENT_DAYS = 365;
 

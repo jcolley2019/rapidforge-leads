@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   UNVERIFIED_REPUTATION_LABEL,
   buildIssues,
+  isPlaceholderTitle,
   type IssueInputs,
 } from "./issues";
 
@@ -252,6 +253,35 @@ describe("buildIssues thresholds", () => {
         healthyInputs({ googleRating: 2.8, reviewCount: 5 }),
       ).filter((i) => i.label.startsWith("Google rating")),
     ).toEqual([]);
+  });
+
+  it("flags a placeholder <title> as high — Accurbore's 'Untitled Document' (RFL.FIX.3k)", () => {
+    for (const title of ["Untitled Document", "  home ", "WELCOME", "index", "New Page", "Home Page"]) {
+      expect(isPlaceholderTitle(title), title).toBe(true);
+      expect(
+        buildIssues(healthyInputs({ seoHasTitle: true, seoTitleValue: title })),
+      ).toContainEqual(expect.objectContaining({ severity: "high", label: "Placeholder page title" }));
+    }
+    expect(isPlaceholderTitle("Nampa Plumber | Accurbore")).toBe(false);
+    expect(isPlaceholderTitle(null)).toBe(false);
+    expect(
+      buildIssues(healthyInputs({ seoHasTitle: true, seoTitleValue: "Nampa Plumber | Accurbore" })),
+    ).toEqual([]);
+    // A missing title is its own bullet, never both.
+    const missing = buildIssues(healthyInputs({ seoHasTitle: false, seoTitleValue: null }));
+    expect(missing.filter((i) => /title/i.test(i.label))).toHaveLength(1);
+  });
+
+  it("flags a Last-Modified older than 730 days as low, unknown age stays silent (RFL.FIX.3k)", () => {
+    expect(buildIssues(healthyInputs({ lastModifiedAgeDays: 1204 }))).toContainEqual(
+      expect.objectContaining({ severity: "low", label: "Site not updated in 3 years (Last-Modified)" }),
+    );
+    expect(buildIssues(healthyInputs({ lastModifiedAgeDays: 731 }))).toContainEqual(
+      expect.objectContaining({ label: "Site not updated in 2 years (Last-Modified)" }),
+    );
+    expect(buildIssues(healthyInputs({ lastModifiedAgeDays: 730 }))).toEqual([]);
+    expect(buildIssues(healthyInputs({ lastModifiedAgeDays: null }))).toEqual([]);
+    expect(buildIssues(healthyInputs({}))).toEqual([]);
   });
 
   it("flags SEO gaps (Sprint 6, PRD 6.10)", () => {

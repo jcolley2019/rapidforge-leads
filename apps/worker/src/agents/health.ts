@@ -14,6 +14,7 @@ import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import {
   detectPlatform,
   extractCopyrightYear,
+  extractLastModified,
   hasRecentLastModified,
   type PlatformKey,
 } from "../lib/platform";
@@ -67,6 +68,8 @@ export interface HealthMeasurements extends Record<string, unknown> {
   platform: PlatformKey | null;
   copyright_year: number | null;
   has_recent_last_modified: boolean;
+  /** Last-Modified header as ISO; null = absent/unparseable (RFL.FIX.3k). */
+  last_modified_at: string | null;
 }
 
 export interface HealthOutput extends HealthMeasurements {
@@ -111,6 +114,7 @@ export function measureHealth(ctx: HealthContext): HealthMeasurements {
     has_recent_last_modified: site
       ? hasRecentLastModified(site.headers, now)
       : false,
+    last_modified_at: site ? extractLastModified(site.headers) : null,
   };
 }
 

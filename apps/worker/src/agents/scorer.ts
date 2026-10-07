@@ -121,9 +121,18 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     businessStatus: business.business_status,
   });
 
+  // RFL.FIX.3k: the Last-Modified date becomes an age so issues stay pure.
+  const lastModifiedMs = health?.last_modified_at ? Date.parse(health.last_modified_at) : NaN;
+  const lastModifiedAgeDays = Number.isNaN(lastModifiedMs)
+    ? null
+    : Math.floor((now.getTime() - lastModifiedMs) / 86_400_000);
+
   const issues = buildIssues({
     psMobilePerformance: health?.ps_mobile_performance ?? null,
-    psDesktopPerformance: health?.ps_performance ?? null,
+    // With PSI_DESKTOP off ps_performance is the mobile copy — one number
+    // must not earn two bullets (RFL.FIX.3k "desktop off" test).
+    psDesktopPerformance:
+      health && health.desktop_measured === false ? null : (health?.ps_performance ?? null),
     psLcpMs: health?.ps_lcp_ms ?? null,
     psCls: health?.ps_cls ?? null,
     sslValid: health?.ssl_valid ?? null,
@@ -132,6 +141,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     platform: health?.platform ?? null,
     copyrightYear: health?.copyright_year ?? null,
     currentYear,
+    lastModifiedAgeDays,
     hasVisiblePhone:
       (conversion?.has_visible_phone || conversion?.has_tel_link) ?? false,
     hasClickToCall: conversion?.has_tel_link ?? false,
@@ -152,6 +162,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     reviewCount: reputation?.review_count ?? business.review_count ?? null,
     seoLocalFitScore: seo?.summary.local_fit_score_1_5 ?? null,
     seoHasTitle: seo?.title.found ?? null,
+    seoTitleValue: seo?.title.value ?? null,
     seoHasMetaDescription: seo?.meta_description.found ?? null,
     seoHasSitemap: seo?.has_sitemap ?? null,
   });
