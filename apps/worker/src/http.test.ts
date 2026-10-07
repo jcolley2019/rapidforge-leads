@@ -497,6 +497,82 @@ describe("POST /api/businesses/:id/builder-brief", () => {
   });
 });
 
+describe("stored builder brief / sales summary (RFL.FIX.3h)", () => {
+  const runsFor = (businessId: string, agent: string) =>
+    store.listAgentRuns().filter((r) => r.target_id === businessId && r.agent_name === agent);
+
+  it("stored builder brief / sales summary returned without a new agent run; ?force=true re-runs", async () => {
+    const { business } = await seedLead();
+    const audit = await seedCompletedAudit(business.id);
+    const storedBrief = [
+      "## Project overview\nstored brief",
+      "## Business details\nx",
+      "## Target audience\nx",
+      "## Pages to build\nx",
+      "## Design direction\nx",
+      "## SEO requirements\nx",
+      "## AEO requirements\nx",
+      "## Conversion requirements\nx",
+      "## Performance requirements\nx",
+      "## Content to migrate\nx",
+      "## Assets\nx",
+      "## Deploy instructions\nx",
+    ].join("\n\n");
+    const storedScript = {
+      opener: "stored opener",
+      earned_observation: "mobile scores 32/100",
+      pain_hypothesis: "p",
+      offer: "o",
+      soft_close: "s",
+      full_talk_track: "stored talk track",
+      anticipated_objections: [
+        { objection: "a", response: "b" },
+        { objection: "c", response: "d" },
+      ],
+    };
+    await store.updateAudit(audit.id, { builder_brief_md: storedBrief, sales_summary: storedScript });
+
+    // Stored → returned verbatim, stored:true, zero agent_runs rows added.
+    const brief = await api("POST", `/api/businesses/${business.id}/builder-brief`);
+    expect(brief.status).toBe(200);
+    expect(brief.json).toMatchObject({ builder_brief_md: storedBrief, stored: true });
+    expect(brief.json.sections).toHaveLength(12);
+    expect(brief.json.word_count).toBeGreaterThan(0);
+    expect(runsFor(business.id, "builder-brief")).toHaveLength(0);
+
+    const script = await api("POST", `/api/businesses/${business.id}/sales-summary`);
+    expect(script.status).toBe(200);
+    expect(script.json).toMatchObject({ sales_summary: storedScript, stored: true });
+    expect(runsFor(business.id, "sales-summary")).toHaveLength(0);
+
+    // ?force=true → a fresh run, persisted over the stored column, stored:false.
+    const forcedBrief = await api("POST", `/api/businesses/${business.id}/builder-brief?force=true`);
+    expect(forcedBrief.status).toBe(200);
+    expect(forcedBrief.json.stored).toBe(false);
+    expect(forcedBrief.json.builder_brief_md).not.toBe(storedBrief);
+    expect(runsFor(business.id, "builder-brief")).toHaveLength(1);
+
+    const forcedScript = await api("POST", `/api/businesses/${business.id}/sales-summary?force=true`);
+    expect(forcedScript.status).toBe(200);
+    expect(forcedScript.json.stored).toBe(false);
+    expect(forcedScript.json.sales_summary.full_talk_track).not.toBe("stored talk track");
+    expect(runsFor(business.id, "sales-summary")).toHaveLength(1);
+
+    const reloaded = await store.getLatestCompletedAuditForBusiness(business.id);
+    expect(reloaded?.builder_brief_md).toBe(forcedBrief.json.builder_brief_md);
+    expect(reloaded?.sales_summary).toEqual(forcedScript.json.sales_summary);
+  });
+
+  it("first-time generation (nothing stored) still runs the agent and reports stored:false", async () => {
+    const { business } = await seedLead();
+    await seedCompletedAudit(business.id);
+    const res = await api("POST", `/api/businesses/${business.id}/sales-summary`);
+    expect(res.status).toBe(200);
+    expect(res.json.stored).toBe(false);
+    expect(runsFor(business.id, "sales-summary")).toHaveLength(1);
+  });
+});
+
 describe("GET /api/businesses/:id/report", () => {
   it("409s when the business has no completed audit", async () => {
     const { business } = await seedLead();

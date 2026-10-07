@@ -1030,7 +1030,9 @@ function BuilderBriefTab({ lead }: { lead: LeadView }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await generateBuilderBrief(lead.business.id);
+      // "Regenerate" (a stored brief exists) forces a new run; first-time
+      // generation lets the worker return a stored brief if one appeared.
+      const r = await generateBuilderBrief(lead.business.id, markdown !== null);
       setMarkdown(r.markdown);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1339,7 +1341,8 @@ function SalesScriptTab({ lead }: { lead: LeadView }) {
     setBusy(true);
     setError(null);
     try {
-      setScript(await generateSalesSummary(lead.business.id));
+      // "Regenerate" (a stored script exists) forces a new run (RFL.FIX.3h).
+      setScript(await generateSalesSummary(lead.business.id, script !== null));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
