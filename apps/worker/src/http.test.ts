@@ -499,6 +499,46 @@ describe("POST /api/businesses/:id/builder-brief", () => {
   });
 });
 
+describe("builder-brief competitors (RFL.FIX.3j)", () => {
+  it("excludes chains and fx- fixture rows from the local competitors", async () => {
+    const tag = Math.random().toString(36).slice(2, 7);
+    const category = `roofing_contractor_${tag}`;
+    const { business } = await seedLead({
+      category,
+      google_place_id: `ChIJ-target-${tag}`,
+      name: `Target Roofing ${tag}`,
+    });
+    await seedCompletedAudit(business.id);
+    await seedLead({
+      category,
+      google_place_id: `fx-roof-${tag}`,
+      name: `Fixture Roofing ${tag}`,
+      review_count: 900,
+    });
+    await seedLead({
+      category,
+      google_place_id: `ChIJ-chain-${tag}`,
+      name: `Chain Roofing ${tag}`,
+      review_count: 800,
+      is_chain: true,
+      chain_reason: "known_brand",
+    });
+    await seedLead({
+      category,
+      google_place_id: `ChIJ-real-${tag}`,
+      name: `Real Roofing ${tag}`,
+      review_count: 50,
+    });
+
+    const res = await api("POST", `/api/businesses/${business.id}/builder-brief`);
+    expect(res.status).toBe(200);
+    const md: string = res.json.builder_brief_md;
+    expect(md).toContain(`Real Roofing ${tag}`);
+    expect(md).not.toContain(`Fixture Roofing ${tag}`);
+    expect(md).not.toContain(`Chain Roofing ${tag}`);
+  });
+});
+
 describe("stored builder brief / sales summary (RFL.FIX.3h)", () => {
   const runsFor = (businessId: string, agent: string) =>
     store.listAgentRuns().filter((r) => r.target_id === businessId && r.agent_name === agent);
