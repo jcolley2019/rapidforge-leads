@@ -137,14 +137,18 @@ function fallbackImprovements(facts: AuditFacts): Omit<Improvement, "priority">[
   return out;
 }
 
-/** Reasoning that cites >= 3 agents by name and value (never invented). */
+/** Reasoning that cites >= 3 agents by name, each beside a measured number (never invented). */
 function templateReasoning(facts: AuditFacts): string {
   const s: string[] = [];
   s.push(
     `The health agent scored the site ${facts.scores.health_score ?? "n/a"}/100${facts.health.platform ? ` on ${facts.health.platform}` : ""}${facts.health.ps_mobile_performance !== null ? ` with mobile performance ${facts.health.ps_mobile_performance}` : ""}.`,
   );
+  // RFL.FIX.3f: the guardrail counts an agent only beside a number, so the
+  // booleans are also stated as a count of the four measured contact paths.
+  const c = facts.conversion;
+  const paths = [c.has_phone, c.has_form, c.has_booking, c.has_chat].filter((v) => v === true).length;
   s.push(
-    `Conversion found ${facts.conversion.has_phone ? "a" : "no"} visible phone and ${facts.conversion.has_form ? "a" : "no"} contact form.`,
+    `Conversion found ${paths} of 4 contact paths, with ${c.has_phone ? "a" : "no"} visible phone and ${c.has_form ? "a" : "no"} contact form.`,
   );
   if (facts.design) {
     s.push(
@@ -159,6 +163,11 @@ function templateReasoning(facts: AuditFacts): string {
   if (facts.reputation) {
     s.push(
       `Reputation shows ${facts.reputation.google_rating ?? "no"} stars across ${facts.reputation.review_count ?? 0} reviews (${facts.reputation.volume_band ?? "unknown"} volume).`,
+    );
+  } else if (facts.business.google_rating !== null || facts.business.review_count !== null) {
+    // No Reputation block (pre-Sprint-6 audit): the Places rating/count it reads.
+    s.push(
+      `Reputation shows ${facts.business.google_rating ?? "no"} stars across ${facts.business.review_count ?? 0} Google reviews.`,
     );
   }
   // Guarantee a third distinct agent name even when Sprint 6 blocks are absent.
