@@ -525,7 +525,14 @@ function AuditTab({
         ["Feels like year", num(v15.design?.feels_like_year ?? null)],
         [
           "Vision critique",
-          v15.design === undefined ? dash() : bool(v15.design.used_vision ?? false),
+          v15.design === undefined ? (
+            dash()
+          ) : v15.design.used_vision ? (
+            bool(true)
+          ) : (
+            // Template mode: scores are markup-derived estimates (RFL.FIX.3g).
+            <span className="text-muted-foreground">estimated (no screenshot)</span>
+          ),
         ],
         [
           "Critical issues",

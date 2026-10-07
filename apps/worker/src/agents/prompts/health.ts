@@ -14,7 +14,7 @@ export const HealthSummarySchema = z.object({
     z.object({
       issue: z.string(),
       metric: z.string(),
-      value: z.union([z.string(), z.number()]),
+      value: z.union([z.string(), z.number(), z.boolean()]),
     }),
   ),
   summary_one_liner: z.string(),
@@ -27,6 +27,6 @@ export function buildHealthSummaryPrompt(
   return `${JSON.stringify(metrics, null, 2)}
 
 Return: { "reasoning": string (3-5 sentences, at least 2 numeric values),
-  "critical_issues": [{"issue": string, "metric": string, "value": string|number}],
+  "critical_issues": [{"issue": string, "metric": string, "value": string|number|boolean}],
   "summary_one_liner": string }`;
 }

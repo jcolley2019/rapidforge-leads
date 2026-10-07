@@ -114,6 +114,20 @@ describe("builder brief helpers", () => {
     expect(kws.some((k) => k.includes("plumber"))).toBe(true);
   });
 
+  it("prints the humanised category in keywords (RFL.FIX.3c)", () => {
+    const facts = buildAuditFacts(
+      makeBusiness({
+        category: "general_contractor",
+        address: "11567 Lake Shore Dr, Nampa, ID 83686, USA",
+      }),
+      makeAudit(),
+    );
+    const kws = deriveKeywords(facts);
+    expect(kws).toContain("general contractor Nampa");
+    expect(kws).toContain("best general contractor in Nampa");
+    expect(kws.some((k) => k.includes("general_contractor"))).toBe(false);
+  });
+
   it("flags placeholder tokens but not ordinary markdown links", () => {
     expect(placeholdersIn("Call [INSERT NAME] today").length).toBe(1);
     expect(placeholdersIn("Set the {business_name} here").length).toBe(1);

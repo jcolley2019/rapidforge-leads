@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 
-export const REPUTATION_SUMMARY_SYSTEM = `You are a local-business reputation analyst. You are given DETERMINISTIC measured signals (Google rating, review count, volume band, review velocity when known) and, when available, raw review text. Write a verdict narrative grounded ONLY in those signals. Echo volume_band exactly as provided — it is a measurement, not your judgment. Extract themes only from provided review text; when none is provided, themes must be an empty array. Any quote must be under 15 words and copied verbatim from provided review text. Strict JSON only: reply with a single JSON object and nothing else.`;
+export const REPUTATION_SUMMARY_SYSTEM = `You are a local-business reputation analyst. You are given DETERMINISTIC measured signals (Google rating, review count, volume band, review velocity when known) and, when available, raw review text. Write a verdict narrative grounded ONLY in those signals. Echo volume_band exactly as provided — it is a measurement, not your judgment. Extract themes only from provided review text; when none is provided, themes must be an empty array. Any quote must be 15 words or fewer and copied verbatim from provided review text. The verdict must agree with the rating: 4.6+ is strong, 4.2+ solid, 3.5+ mixed, below that weak — review volume qualifies your confidence, it does not demote the verdict. Strict JSON only: reply with a single JSON object and nothing else.`;
 
 export const ReputationVerdictSchema = z.enum([
   "strong",
@@ -18,6 +18,20 @@ export const ReputationVerdictSchema = z.enum([
   "unknown",
 ]);
 export type ReputationVerdict = z.infer<typeof ReputationVerdictSchema>;
+
+/**
+ * The verdict band a Google rating alone supports (RFL.FIX.3f). Sentiment
+ * is the rating; review volume qualifies confidence and never demotes.
+ * Null rating = unknown. The template uses it directly; the guardrail
+ * rejects a model verdict more than one band away from it.
+ */
+export function ratingBandFor(rating: number | null): ReputationVerdict {
+  if (rating === null) return "unknown";
+  if (rating >= 4.6) return "strong";
+  if (rating >= 4.2) return "solid";
+  if (rating >= 3.5) return "mixed";
+  return "weak";
+}
 
 export const VolumeBandSchema = z.enum([
   "none",
@@ -35,7 +49,7 @@ export const ReputationSummarySchema = z.object({
   themes: z.array(
     z.object({
       theme: z.string(),
-      /** Verbatim, <15 words, only from provided review text. */
+      /** Verbatim, 15 words or fewer, only from provided review text. */
       quote: z.string().nullable(),
     }),
   ),
@@ -50,6 +64,6 @@ export function buildReputationSummaryPrompt(
 
 Return: { "verdict": "strong"|"solid"|"mixed"|"weak"|"unknown",
   "volume_band": exactly the provided volume_band,
-  "themes": [{"theme": string, "quote": string|null (verbatim, <15 words)}] (empty when no review text is provided),
+  "themes": [{"theme": string, "quote": string|null (verbatim, 15 words or fewer)}] (empty when no review text is provided),
   "reasoning": string }`;
 }

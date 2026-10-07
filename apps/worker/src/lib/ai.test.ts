@@ -19,6 +19,7 @@ import {
   MODEL_REFUSAL_FALLBACK,
   MODEL_SONNET,
   narrationSummaryMode,
+  parseAiSummaries,
   sumMicrocents,
   wireFormat,
   type MarkdownSpec,
@@ -222,6 +223,48 @@ describe("narration summaries (AI_SUMMARIES)", () => {
     expect(p.requests[0]!.outputConfig?.effort).toBeUndefined();
     expect(p.requests[0]!.outputConfig?.format?.type).toBe("json_schema");
     expect(out.modelUsed).toBe(MODEL_HAIKU);
+  });
+
+  it("parseAiSummaries: unset/blank/unknown → template; haiku/all → all; a list → the named agents", () => {
+    expect(parseAiSummaries(undefined)).toBe("template");
+    expect(parseAiSummaries("")).toBe("template");
+    expect(parseAiSummaries("  ,  ")).toBe("template");
+    expect(parseAiSummaries("sonnet")).toBe("template");
+    expect(parseAiSummaries("haiku")).toBe("all");
+    expect(parseAiSummaries("ALL")).toBe("all");
+    expect(parseAiSummaries("reputation,haiku")).toBe("all");
+    const one = parseAiSummaries("reputation");
+    expect(one).toBeInstanceOf(Set);
+    expect([...(one as Set<string>)]).toEqual(["reputation"]);
+    const list = parseAiSummaries(" Reputation , seo,bogus,health ");
+    expect([...(list as Set<string>)].sort()).toEqual(["health", "reputation", "seo"]);
+  });
+
+  it("AI_SUMMARIES=reputation: Haiku for reputation only, template for the other four and for an unnamed caller", async () => {
+    restoreEnv();
+    restoreEnv = coreModeEnv({ summaries: "reputation" });
+    expect(narrationSummaryMode("reputation")).toBe("haiku");
+    for (const agent of ["health", "conversion", "presence", "seo"] as const) {
+      expect(narrationSummaryMode(agent)).toBe("template");
+    }
+    expect(narrationSummaryMode()).toBe("template");
+    const p = fakeProvider(jsonReply(GOOD));
+    restoreProvider = p.restore;
+    const seo = await generateJsonSummary(spec({ model: MODEL_HAIKU, kind: "narration", agent: "seo" }));
+    expect(seo.value).toEqual(TEMPLATE);
+    expect(p.complete).not.toHaveBeenCalled();
+    const rep = await generateJsonSummary(spec({ model: MODEL_HAIKU, kind: "narration", agent: "reputation" }));
+    expect(rep.modelUsed).toBe(MODEL_HAIKU);
+    expect(p.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("AI_SUMMARIES=haiku still means all five, even for an unnamed narration caller", () => {
+    restoreEnv();
+    restoreEnv = coreModeEnv({ summaries: "haiku" });
+    for (const agent of ["health", "conversion", "presence", "reputation", "seo"] as const) {
+      expect(narrationSummaryMode(agent)).toBe("haiku");
+    }
+    expect(narrationSummaryMode()).toBe("haiku");
   });
 });
 

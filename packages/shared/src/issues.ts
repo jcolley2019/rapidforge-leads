@@ -287,9 +287,16 @@ export function buildIssues(input: IssueInputs): Issue[] {
       `${input.reviewCount} reviews`,
     );
   }
-  if (
+  if (input.reviewCount === 0) {
+    // Zero is a measurement, not an unknown (RFL.FIX.3f): a business with
+    // no reviews at all is silent proof, not a neutral.
+    add(
+      "medium",
+      "No Google reviews yet",
+      "Zero reviews on the Google listing — no social proof for prospects",
+    );
+  } else if (
     input.reviewCount !== null &&
-    input.reviewCount > 0 &&
     input.reviewCount < ISSUE_THRESHOLDS.reviewsFewBelow
   ) {
     add(

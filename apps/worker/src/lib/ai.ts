@@ -38,7 +38,7 @@ import type { ZodType } from "zod";
 import { forceFixtures } from "./env";
 
 // Model assignments (CLAUDE.md 4.1 — retired names appear nowhere).
-/** Filter edge-pass, cheap classification, and the five narration summaries when AI_SUMMARIES=haiku. */
+/** Filter edge-pass, cheap classification, and the narration summaries AI_SUMMARIES opts in (haiku = all five, or a list). */
 export const MODEL_HAIKU = "claude-haiku-4-5";
 /** Design (vision), Sales Summary, Analyst — all at effort "low". */
 export const MODEL_SONNET = "claude-sonnet-5-5";
@@ -277,14 +277,54 @@ export function aiSummaryMode(): "core" | "template" {
   return process.env.ANTHROPIC_API_KEY ? "core" : "template";
 }
 
+/** The five narration agents AI_SUMMARIES can name (RFL.FIX.3c). */
+export const NARRATION_AGENTS = [
+  "health",
+  "conversion",
+  "presence",
+  "reputation",
+  "seo",
+] as const;
+export type NarrationAgent = (typeof NARRATION_AGENTS)[number];
+
+/**
+ * Parse AI_SUMMARIES (pure, exported for tests):
+ *   unset / blank / anything unrecognised → "template" (no spend)
+ *   "haiku" (or "all")                     → "all" — every narration on Haiku
+ *   "reputation,seo"                       → the named agents only; unknown
+ *                                            names are ignored, case and
+ *                                            whitespace are forgiven.
+ */
+export function parseAiSummaries(
+  raw: string | undefined,
+): "template" | "all" | ReadonlySet<NarrationAgent> {
+  const tokens = (raw ?? "")
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0) return "template";
+  if (tokens.includes("haiku") || tokens.includes("all")) return "all";
+  const agents = new Set<NarrationAgent>();
+  for (const t of tokens) {
+    if ((NARRATION_AGENTS as readonly string[]).includes(t)) agents.add(t as NarrationAgent);
+  }
+  return agents.size === 0 ? "template" : agents;
+}
+
 /**
  * Narration summaries (Health, Conversion, Presence, Reputation, SEO) only
  * restate numbers the worker measured; their guardrails are mechanical and
  * the deterministic templates pass them (audit §e). They are template by
- * default; AI_SUMMARIES=haiku routes them to Haiku 4.5 (no effort).
+ * default; AI_SUMMARIES=haiku routes all five to Haiku 4.5 (no effort), and
+ * a comma-separated list (AI_SUMMARIES=reputation) routes only those named.
+ * A caller that does not say which agent it is only gets Haiku under the
+ * all-agents form.
  */
-export function narrationSummaryMode(): "template" | "haiku" {
-  return process.env.AI_SUMMARIES === "haiku" ? "haiku" : "template";
+export function narrationSummaryMode(agent?: NarrationAgent): "template" | "haiku" {
+  const parsed = parseAiSummaries(process.env.AI_SUMMARIES);
+  if (parsed === "template") return "template";
+  if (parsed === "all") return "haiku";
+  return agent !== undefined && parsed.has(agent) ? "haiku" : "template";
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +387,8 @@ export interface SummarySpec<T> {
    * — see narrationSummaryMode. Narration specs name MODEL_HAIKU.
    */
   kind?: "judgment" | "narration";
+  /** Which narration agent is asking — lets AI_SUMMARIES=<list> pick it out. */
+  agent?: NarrationAgent;
   system: string;
   prompt: string;
   /** Vision inputs forwarded to callModel (Design agent, PRD 6.8). */
@@ -409,7 +451,7 @@ export async function generateJsonSummary<T>(
   spec: SummarySpec<T>,
 ): Promise<SummaryOutcome<T>> {
   if (aiSummaryMode() === "template") return templateOutcome(spec);
-  if (spec.kind === "narration" && narrationSummaryMode() === "template") {
+  if (spec.kind === "narration" && narrationSummaryMode(spec.agent) === "template") {
     return templateOutcome(spec);
   }
 

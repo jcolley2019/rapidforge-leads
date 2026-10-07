@@ -394,6 +394,8 @@ async function runAuditPipeline(
   // reuses the MEASURED mobile run rather than an invented neutral — mobile
   // is the stricter of the two, so health is never overstated.
   const psiDesktop = psiDesktopRun ?? psiMobile;
+  // Health narrates "desktop not measured" when the copy is in play (RFL.FIX.3e).
+  const desktopMeasured = psiDesktopRun !== null;
   // The probe passed but the homepage fetch hit bot protection (finding 4):
   // never analyse a challenge page — no agents, no screenshots of the block
   // page. Finalize as blocked: one low issue, neutral provisional scores.
@@ -450,7 +452,7 @@ async function runAuditPipeline(
   const [health, conversion, presence, traffic, design, reputation, seo] =
     await Promise.all([
       withAgentRun(deps, { ...runCtx, agent: "health", targetId: business.id }, (signal) =>
-        runHealth({ business, site, psiDesktop, psiMobile, now, signal }),
+        runHealth({ business, site, psiDesktop, psiMobile, desktopMeasured, now, signal }),
       ),
       withAgentRun(
         deps,

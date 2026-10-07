@@ -1,5 +1,5 @@
 /**
- * Reputation — PRD 6.9 (v1.5, deterministic + Sonnet 4.6). GOOGLE-FIRST
+ * Reputation — PRD 6.9 (v1.5, deterministic + Haiku narration / template). GOOGLE-FIRST
  * per the Sprint 6 decision: every number comes from data already held.
  *
  * Deterministic signals (worker-measured, CLAUDE.md 4.2):
@@ -24,6 +24,7 @@ import { getYelpClient } from "../lib/yelp";
 import { makeReputationSummaryGuardrail } from "./guardrails/reputation-summary";
 import {
   buildReputationSummaryPrompt,
+  ratingBandFor,
   REPUTATION_SUMMARY_SYSTEM,
   ReputationSummarySchema,
   type ReputationSummary,
@@ -48,17 +49,19 @@ export function volumeBandFor(reviewCount: number | null): VolumeBand {
   return "none";
 }
 
-/** Deterministic verdict for the template path (never from the LLM). */
+export { ratingBandFor };
+
+/**
+ * Deterministic verdict for the template path (never from the LLM).
+ * Sentiment is the rating (RFL.FIX.3f); volume is a confidence qualifier,
+ * not a demotion — 5.0★ across 7 reviews is "strong", never "mixed".
+ */
 export function templateVerdictFor(
   rating: number | null,
   reviewCount: number | null,
 ): ReputationVerdict {
-  const count = reviewCount ?? 0;
-  if (rating === null || count === 0) return "unknown";
-  if (rating >= 4.6 && count >= 50) return "strong";
-  if (rating >= 4.2 && count >= 20) return "solid";
-  if (rating >= 3.5) return "mixed";
-  return "weak";
+  if ((reviewCount ?? 0) === 0) return "unknown";
+  return ratingBandFor(rating);
 }
 
 /** Reputation snapshot persisted with each audit (in score_breakdown). */
@@ -175,26 +178,42 @@ export interface ReputationContext {
   now: Date;
 }
 
-function buildTemplateSummary(
+/** How much the review count lets a reader trust the rating (template prose). */
+const VOLUME_CONFIDENCE: Record<VolumeBand, string> = {
+  none: "no reviews to support it",
+  low: "low confidence — fewer than 10 reviews",
+  moderate: "moderate confidence — 10 to 49 reviews",
+  high: "high confidence — 50 or more reviews",
+  very_high: "very high confidence — 200 or more reviews",
+};
+
+/** Exported for unit tests: the deterministic template narrative. */
+export function buildTemplateSummary(
   rating: number | null,
   reviewCount: number | null,
   volumeBand: VolumeBand,
   velocity: number | null,
+  reviewsConsidered = 0,
 ): ReputationSummary {
   const verdict = templateVerdictFor(rating, reviewCount);
+  const count = reviewCount ?? 0;
   const bits = [
     rating === null
       ? "No Google rating on record."
-      : `Google rating ${rating} across ${reviewCount ?? 0} reviews (${volumeBand} volume).`,
+      : count === 0
+        ? `Google rating ${rating} with no reviews yet — nothing to judge.`
+        : `Google rating ${rating} across ${count} review${count === 1 ? "" : "s"}: ${verdict} rating, ${VOLUME_CONFIDENCE[volumeBand]} (${volumeBand} volume).`,
     velocity === null
       ? "Review velocity unknown (first audit or no baseline)."
       : `Gaining ${velocity} reviews/month since the previous audit.`,
-    "Review text and recency are not collected in v1; Yelp cross-reference is v1.5.",
+    reviewsConsidered > 0
+      ? `${reviewsConsidered} review text${reviewsConsidered === 1 ? "" : "s"} on file; themes are only extracted by the model path. Yelp cross-reference is v1.5.`
+      : "Review text and recency are not collected in v1; Yelp cross-reference is v1.5.",
   ];
   return {
     verdict,
     volume_band: volumeBand,
-    themes: [], // no review text held — nothing to theme (CLAUDE.md 6.3)
+    themes: [], // the template never themes — quotes come only from the model path (CLAUDE.md 6.3)
     reasoning: bits.join(" "),
   };
 }
@@ -244,15 +263,17 @@ export async function runReputation(
     const summary = await generateJsonSummary({
       model: MODEL_HAIKU,
       kind: "narration",
+      agent: "reputation",
       system: REPUTATION_SUMMARY_SYSTEM,
       prompt: buildReputationSummaryPrompt(signals),
       schema: ReputationSummarySchema,
       guardrail: makeReputationSummaryGuardrail(
         volumeBand,
         reviews.map((r) => r.text),
+        rating,
       ),
       template: () =>
-        buildTemplateSummary(rating, reviewCount, volumeBand, velocity),
+        buildTemplateSummary(rating, reviewCount, volumeBand, velocity, reviews.length),
       ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 

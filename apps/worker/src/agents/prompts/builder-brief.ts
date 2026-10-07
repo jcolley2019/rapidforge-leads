@@ -8,7 +8,7 @@
 import { cityFromPlacesAddress } from "../../lib/address";
 import type { AuditFacts } from "../money-facts";
 import { factsToPromptJson } from "../money-facts";
-import type { CascadingVars } from "./config-vars";
+import { humanizeCategory, type CascadingVars } from "./config-vars";
 
 /** Required H2 sections, in order (PRD 6.12). The guardrail checks each. */
 export const BRIEF_SECTIONS = [
@@ -36,7 +36,9 @@ export interface CompetitorSummary {
 
 /** Target keywords for the rebuild — {city} + {category} (PRD 6.10/6.12). */
 export function deriveKeywords(facts: AuditFacts): string[] {
-  const category = facts.business.category ?? "local service";
+  // Humanised through the shared template vars — "general contractor
+  // Nampa", never "general_contractor Nampa" (RFL.FIX.3c).
+  const category = humanizeCategory(facts.business.category) ?? "local service";
   const city = cityFromPlacesAddress(facts.business.address);
   const kws = [
     city ? `${category} ${city}` : `${category} near me`,

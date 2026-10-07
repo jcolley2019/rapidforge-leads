@@ -3,6 +3,7 @@ import type { Audit, Business } from "@rapidforge/shared";
 import { makeReputationSummaryGuardrail } from "./guardrails/reputation-summary";
 import type { ReputationSummary } from "./prompts/reputation";
 import {
+  buildTemplateSummary,
   computeReviewVelocityPerMonth,
   readPreviousSnapshot,
   runReputation,
@@ -90,7 +91,39 @@ describe("reputation guardrails (PRD 6.9)", () => {
     expect(verdict.notes).toContain("never provided");
   });
 
-  it("rejects overlong quotes (>=15 words) even with review text", () => {
+  it("accepts a 15-word quote and rejects a 16-word one (RFL.FIX.3f: 15 words or fewer)", () => {
+    const fifteen =
+      "was willing to work us in even though he was already booked up that week";
+    const sixteen = `${fifteen} too`;
+    const guardrail = makeReputationSummaryGuardrail("moderate", [fifteen, sixteen]);
+    expect(fifteen.split(" ")).toHaveLength(15);
+    expect(
+      guardrail(summaryWith({ themes: [{ theme: "flexible", quote: fifteen }] })).passed,
+    ).toBe(true);
+    const verdict = guardrail(summaryWith({ themes: [{ theme: "flexible", quote: sixteen }] }));
+    expect(verdict.passed).toBe(false);
+    expect(verdict.notes).toContain("too long");
+  });
+
+  it("rejects a verdict two bands from the rating, allows one band of judgment", () => {
+    const guardrail = makeReputationSummaryGuardrail("high", false, 4.9);
+    const weak = guardrail(summaryWith({ volume_band: "high", verdict: "weak" }));
+    expect(weak.passed).toBe(false);
+    expect(weak.notes).toContain("contradicts the 4.9 rating");
+    expect(guardrail(summaryWith({ volume_band: "high", verdict: "mixed" })).passed).toBe(false);
+    expect(guardrail(summaryWith({ volume_band: "high", verdict: "solid" })).passed).toBe(true);
+    expect(guardrail(summaryWith({ volume_band: "high", verdict: "strong" })).passed).toBe(true);
+    // 'unknown' for a measured 4.9 is a dodge, not a band.
+    expect(guardrail(summaryWith({ volume_band: "high", verdict: "unknown" })).passed).toBe(false);
+    // No rating → no verdict check (legacy two-argument form unchanged).
+    expect(
+      makeReputationSummaryGuardrail("high", false)(
+        summaryWith({ volume_band: "high", verdict: "weak" }),
+      ).passed,
+    ).toBe(true);
+  });
+
+  it("rejects overlong quotes (>15 words) even with review text", () => {
     const guardrail = makeReputationSummaryGuardrail("moderate", true);
     const verdict = guardrail(
       summaryWith({
@@ -183,11 +216,49 @@ describe("runReputation (template mode)", () => {
     expect(output.summary.themes).toEqual([]);
   });
 
-  it("bands verdicts deterministically", () => {
+  it("bands verdicts deterministically — rating decides, volume never demotes (RFL.FIX.3f)", () => {
     expect(templateVerdictFor(null, 0)).toBe("unknown");
+    expect(templateVerdictFor(null, 30)).toBe("unknown");
     expect(templateVerdictFor(4.8, 200)).toBe("strong");
     expect(templateVerdictFor(4.3, 30)).toBe("solid");
     expect(templateVerdictFor(3.9, 30)).toBe("mixed");
     expect(templateVerdictFor(2.8, 30)).toBe("weak");
+    // Boundaries.
+    expect(templateVerdictFor(4.6, 1)).toBe("strong");
+    expect(templateVerdictFor(4.2, 1)).toBe("solid");
+    expect(templateVerdictFor(3.5, 1)).toBe("mixed");
+    expect(templateVerdictFor(3.4, 1)).toBe("weak");
+    // Zero reviews: nothing to judge even with a rating on the row.
+    expect(templateVerdictFor(5, 0)).toBe("unknown");
+  });
+
+  it("template verdict for ≥4.8★ with <20 reviews is not 'mixed' (Accurbore 5.0★/7)", () => {
+    expect(templateVerdictFor(5.0, 7)).toBe("strong");
+    expect(templateVerdictFor(4.8, 19)).toBe("strong");
+    const summary = buildTemplateSummary(5.0, 7, volumeBandFor(7), null, 5);
+    expect(summary.verdict).toBe("strong");
+    expect(summary.reasoning).toContain("strong rating");
+    expect(summary.reasoning).toContain("low confidence");
+    expect(summary.reasoning).toContain("5 review texts on file");
+    expect(summary.reasoning).not.toContain("not collected");
+    expect(summary.themes).toEqual([]);
+  });
+
+  it("keeps the 'not collected' sentence only when no review text was on file", () => {
+    const summary = buildTemplateSummary(4.3, 30, "moderate", 2, 0);
+    expect(summary.reasoning).toContain("not collected in v1");
+    expect(summary.reasoning).toContain("moderate confidence");
+  });
+
+  it("runReputation template with 0 reviews: verdict unknown, band none, guardrail passes", async () => {
+    const result = await runReputation({
+      business: businessWith(null, 0),
+      previousAudit: null,
+      now: NOW,
+    });
+    expect(result.status).toBe("completed");
+    expect(result.guardrailPassed).toBe(true);
+    expect(result.output!.volume_band).toBe("none");
+    expect(result.output!.summary.verdict).toBe("unknown");
   });
 });

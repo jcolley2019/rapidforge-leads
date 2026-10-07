@@ -59,7 +59,7 @@
 
 | Model | ID | Used for |
 |---|---|---|
-| Claude Haiku 4.5 | `claude-haiku-4-5` | Filter edge-pass; cheap classification; Design Brief field extraction; the five **narration summaries** (Health, Conversion, Presence, Reputation, SEO) **only when `AI_SUMMARIES=haiku`** — deterministic template otherwise. Takes no `effort` (AI Core rejects it before the network) |
+| Claude Haiku 4.5 | `claude-haiku-4-5` | Filter edge-pass; cheap classification; Design Brief field extraction; the five **narration summaries** (Health, Conversion, Presence, Reputation, SEO) **only when `AI_SUMMARIES=haiku`** — deterministic template otherwise. `AI_SUMMARIES` also accepts a comma-separated list of those agent names (e.g. `AI_SUMMARIES=reputation`) to narrate only the named ones on Haiku. Takes no `effort` (AI Core rejects it before the network) |
 | Claude Sonnet 5.5 | `claude-sonnet-5-5` | Design (vision), Sales Summary — both at `effort: "low"` (RFL.AI.9) |
 | Claude Opus 4.8 | `claude-opus-4-8` | **Analyst + Builder Brief** at `effort: "low"` (Analyst kept on Opus in RFL.AI.9a — the human-read verdict; gate from RFL-05 unchanged); the refusal fallback for every model |
 | Claude Fable 5 | `claude-fable-5` | Optional alternative for Analyst/Builder Brief; not selected by default |
@@ -130,7 +130,7 @@ Pre-commit: tsc clean in touched workspaces → no stray `console.log` → no se
 
 ## 8. Cost Discipline
 
-Haiku for classification and opt-in narration (`AI_SUMMARIES=haiku`), deterministic templates for the five narration summaries by default, Sonnet 5.5 for Design + Sales Summary, Opus 4.8 ONLY for Analyst + Builder Brief (Analyst auto-runs only at star ≤ 3 AND sellability ≥ 60; Brief + Sales Summary are on-demand). 30-day audit cache. Filter before any spend. 5-business concurrency cap. Log tokens + cost on every call. Places calls logged to `usage_events`. **Monthly target <$200** — flag anything that risks it.
+Haiku for classification and opt-in narration (`AI_SUMMARIES=haiku` for all five, or a comma-separated list such as `AI_SUMMARIES=reputation,seo` for just those), deterministic templates for the five narration summaries by default, Sonnet 5.5 for Design + Sales Summary, Opus 4.8 ONLY for Analyst + Builder Brief (Analyst auto-runs only at star ≤ 3 AND sellability ≥ 60; Brief + Sales Summary are on-demand). 30-day audit cache. Filter before any spend. 5-business concurrency cap. Log tokens + cost on every call. Places calls logged to `usage_events`. **Monthly target <$200** — flag anything that risks it.
 
 ---
 

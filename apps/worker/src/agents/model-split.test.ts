@@ -156,6 +156,30 @@ describe("narration summaries: template by default, Haiku 4.5 on AI_SUMMARIES=ha
   });
 });
 
+describe("narration summaries: AI_SUMMARIES=reputation picks one agent (RFL.FIX.3c)", () => {
+  it.each(narration)("%s with AI_SUMMARIES=reputation calls Haiku only when it is reputation", async (name, run) => {
+    restoreEnv = coreModeEnv();
+    const templateRun = await run();
+    const templateSummary = templateRun.output!.summary;
+    restoreEnv();
+
+    restoreEnv = coreModeEnv({ summaries: "reputation" });
+    const p = fakeProvider(jsonReply(templateSummary));
+    restoreProvider = p.restore;
+    const result = await run();
+    expect(result.status).toBe("completed");
+    if (name === "reputation") {
+      expect(p.requests).toHaveLength(1);
+      expect(p.requests[0]!.model).toBe(MODEL_HAIKU);
+      expect(result.modelUsed).toBe(MODEL_HAIKU);
+    } else {
+      expect(p.complete).not.toHaveBeenCalled();
+      expect(result.modelUsed).toBeNull();
+      expect(result.costCents).toBe(0);
+    }
+  });
+});
+
 describe("judgment agents", () => {
   beforeEach(() => {
     restoreEnv = coreModeEnv();

@@ -115,10 +115,19 @@ export function buildAuditFacts(business: Business, audit: Audit): AuditFacts {
     ? {
         modernity_0_100: num(designRaw.modernity_0_100),
         feels_like_year: num(designRaw.feels_like_year),
+        // Design persists {issue, evidence} objects (prompts/design.ts);
+        // older rows may hold plain strings. Both reach the money agents
+        // (RFL.FIX.3g — the object form used to be dropped as []).
         critical_issues: Array.isArray(designRaw.critical_issues)
-          ? designRaw.critical_issues.filter(
-              (x): x is string => typeof x === "string",
-            )
+          ? designRaw.critical_issues
+              .map((x: unknown) =>
+                typeof x === "string"
+                  ? x
+                  : typeof (x as { issue?: unknown } | null)?.issue === "string"
+                    ? ((x as { issue: string }).issue)
+                    : null,
+              )
+              .filter((x): x is string => x !== null && x.length > 0)
           : [],
       }
     : null;
