@@ -8,7 +8,8 @@ import {
 } from "./guardrails/sales-summary";
 import { buildAuditFacts } from "./money-facts";
 import { buildTemplateSalesSummary, runSalesSummary } from "./sales-summary";
-import type { SalesSummaryOutput } from "./prompts/sales-summary";
+import { buildSalesSummarySystem, type SalesSummaryOutput } from "./prompts/sales-summary";
+import { CONFIG_DEFAULTS, resolveConfigVars } from "./prompts/config-vars";
 
 function makeBusiness(overrides: Partial<Business> = {}): Business {
   return {
@@ -148,6 +149,30 @@ describe("buildTemplateSalesSummary", () => {
     expect(isSpecificObservation(out.earned_observation)).toBe(true);
     expect(out.anticipated_objections.length).toBeGreaterThanOrEqual(2);
     expect(bannedWordsIn(out.full_talk_track)).toEqual([]);
+  });
+});
+
+describe("buildSalesSummarySystem — brand, location, voice (RFL.FIX.3h)", () => {
+  it("names who the rep is calling on behalf of, from workspace_config", () => {
+    const vars = resolveConfigVars({
+      workspace_id: "ws-1",
+      your_offer: "a rebuild",
+      target_industry: "plumbers",
+      ideal_website_traits: "fast",
+      sales_tone: "warm and blunt",
+      user_location: "Boise, Idaho",
+      user_brand: "Treasure Valley Web Co",
+    } as never);
+    const system = buildSalesSummarySystem(vars);
+    expect(system).toContain("on behalf of Treasure Valley Web Co in Boise, Idaho");
+    expect(system).toContain("Voice: warm and blunt.");
+    expect(system).not.toMatch(/\{[a-z_]+\}/);
+  });
+
+  it("blank Settings fall back to the neutral defaults", () => {
+    const system = buildSalesSummarySystem(resolveConfigVars(null));
+    expect(system).toContain(`on behalf of ${CONFIG_DEFAULTS.user_brand} in ${CONFIG_DEFAULTS.user_location}`);
+    expect(system).not.toMatch(/\{[a-z_]+\}/);
   });
 });
 

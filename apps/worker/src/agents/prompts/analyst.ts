@@ -1,5 +1,5 @@
 /**
- * Analyst prompt + contract — PRD 6.11 (Fable 5 → Opus 4.8 fallback).
+ * Analyst prompt + contract — PRD 6.11 (Opus 4.8, effort low; RFL.AI.9a).
  *
  * Synthesizes the measured audit into an executive verdict for a salesperson.
  * The model explains and prioritizes; it NEVER re-scores (CLAUDE.md 4.2). The
@@ -8,7 +8,7 @@
 import { z } from "zod";
 import type { AuditFacts } from "../money-facts";
 import { factsToPromptJson } from "../money-facts";
-import type { CascadingVars } from "./config-vars";
+import { CONFIG_DEFAULTS, type CascadingVars } from "./config-vars";
 
 export const AnalystVerdictSchema = z.enum([
   "actively_losing_business",
@@ -52,7 +52,16 @@ export const VERDICT_STAR_RANGE: Record<AnalystVerdict, [number, number]> = {
   excellent: [4, 5],
 };
 
-export const ANALYST_SYSTEM = `You are a senior website consultant synthesizing a completed audit into an executive verdict for a salesperson who will cold-call this business.
+/**
+ * System prompt with the workspace voice (RFL.FIX.3h). {user_brand},
+ * {user_location} and {sales_tone} come ONLY from the shared template
+ * variables (config-vars.ts, CLAUDE.md 6.4) — a blank Settings field
+ * resolves to its neutral default there, never to a literal placeholder.
+ */
+export function buildAnalystSystem(vars: CascadingVars): string {
+  return `You are a senior website consultant synthesizing a completed audit into an executive verdict for a salesperson at ${vars.user_brand}, based in ${vars.user_location}, who will cold-call this business.
+
+Write the verdict, improvements and one-liner in that salesperson's voice: ${vars.sales_tone}. They will read the one_line_verdict aloud.
 
 You are given MEASURED data and COMPUTED scores. Do NOT re-score and do NOT invent numbers — explain and prioritize what was measured, citing specific findings by the agent that produced them (health, conversion, presence, traffic, design, reputation, seo) and by value.
 
@@ -74,6 +83,10 @@ Rules:
 - reasoning MUST cite at least THREE agents by name (e.g. health, design, seo) with the values they measured.
 - one_line_verdict MUST be 20 words or fewer.
 - The verdict MUST be consistent with the star grade you are given (a 5★ site is not "actively_losing_business"; a 1★ site is not "excellent").`;
+}
+
+/** The system prompt as rendered with the neutral defaults (no Settings filled in). */
+export const ANALYST_SYSTEM = buildAnalystSystem(CONFIG_DEFAULTS);
 
 export function buildAnalystPrompt(
   facts: AuditFacts,

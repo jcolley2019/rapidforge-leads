@@ -1,9 +1,10 @@
 /**
- * Sales Summary prompt + contract — PRD 6.13 (Sonnet 4.6).
+ * Sales Summary prompt + contract — PRD 6.13 (Sonnet 5.5, effort low).
  *
  * A ~60-second cold-call talk track that opens with a SPECIFIC measured
- * observation and offers something tangible. Voice comes from the workspace's
- * {sales_tone} cascading variable (CLAUDE.md 6.4). Strict JSON, guardrailed.
+ * observation and offers something tangible. Voice, brand and location come
+ * from the workspace's {sales_tone}/{user_brand}/{user_location} cascading
+ * variables (CLAUDE.md 6.4, RFL.FIX.3h). Strict JSON, guardrailed.
  */
 import { z } from "zod";
 import type { AnalystOutput } from "./analyst";
@@ -40,7 +41,7 @@ export const SalesSummaryOutputSchema = z.object({
 export type SalesSummaryOutput = z.infer<typeof SalesSummaryOutputSchema>;
 
 export function buildSalesSummarySystem(vars: CascadingVars): string {
-  return `You write cold-call talk tracks for a website-improvement consultant. The rep has about 60 seconds to earn permission to keep talking.
+  return `You write cold-call talk tracks for a website-improvement consultant. The rep is calling on behalf of ${vars.user_brand} in ${vars.user_location} and has about 60 seconds to earn permission to keep talking. The opener should say who they are and where they are calling from, in one short clause.
 
 Voice: ${vars.sales_tone}.
 

@@ -31,7 +31,7 @@ import { cityFromPlacesAddress } from "../src/lib/address";
 import { buildTemplateDesignCritique, computeTemplateModernity, readTemplateSignals } from "../src/agents/design";
 import { buildAuditFacts } from "../src/agents/money-facts";
 import { resolveConfigVars } from "../src/agents/prompts/config-vars";
-import { ANALYST_SYSTEM, buildAnalystPrompt } from "../src/agents/prompts/analyst";
+import { buildAnalystPrompt, buildAnalystSystem } from "../src/agents/prompts/analyst";
 import {
   BUILDER_BRIEF_SYSTEM,
   buildBuilderBriefPrompt,
@@ -381,7 +381,8 @@ async function prompts(db: SupabaseClient, auditId: string): Promise<void> {
   if (s) sizeLine("seo", buildSeoSummarySystem(resolveLocalTarget(s.category, s.city)), buildSeoSummaryPrompt(s));
   sizeLine("design(vision)", DESIGN_CRITIQUE_SYSTEM, buildDesignPrompt(business.website_url ?? ""));
   const analystPrompt = buildAnalystPrompt(facts, vars);
-  sizeLine("analyst", ANALYST_SYSTEM, analystPrompt);
+  const analystSystem = buildAnalystSystem(vars);
+  sizeLine("analyst", analystSystem, analystPrompt);
   const keywords = deriveKeywords(facts);
   const briefPrompt = buildBuilderBriefPrompt(facts, vars, [], keywords, "x".repeat(1500));
   sizeLine("builder-brief", BUILDER_BRIEF_SYSTEM, briefPrompt);
@@ -395,6 +396,8 @@ async function prompts(db: SupabaseClient, auditId: string): Promise<void> {
   });
   sizeLine("design-brief", DESIGN_BRIEF_JUDGMENT_SYSTEM, dbPrompt);
   console.log(`\nderiveKeywords → ${JSON.stringify(keywords)}`);
+  console.log("\n--- ANALYST SYSTEM (verbatim, config substituted) ---\n" + analystSystem);
+  console.log("\n--- SALES SUMMARY SYSTEM (verbatim, config substituted) ---\n" + buildSalesSummarySystem(vars));
   console.log("\n--- ANALYST PROMPT (verbatim) ---\n" + analystPrompt);
   console.log("\n--- SEO PROMPT (verbatim) ---\n" + (s ? buildSeoSummaryPrompt(s) : "(no seo run)"));
 }
