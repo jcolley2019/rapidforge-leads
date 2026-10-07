@@ -10,6 +10,19 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+const JSON_LITERAL_RE = /^(true|false|null|\[\s*\]|\{\s*\})$/i;
+
+/**
+ * Element text worth quoting (RFL.FIX.3d): not a JSON literal — "false" and
+ * "[]" occur in any page's scripts, so they passed the on-page check (Landers
+ * `1a803f5a…`) — and at least 2 words unless it carries a digit.
+ */
+export function isQuotableEvidence(quote: string): boolean {
+  const text = quote.trim();
+  if (JSON_LITERAL_RE.test(text)) return false;
+  return text.split(/\s+/).length >= 2 || /\d/.test(text);
+}
+
 export function makeConversionSummaryGuardrail(
   html: string,
 ): (summary: ConversionSummary) => GuardrailResult {
@@ -25,6 +38,12 @@ export function makeConversionSummaryGuardrail(
       }
     }
     for (const item of summary.evidence) {
+      if (item.quote.trim().length > 0 && !isQuotableEvidence(item.quote)) {
+        return {
+          passed: false,
+          notes: `evidence quote is not element text: "${item.quote.slice(0, 80)}"`,
+        };
+      }
       const quote = normalize(item.quote);
       if (quote.length > 0 && !haystack.includes(quote)) {
         return {

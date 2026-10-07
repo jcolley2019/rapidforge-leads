@@ -10,7 +10,10 @@
 import type { AgentResult, Business } from "@rapidforge/shared";
 import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import type { FetchedSite } from "../lib/site";
-import { makeConversionSummaryGuardrail } from "./guardrails/conversion-summary";
+import {
+  isQuotableEvidence,
+  makeConversionSummaryGuardrail,
+} from "./guardrails/conversion-summary";
 import {
   buildConversionSummaryPrompt,
   CONVERSION_SUMMARY_SYSTEM,
@@ -18,8 +21,55 @@ import {
   type ConversionSummary,
 } from "./prompts/conversion";
 
-/** "Above the fold" heuristic: the leading slice of the document. */
-export const ABOVE_FOLD_HTML_BYTES = 6000;
+/** "Above the fold" heuristic: the leading slice of the BODY (RFL.FIX.3d). */
+export const ABOVE_FOLD_HTML_BYTES = 8000;
+
+/**
+ * The first ABOVE_FOLD_HTML_BYTES after </head> (else from <body, else the
+ * document start). A document-start slice was all <head> on big pages —
+ * Landers' head alone is 31.6 KB of JSON-LD (RFL.AUDIT.2 Part 2 §4).
+ */
+export function aboveFoldSlice(html: string): string {
+  const headEnd = /<\/head\s*>/i.exec(html);
+  const start = headEnd ? headEnd.index + headEnd[0].length : Math.max(0, html.search(/<body\b/i));
+  return html.slice(start, start + ABOVE_FOLD_HTML_BYTES);
+}
+
+/** Labels that are navigation, not a call to action, when they sit in site chrome. */
+const NAV_ONLY_LABEL_RE = /^(contact|home)$/i;
+
+/**
+ * Site chrome: <nav>/<header>/<footer>, plus elements marked as navigation —
+ * role="navigation" or an id/class token like "nav", "main-menu", "sidebar1"
+ * (Accurbore's nav is a <div id="sidebar1">, not a <nav>).
+ */
+const CHROME_OPEN_RE = /<(nav|header|footer|div|ul|aside|section)\b([^>]*)>/gi;
+const CHROME_ATTR_RE =
+  /\brole\s*=\s*["']navigation["']|\b(?:id|class)\s*=\s*["'][^"']*\b(?:nav|navbar|navigation|menu|sidebar)\d*\b[^"']*["']/i;
+
+/** Index of the close tag matching an open `tag` ending at `from` (nesting-aware). */
+function elementEnd(html: string, tag: string, from: number): number {
+  const tags = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+  tags.lastIndex = from;
+  let depth = 1;
+  for (let m = tags.exec(html); m !== null; m = tags.exec(html)) {
+    depth += m[1] ? -1 : 1;
+    if (depth === 0) return m.index;
+  }
+  return html.length;
+}
+
+function chromeRanges(html: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const m of html.matchAll(CHROME_OPEN_RE)) {
+    const tag = m[1]!.toLowerCase();
+    const at = m.index ?? 0;
+    if (tag === "nav" || tag === "header" || tag === "footer" || CHROME_ATTR_RE.test(m[2] ?? "")) {
+      ranges.push([at, elementEnd(html, tag, at + m[0].length)]);
+    }
+  }
+  return ranges;
+}
 
 const PHONE_TEXT_RE = /\(?\b\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}\b/g;
 
@@ -60,6 +110,11 @@ export interface ConversionSignals extends Record<string, unknown> {
   has_schema_markup: boolean;
   has_cta_above_fold: boolean;
   cta_candidates: string[];
+  /**
+   * "body" = at least one candidate sits in page content; "nav" = every
+   * candidate sits in site chrome (nav/header/footer); null = no candidate.
+   */
+  cta_source: "body" | "nav" | null;
 }
 
 /** Pure deterministic homepage parse — exported for unit tests. */
@@ -92,16 +147,22 @@ export function parseConversionSignals(html: string): ConversionSignals {
 
   const chatMatch = html.match(CHAT_RE);
 
-  const aboveFold = html.slice(0, ABOVE_FOLD_HTML_BYTES);
+  const aboveFold = aboveFoldSlice(html);
+  const chrome = chromeRanges(aboveFold);
   const ctaCandidates: string[] = [];
+  let ctaInBody = false;
   for (const match of aboveFold.matchAll(
     /<(a|button)\b[^>]*>([\s\S]*?)<\/\1>/gi,
   )) {
     const label = stripTags(match[2] ?? "");
-    if (label.length > 0 && label.length <= 80 && CTA_WORDS_RE.test(label)) {
-      ctaCandidates.push(label);
-      if (ctaCandidates.length >= 5) break;
-    }
+    if (label.length === 0 || label.length > 80 || !CTA_WORDS_RE.test(label)) continue;
+    const at = match.index ?? 0;
+    const inChrome = chrome.some(([start, end]) => at >= start && at < end);
+    // A bare "Contact"/"Home" in the menu is navigation, not a CTA.
+    if (inChrome && NAV_ONLY_LABEL_RE.test(label)) continue;
+    ctaCandidates.push(label);
+    if (!inChrome) ctaInBody = true;
+    if (ctaCandidates.length >= 5) break;
   }
 
   return {
@@ -123,6 +184,7 @@ export function parseConversionSignals(html: string): ConversionSignals {
       ),
     has_cta_above_fold: ctaCandidates.length > 0,
     cta_candidates: ctaCandidates,
+    cta_source: ctaCandidates.length === 0 ? null : ctaInBody ? "body" : "nav",
   };
 }
 
@@ -147,7 +209,7 @@ export function buildTemplateConversionSummary(
 
   const haystack = html.replace(/\s+/g, " ").toLowerCase();
   const evidence: ConversionSummary["evidence"] = signals.cta_candidates
-    .filter((label) => haystack.includes(label.toLowerCase()))
+    .filter((label) => isQuotableEvidence(label) && haystack.includes(label.toLowerCase()))
     .slice(0, 3)
     .map((label) => ({ element: "cta", quote: label }));
   if (

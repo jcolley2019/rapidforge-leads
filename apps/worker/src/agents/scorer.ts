@@ -232,6 +232,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
                 has_tel_link: conversion.has_tel_link,
                 has_form: conversion.has_form,
                 has_cta_above_fold: conversion.has_cta_above_fold,
+                cta_source: conversion.cta_source,
               },
             }
           : {}),

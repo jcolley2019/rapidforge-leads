@@ -212,7 +212,7 @@ async function verify(db: SupabaseClient, auditId: string, htmlPath: string): Pr
   const conv = parseConversionSignals(html);
   const storedConv = v15.conversion ?? {};
   console.log("\nCONVERSION (today vs stored):");
-  for (const k of ["has_tel_link", "has_visible_phone", "visible_phone", "form_count", "has_form", "has_booking", "booking_url", "has_chat", "has_viewport_meta", "has_schema_markup", "has_cta_above_fold", "cta_candidates"]) {
+  for (const k of ["has_tel_link", "has_visible_phone", "visible_phone", "form_count", "has_form", "has_booking", "booking_url", "has_chat", "has_viewport_meta", "has_schema_markup", "has_cta_above_fold", "cta_candidates", "cta_source"]) {
     const stored = k in storedConv ? storedConv[k] : k === "has_viewport_meta" ? audit.has_viewport_meta : k === "has_schema_markup" ? audit.has_schema_markup : k === "has_chat" ? audit.has_chat : k === "has_visible_phone" ? audit.has_phone : "(not stored)";
     console.log(`  ${k.padEnd(20)} today=${JSON.stringify((conv as any)[k])}  stored=${JSON.stringify(stored)}`);
   }
