@@ -219,7 +219,17 @@ export function buildAuditFacts(business: Business, audit: Audit): AuditFacts {
   };
 }
 
-/** Compact JSON the money-agent prompts embed as the measured-data block. */
+/**
+ * Compact JSON the money-agent prompts embed as the measured-data block.
+ * RFL.FIX.3h dedup: `agents_run` is already a header line in every prompt,
+ * and Reputation's `google_rating`/`review_count` only echo the business row
+ * (Places is the source of truth), so neither is sent twice. `facts` itself
+ * is unchanged — guardrails and templates still read the full shape.
+ */
 export function factsToPromptJson(facts: AuditFacts): string {
-  return JSON.stringify(facts, null, 2);
+  const { agents_run: _agentsRun, reputation, ...rest } = facts;
+  const trimmedReputation = reputation
+    ? (({ google_rating: _r, review_count: _c, ...keep }) => keep)(reputation)
+    : null;
+  return JSON.stringify({ ...rest, reputation: trimmedReputation }, null, 2);
 }

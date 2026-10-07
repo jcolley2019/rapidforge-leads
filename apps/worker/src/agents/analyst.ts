@@ -1,7 +1,6 @@
 /**
- * Analyst — PRD 6.11 (v1.5). Runs on **Opus 4.8** (Sprint 8 — the stack no
- * longer depends on Fable 5's availability); RFL.AI.9 moved it to Sonnet 5.5 at
- * effort "low" (audit §e).
+ * Analyst — PRD 6.11 (v1.5). Runs on **Opus 4.8** at effort "low" (RFL.AI.9a
+ * kept the human-read verdict on Opus; the stack does not depend on Fable 5).
  *
  * Narrative synthesis over the deterministic scores: an executive verdict,
  * top-3 improvements, and reasoning that cites the audit agents by name and
@@ -21,9 +20,9 @@ import {
   type CascadingVars,
 } from "./prompts/config-vars";
 import {
-  ANALYST_SYSTEM,
   AnalystOutputSchema,
   buildAnalystPrompt,
+  buildAnalystSystem,
   type AnalystOutput,
   type AnalystPriority,
   type AnalystVerdict,
@@ -31,9 +30,9 @@ import {
 } from "./prompts/analyst";
 
 /**
- * Sonnet 5.5 at effort "low" (RFL.AI.9, audit §e): the verdict space is
- * bounded by the deterministic scores and the guardrail (star band, three
- * agents cited, three items). Opus stays one constant away if an eval says so.
+ * Opus 4.8 at effort "low": the verdict space is bounded by the deterministic
+ * scores and the guardrail (star band, three agents cited, three items), so
+ * cheap thinking is enough; raise for depth later (CLAUDE.md 4.1).
  */
 export const ANALYST_EFFORT = "low" as const;
 
@@ -220,7 +219,7 @@ export async function runAnalyst(
     const outcome = await generateJsonSummary<AnalystOutput>({
       model: MODEL_OPUS,
       effort: ANALYST_EFFORT,
-      system: ANALYST_SYSTEM,
+      system: buildAnalystSystem(vars),
       prompt: buildAnalystPrompt(facts, vars),
       maxTokens: 1500,
       schema: AnalystOutputSchema,

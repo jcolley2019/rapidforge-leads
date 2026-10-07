@@ -7,7 +7,8 @@ import {
   makeAnalystGuardrail,
 } from "./guardrails/analyst";
 import { buildAuditFacts } from "./money-facts";
-import type { AnalystOutput } from "./prompts/analyst";
+import { ANALYST_SYSTEM, buildAnalystSystem, type AnalystOutput } from "./prompts/analyst";
+import { CONFIG_DEFAULTS, resolveConfigVars } from "./prompts/config-vars";
 
 function makeBusiness(overrides: Partial<Business> = {}): Business {
   return {
@@ -182,6 +183,32 @@ describe("buildTemplateAnalyst", () => {
     expect(out.verdict).toBe("excellent");
     expect(out.top_3_improvements).toHaveLength(3);
     expect(makeAnalystGuardrail(5)(out).passed).toBe(true);
+  });
+});
+
+describe("buildAnalystSystem — workspace voice (RFL.FIX.3h)", () => {
+  it("substitutes user_brand, user_location and sales_tone from workspace_config", () => {
+    const vars = resolveConfigVars({
+      workspace_id: "ws-1",
+      your_offer: "a rebuild",
+      target_industry: "plumbers",
+      ideal_website_traits: "fast",
+      sales_tone: "warm and blunt",
+      user_location: "Boise, Idaho",
+      user_brand: "Treasure Valley Web Co",
+    } as never);
+    const system = buildAnalystSystem(vars);
+    expect(system).toContain("a salesperson at Treasure Valley Web Co, based in Boise, Idaho");
+    expect(system).toContain("voice: warm and blunt");
+    expect(system).not.toMatch(/\{user_brand\}|\{user_location\}|\{sales_tone\}/);
+  });
+
+  it("blank Settings fall back to the neutral defaults, never a literal placeholder", () => {
+    const system = buildAnalystSystem(resolveConfigVars(null));
+    expect(system).toBe(ANALYST_SYSTEM);
+    expect(system).toContain(`at ${CONFIG_DEFAULTS.user_brand}, based in ${CONFIG_DEFAULTS.user_location}`);
+    expect(system).toContain(CONFIG_DEFAULTS.sales_tone);
+    expect(system).not.toMatch(/\{[a-z_]+\}/);
   });
 });
 

@@ -18,8 +18,10 @@ import { runBuilderBrief } from "./agents/builder-brief";
 import { runDesignBrief } from "./agents/design-brief";
 import { runOnDemandAgent } from "./agents/on-demand";
 import { runSalesSummary } from "./agents/sales-summary";
+import { countWords } from "./agents/guardrails/analyst";
+import { h2Headings } from "./agents/guardrails/builder-brief";
 import { AnalystOutputSchema } from "./agents/prompts/analyst";
-import type { CompetitorSummary } from "./agents/prompts/builder-brief";
+import { BRIEF_SECTIONS, type CompetitorSummary } from "./agents/prompts/builder-brief";
 import { aiSummaryMode } from "./lib/ai";
 import {
   PLACE_PHOTO_MAX_WIDTH_PX,
@@ -528,6 +530,12 @@ export function createApp(
         res.status(409).json({ error: "No completed audit to summarize" });
         return;
       }
+      // RFL.FIX.3h: a stored talk track is returned as-is (no repeat spend,
+      // same pattern as design-brief) unless ?force=true re-runs the agent.
+      if (req.query.force !== "true" && audit.sales_summary) {
+        res.json({ sales_summary: audit.sales_summary, stored: true });
+        return;
+      }
       const config = await deps.store.getWorkspaceConfig(auth.workspaceId);
       const result = await runOnDemandAgent({
         store: deps.store,
@@ -545,6 +553,7 @@ export function createApp(
       }
       res.json({
         sales_summary: result.output,
+        stored: false,
         guardrail_passed: result.guardrailPassed,
         guardrail_notes: result.guardrailNotes,
         model_used: result.modelUsed,
@@ -640,6 +649,21 @@ export function createApp(
         res.status(409).json({ error: "No completed audit for a brief" });
         return;
       }
+      // RFL.FIX.3h: a stored brief is returned as-is (≈ 11¢ per re-run
+      // otherwise, same pattern as design-brief) unless ?force=true.
+      if (req.query.force !== "true" && audit.builder_brief_md) {
+        const markdown = audit.builder_brief_md;
+        const headings = h2Headings(markdown);
+        res.json({
+          builder_brief_md: markdown,
+          word_count: countWords(markdown),
+          sections: BRIEF_SECTIONS.filter((s) =>
+            headings.some((h) => h === s.toLowerCase() || h.startsWith(`${s.toLowerCase()} `)),
+          ),
+          stored: true,
+        });
+        return;
+      }
       const config = await deps.store.getWorkspaceConfig(auth.workspaceId);
       const competitors = await fetchCompetitors(
         deps.store,
@@ -683,6 +707,7 @@ export function createApp(
         builder_brief_md: result.output.markdown,
         word_count: result.output.word_count,
         sections: result.output.sections,
+        stored: false,
         guardrail_passed: result.guardrailPassed,
         guardrail_notes: result.guardrailNotes,
         model_used: result.modelUsed,

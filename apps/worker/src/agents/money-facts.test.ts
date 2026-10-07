@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { Audit, Business } from "@rapidforge/shared";
 import { buildAnalystPrompt } from "./prompts/analyst";
 import { resolveConfigVars } from "./prompts/config-vars";
-import { buildAuditFacts } from "./money-facts";
+import { buildAuditFacts, factsToPromptJson } from "./money-facts";
 
 function business(): Business {
   return {
@@ -74,6 +74,47 @@ function audit(design: unknown): Audit {
     completed_at: "2026-10-04T07:34:00.000Z",
   } as Audit;
 }
+
+describe("factsToPromptJson — dedup (RFL.FIX.3h)", () => {
+  it("drops agents_run and the duplicated reputation rating/count, keeps everything else", () => {
+    const facts = buildAuditFacts(
+      business(),
+      {
+        ...audit({ modernity_0_100: 67, feels_like_year: 2019, critical_issues: [] }),
+        score_breakdown: {
+          v15_agents: {
+            design: { modernity_0_100: 67, feels_like_year: 2019, critical_issues: [] },
+            reputation: {
+              google_rating: 4.8,
+              review_count: 33,
+              volume_band: "moderate",
+              review_velocity_per_month: null,
+              summary: { verdict: "strong" },
+            },
+          },
+        },
+      } as Audit,
+    );
+    const json = JSON.parse(factsToPromptJson(facts)) as Record<string, unknown>;
+    expect(json.agents_run).toBeUndefined();
+    expect(json.reputation).toEqual({ verdict: "strong", volume_band: "moderate", review_velocity_per_month: null });
+    // The business block still carries the one copy of rating and count.
+    expect((json.business as Record<string, unknown>).google_rating).toBe(4.8);
+    expect((json.business as Record<string, unknown>).review_count).toBe(33);
+    expect(json.scores).toEqual(facts.scores);
+    expect(json.health).toEqual(facts.health);
+    expect(json.design).toEqual(facts.design);
+    // facts itself is untouched for the guardrails.
+    expect(facts.agents_run).toContain("reputation");
+    expect(facts.reputation?.google_rating).toBe(4.8);
+    expect(factsToPromptJson(facts).length).toBeLessThan(JSON.stringify(facts, null, 2).length);
+  });
+
+  it("a null reputation block stays null", () => {
+    const json = JSON.parse(factsToPromptJson(buildAuditFacts(business(), audit(undefined))));
+    expect(json.reputation).toBeNull();
+  });
+});
 
 describe("buildAuditFacts — design critical issues", () => {
   it("design critical issues reach the money agents (object form, as Design persists them)", () => {

@@ -1,9 +1,10 @@
 /**
- * Sales Summary — PRD 6.13 (v1.5, Sonnet 4.6).
+ * Sales Summary — PRD 6.13 (v1.5, Sonnet 5.5 at effort low).
  *
  * A ~60-second cold-call talk track + objection handling, opening with a
- * SPECIFIC measured observation. On-demand from the lead drawer. Voice comes
- * from {sales_tone} via the shared cascading-variable resolver. A hard AI
+ * SPECIFIC measured observation. On-demand from the lead drawer. Voice, brand
+ * and location come from {sales_tone}/{user_brand}/{user_location} via the
+ * shared cascading-variable resolver (RFL.FIX.3h). A hard AI
  * failure or twice-failed guardrail falls back to a deterministic template.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";

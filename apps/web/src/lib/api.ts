@@ -247,17 +247,22 @@ export async function generateAnalyst(
   return analyst;
 }
 
-/** Run (or re-run) the Builder Brief for a business (PRD 6.12). */
+/**
+ * Run the Builder Brief for a business (PRD 6.12). The worker returns the
+ * stored brief when one exists; force=true re-runs the agent (RFL.FIX.3h).
+ */
 export async function generateBuilderBrief(
   businessId: string,
+  force = false,
 ): Promise<BuilderBriefResult> {
   const res = await apiFetch<{
     builder_brief_md: string;
     word_count: number;
     sections: string[];
-  }>(`/api/businesses/${encodeURIComponent(businessId)}/builder-brief`, {
-    method: "POST",
-  });
+  }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/builder-brief${force ? "?force=true" : ""}`,
+    { method: "POST" },
+  );
   return {
     markdown: res.builder_brief_md,
     word_count: res.word_count,
@@ -293,15 +298,20 @@ export async function fetchPlacePhotoUrl(photoRouteUrl: string): Promise<string>
   return URL.createObjectURL(await res.blob());
 }
 
-/** Run (or re-run) the Sales Summary for a business (PRD 6.13). */
+/**
+ * Run the Sales Summary for a business (PRD 6.13). The worker returns the
+ * stored script when one exists; force=true re-runs the agent (RFL.FIX.3h).
+ */
 export async function generateSalesSummary(
   businessId: string,
+  force = false,
 ): Promise<SalesSummaryResult> {
   const { sales_summary } = await apiFetch<{
     sales_summary: SalesSummaryResult;
-  }>(`/api/businesses/${encodeURIComponent(businessId)}/sales-summary`, {
-    method: "POST",
-  });
+  }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/sales-summary${force ? "?force=true" : ""}`,
+    { method: "POST" },
+  );
   return sales_summary;
 }
 
