@@ -137,6 +137,7 @@ describe("buildTemplateHealthSummary", () => {
       copyright_year: null,
       has_recent_last_modified: false,
       last_modified_at: null,
+      legacy_markup: false,
       ...over,
     };
   }

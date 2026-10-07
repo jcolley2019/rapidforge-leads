@@ -15,6 +15,7 @@ import {
   detectPlatform,
   extractCopyrightYear,
   extractLastModified,
+  hasLegacyMarkup,
   hasRecentLastModified,
   type PlatformKey,
 } from "../lib/platform";
@@ -70,6 +71,8 @@ export interface HealthMeasurements extends Record<string, unknown> {
   has_recent_last_modified: boolean;
   /** Last-Modified header as ISO; null = absent/unparseable (RFL.FIX.3k). */
   last_modified_at: string | null;
+  /** Pre-CSS markup fingerprints present (RFL.FIX.3d legacy_static input). */
+  legacy_markup: boolean;
 }
 
 export interface HealthOutput extends HealthMeasurements {
@@ -115,6 +118,7 @@ export function measureHealth(ctx: HealthContext): HealthMeasurements {
       ? hasRecentLastModified(site.headers, now)
       : false,
     last_modified_at: site ? extractLastModified(site.headers) : null,
+    legacy_markup: site ? hasLegacyMarkup(site.html) : false,
   };
 }
 

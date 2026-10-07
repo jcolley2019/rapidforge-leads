@@ -173,6 +173,25 @@ describe("platform scoring (PRD 4.1 + 4.4)", () => {
     expect(platformScore("custom")).toBe(85);
   });
 
+  it("RFL.FIX.3d: legacy_static scores 30 and drags health like a builder; a modern hand-coded site is still custom=85", () => {
+    expect(PLATFORM_SCORES["legacy_static"]).toBe(30);
+    expect(platformScore("legacy_static")).toBe(30);
+    // Only the platform term moves — every other weight and term is untouched.
+    const legacy = computeHealthScore(healthyInput({ platform: "legacy_static" }));
+    const modern = computeHealthScore(healthyInput({ platform: "custom" }));
+    expect(legacy.breakdown.platform).toBe(30);
+    expect(modern.breakdown.platform).toBe(85);
+    expect(modern.score - legacy.score).toBe(Math.round((85 - 30) * HEALTH_WEIGHTS.platform));
+    for (const term of ["performance", "mobile", "technical", "conversion", "freshness", "design"] as const) {
+      expect(legacy.breakdown[term]).toBe(modern.breakdown[term]);
+    }
+    // A fresh, responsive, hand-coded page never reads as legacy here: the
+    // class is assigned upstream (worker Scorer) only when all three legacy
+    // conditions hold; scoring.ts itself still maps anything else to custom.
+    expect(platformScore("custom")).toBe(85);
+    expect(platformScore("hand-coded")).toBe(85);
+  });
+
   it("treats null/unrecognized platforms as custom", () => {
     expect(platformScore(null)).toBe(PLATFORM_SCORES["custom"]);
     expect(platformScore("some-new-framework")).toBe(PLATFORM_SCORES["custom"]);

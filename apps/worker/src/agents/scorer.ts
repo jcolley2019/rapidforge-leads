@@ -17,6 +17,7 @@ import {
   computeSellabilityScore,
   deriveStarGrade,
   isBuilderPlatform,
+  ISSUE_THRESHOLDS,
   SPECIAL_CASE_BADGES,
   type AgentResult,
   type Business,
@@ -63,6 +64,8 @@ export interface AssembledScores {
   sellabilityScore: number;
   issues: Issue[];
   badge: string | null;
+  /** Effective platform (RFL.FIX.3d): Health's detection, or legacy_static. */
+  platform: string | null;
   scoreBreakdown: Record<string, unknown>;
 }
 
@@ -81,6 +84,31 @@ export interface ScoreInputs {
   screenshotUnavailable?: string | null;
 }
 
+/** Last-Modified older than this (or absent) counts as "not maintained" for legacy_static. */
+export const LEGACY_STATIC_STALE_DAYS = ISSUE_THRESHOLDS.lastModifiedStaleDays;
+
+/**
+ * RFL.FIX.3d (approved edit to scoring.ts): a `custom` page becomes
+ * `legacy_static` (PLATFORM_SCORES 30) only when ALL of: no viewport meta,
+ * legacy pre-CSS markup, and a Last-Modified older than 730 days or absent.
+ * A modern hand-coded site keeps `custom` = 85. Pure; exported for tests.
+ */
+export function classifyPlatform(
+  health: Pick<HealthOutput, "platform" | "legacy_markup" | "last_modified_at"> | null,
+  conversion: Pick<ConversionOutput, "has_viewport_meta"> | null,
+  now: Date,
+): string | null {
+  const detected = health?.platform ?? null;
+  if (detected !== "custom" || health === null) return detected;
+  if (!health.legacy_markup) return detected;
+  if (conversion === null || conversion.has_viewport_meta) return detected;
+  const lastModifiedMs = health.last_modified_at ? Date.parse(health.last_modified_at) : NaN;
+  const stale =
+    Number.isNaN(lastModifiedMs) ||
+    (now.getTime() - lastModifiedMs) / 86_400_000 > LEGACY_STATIC_STALE_DAYS;
+  return stale ? "legacy_static" : detected;
+}
+
 /** Pure score assembly — exported for the pipeline unit tests. */
 export function assembleScores(inputs: ScoreInputs): AssembledScores {
   const { business, health, conversion, presence, traffic, design, reputation, seo, now } =
@@ -88,6 +116,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
   const stageTimeouts = [...new Set(inputs.stageTimeouts ?? [])];
   const psiUnmeasured = inputs.psiUnmeasured === true;
   const currentYear = now.getFullYear();
+  const platform = classifyPlatform(health, conversion, now);
 
   const healthResult = computeHealthScore({
     siteDead: false, // dead sites are routed by Filter and never reach Scorer
@@ -97,7 +126,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     httpsEnforced: health?.https_enforced ?? false,
     responseMs: health?.response_ms ?? null,
     hasViewportMeta: conversion?.has_viewport_meta ?? false,
-    platform: health?.platform ?? null,
+    platform,
     hasVisiblePhone: conversion?.has_visible_phone ?? false,
     hasContactForm: conversion?.has_form ?? false,
     hasBookingLink: conversion?.has_booking ?? false,
@@ -138,7 +167,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     sslValid: health?.ssl_valid ?? null,
     httpsEnforced: health?.https_enforced ?? null,
     responseMs: health?.response_ms ?? null,
-    platform: health?.platform ?? null,
+    platform,
     copyrightYear: health?.copyright_year ?? null,
     currentYear,
     lastModifiedAgeDays,
@@ -167,8 +196,9 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     seoHasSitemap: seo?.has_sitemap ?? null,
   });
 
+  // legacy_static scores like a builder but is not one — no "Builder site" tag.
   const badge =
-    health?.platform && isBuilderPlatform(health.platform)
+    platform && platform !== "legacy_static" && isBuilderPlatform(platform)
       ? SPECIAL_CASE_BADGES.builderSite
       : null;
 
@@ -201,6 +231,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     sellabilityScore: sellabilityResult.score,
     issues,
     badge,
+    platform,
     scoreBreakdown: {
       health: {
         ...healthResult.breakdown,
@@ -306,7 +337,7 @@ export async function runScorer(
       http_status: health?.http_status ?? null,
       ssl_valid: health?.ssl_valid ?? null,
       response_ms: health?.response_ms ?? null,
-      platform: health?.platform ?? null,
+      platform: scores.platform,
       copyright_year: health?.copyright_year ?? null,
       has_phone:
         conversion === null

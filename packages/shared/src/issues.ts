@@ -215,7 +215,14 @@ export function buildIssues(input: IssueInputs): Issue[] {
   }
 
   // -- platform -------------------------------------------------------------
-  if (input.platform !== null && isBuilderPlatform(input.platform)) {
+  if (input.platform === "legacy_static") {
+    // RFL.FIX.3d: scores like a builder (30) but the pitch is different.
+    add(
+      "high",
+      "Legacy hand-coded page",
+      "No responsive layout, pre-CSS markup, and not updated in over two years — a full rebuild, not a tweak",
+    );
+  } else if (input.platform !== null && isBuilderPlatform(input.platform)) {
     const display =
       PLATFORM_DISPLAY_NAMES[input.platform] ?? input.platform;
     add(

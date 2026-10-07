@@ -13,7 +13,7 @@ import {
 } from "@rapidforge/shared";
 import type { ConversionOutput } from "./conversion";
 import type { HealthOutput } from "./health";
-import { assembleScores, type ScoreInputs } from "./scorer";
+import { assembleScores, classifyPlatform, type ScoreInputs } from "./scorer";
 import type { SeoOutput } from "./seo";
 
 const NOW = new Date("2026-10-07T12:00:00.000Z");
@@ -58,6 +58,7 @@ function health(over: Partial<HealthOutput> = {}): HealthOutput {
     copyright_year: null,
     has_recent_last_modified: false,
     last_modified_at: "2023-06-21T19:31:28.000Z",
+    legacy_markup: false,
     summary: { reasoning: "r 1 2", critical_issues: [], summary_one_liner: "s" },
     ...over,
   };
@@ -191,6 +192,51 @@ describe("assembleScores — missing agents", () => {
     for (const t of timeouts) expect(t.severity).toBe("low");
     expect(scores.scoreBreakdown.stage_timeouts).toEqual(["psi", "screenshot", "seo"]);
     expect(assembleScores(inputs()).scoreBreakdown.stage_timeouts).toBeUndefined();
+  });
+});
+
+describe("classifyPlatform — legacy_static (RFL.FIX.3d)", () => {
+  const legacyHealth = () => health({ platform: "custom", legacy_markup: true, last_modified_at: "2023-06-21T19:31:28.000Z" });
+
+  it("Accurbore: custom + no viewport + legacy markup + 2023 Last-Modified → legacy_static, platform term 30, ~8 health points lower", () => {
+    expect(classifyPlatform(legacyHealth(), conversion({ has_viewport_meta: false }), NOW)).toBe("legacy_static");
+    const scores = assembleScores(
+      inputs({ health: legacyHealth(), conversion: conversion({ has_viewport_meta: false }), seo: seo("Untitled Document") }),
+    );
+    expect(scores.platform).toBe("legacy_static");
+    expect((scores.scoreBreakdown.health as Record<string, number>).platform).toBe(30);
+    expect(scores.badge).toBeNull(); // not a "Builder site"
+    expect(scores.issues).toContainEqual(expect.objectContaining({ severity: "high", label: "Legacy hand-coded page" }));
+    expect(scores.issues.some((i) => i.label.startsWith("Built on"))).toBe(false);
+    const asCustom = assembleScores(
+      inputs({ health: health({ legacy_markup: false }), conversion: conversion({ has_viewport_meta: false }), seo: seo("Untitled Document") }),
+    );
+    expect(asCustom.platform).toBe("custom");
+    // (85 − 30) × 0.15 ≈ 8 health points, the whole difference.
+    expect(asCustom.healthScore - scores.healthScore).toBeGreaterThanOrEqual(8);
+    expect(asCustom.healthScore - scores.healthScore).toBeLessThanOrEqual(9);
+    expect(asCustom.starGrade).toBeGreaterThanOrEqual(scores.starGrade);
+    expect(asCustom.sellabilityScore).toBeLessThan(scores.sellabilityScore);
+  });
+
+  it("requires ALL three conditions; an absent Last-Modified counts as stale", () => {
+    expect(classifyPlatform(legacyHealth(), conversion({ has_viewport_meta: true }), NOW)).toBe("custom");
+    expect(classifyPlatform(health({ legacy_markup: false }), conversion({ has_viewport_meta: false }), NOW)).toBe("custom");
+    expect(
+      classifyPlatform(health({ legacy_markup: true, last_modified_at: "2026-09-30T00:00:00.000Z" }), conversion({ has_viewport_meta: false }), NOW),
+    ).toBe("custom");
+    expect(classifyPlatform(health({ legacy_markup: true, last_modified_at: null }), conversion({ has_viewport_meta: false }), NOW)).toBe("legacy_static");
+    // Exactly 730 days old is not yet stale; 731 is.
+    const days = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
+    expect(classifyPlatform(health({ legacy_markup: true, last_modified_at: days(730) }), conversion({ has_viewport_meta: false }), NOW)).toBe("custom");
+    expect(classifyPlatform(health({ legacy_markup: true, last_modified_at: days(731) }), conversion({ has_viewport_meta: false }), NOW)).toBe("legacy_static");
+  });
+
+  it("never reclassifies a detected builder/CMS, a null Health, or a missing Conversion", () => {
+    expect(classifyPlatform(health({ platform: "wordpress", legacy_markup: true }), conversion({ has_viewport_meta: false }), NOW)).toBe("wordpress");
+    expect(classifyPlatform(null, conversion({ has_viewport_meta: false }), NOW)).toBeNull();
+    expect(classifyPlatform(legacyHealth(), null, NOW)).toBe("custom");
+    expect(assembleScores(inputs({ health: health({ platform: "wix" }) })).badge).toBe("Builder site");
   });
 });
 

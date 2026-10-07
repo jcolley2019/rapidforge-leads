@@ -58,7 +58,7 @@ import {
   DESIGN_BRIEF_JUDGMENT_SYSTEM,
 } from "../src/agents/prompts/design-brief";
 import { buildDesignPrompt, DESIGN_CRITIQUE_SYSTEM } from "../src/agents/prompts/design";
-import { detectPlatform, extractCopyrightYear, extractLastModified, hasRecentLastModified } from "../src/lib/platform";
+import { detectPlatform, extractCopyrightYear, extractLastModified, hasLegacyMarkup, hasRecentLastModified } from "../src/lib/platform";
 import { assembleScores } from "../src/agents/scorer";
 import { buildTemplateSeoSummary, type SeoOutput } from "../src/agents/seo";
 import type { HealthOutput } from "../src/agents/health";
@@ -290,6 +290,7 @@ async function verify(db: SupabaseClient, auditId: string, htmlPath: string): Pr
     copyright_year: copyright,
     has_recent_last_modified: hasRecentLastModified(headers, now),
     last_modified_at: extractLastModified(headers),
+    legacy_markup: hasLegacyMarkup(html),
     summary: { reasoning: "", critical_issues: [], summary_one_liner: "" },
   };
   const conversionToday = { ...conv, summary: { cta_strength: "none", evidence: [], reasoning: "", summary_one_liner: "" } } as unknown as ConversionOutput;
@@ -319,7 +320,7 @@ async function verify(db: SupabaseClient, auditId: string, htmlPath: string): Pr
   console.log(`  health      ${audit.website_health_score} → ${rescored.healthScore}`);
   console.log(`  star        ${audit.star_grade} → ${rescored.starGrade}`);
   console.log(`  sellability ${audit.sellability_score} (${audit.score_breakdown?.capped ?? "-"}) → ${rescored.sellabilityScore} (${rescored.scoreBreakdown.capped ?? "-"})`);
-  console.log(`  platform    ${audit.platform} → ${healthToday.platform} (platform term ${hb.platform})`);
+  console.log(`  platform    ${audit.platform} → ${rescored.platform} (detected ${healthToday.platform}; platform term ${hb.platform})`);
   console.log(`  health terms today=${JSON.stringify(hb)}`);
   console.log(`  issues stored=${JSON.stringify((audit.issues ?? []).map((i: any) => `${i.severity}:${i.label}`))}`);
   console.log(`  issues today =${JSON.stringify(rescored.issues.map((i) => `${i.severity}:${i.label}`))}`);

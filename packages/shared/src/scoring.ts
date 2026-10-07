@@ -37,6 +37,13 @@ export const PLATFORM_SCORES: Readonly<Record<string, number>> = {
   wordpress: 65,
   webflow: 85,
   custom: 85,
+  /**
+   * RFL.FIX.3d (approved by Joey): a hand-coded page with no viewport meta,
+   * legacy pre-CSS markup AND a Last-Modified older than 730 days (or
+   * absent). Classified by the worker's Scorer; everything else hand-coded
+   * stays `custom`.
+   */
+  legacy_static: 30,
 };
 
 /** Platforms at or below this subscore get the "Builder site" tag (PRD 4.4). */

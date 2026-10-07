@@ -14,7 +14,28 @@ export type PlatformKey =
   | "squarespace"
   | "wordpress"
   | "webflow"
-  | "custom";
+  | "custom"
+  /** RFL.FIX.3d: assigned by the Scorer (classifyPlatform), never by detectPlatform. */
+  | "legacy_static";
+
+/**
+ * Pre-CSS-era markup fingerprints (RFL.FIX.3g, moved here in RFL.FIX.3d so
+ * Health and the Scorer can read it without importing the Design agent):
+ * <font>/bgcolor/table-width plus align= attributes, <center>, Dreamweaver
+ * "twoCol*" templates, a Dreamweaver/FrontPage generator meta and inline
+ * Verdana font stacks.
+ */
+export function hasLegacyMarkup(html: string): boolean {
+  return (
+    /<font\b|bgcolor\s*=|<table[^>]+width\s*=/i.test(html) ||
+    /<(?:h[1-6]|p|div|td|table|img|tr)\b[^>]*\balign\s*=/i.test(html) ||
+    /<center\b/i.test(html) ||
+    /\btwoCol[A-Za-z]*\b/.test(html) ||
+    /<meta[^>]+name\s*=\s*["']generator["'][^>]+content\s*=\s*["'][^"']*(?:dreamweaver|frontpage)/i.test(html) ||
+    /<meta[^>]+content\s*=\s*["'][^"']*(?:dreamweaver|frontpage)[^"']*["'][^>]+name\s*=\s*["']generator["']/i.test(html) ||
+    /style\s*=\s*["'][^"']*font-family\s*:\s*verdana/i.test(html)
+  );
+}
 
 export interface PlatformEvidence {
   url: string;
