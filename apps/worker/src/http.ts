@@ -709,6 +709,11 @@ export function createApp(
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, {
             builder_brief_md: output.markdown,
+            // RFL.FIX.3f: the embedded Design Brief also fills
+            // audits.design_brief when nothing is stored there yet.
+            ...(output.design_brief && !audit.design_brief
+              ? { design_brief: output.design_brief }
+              : {}),
           }),
       });
       if (result.status !== "completed" || !result.output) {

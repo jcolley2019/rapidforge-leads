@@ -7,7 +7,7 @@
  * On-demand only (PRD 3.3) via the lead drawer. A hard AI failure or a
  * twice-failed guardrail falls back to a complete deterministic template.
  */
-import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
+import type { AgentResult, Audit, Business, DesignBrief, WorkspaceConfig } from "@rapidforge/shared";
 import { cityFromPlacesAddress } from "../lib/address";
 import { centsFromMicrocents, generateMarkdown, MODEL_OPUS, sumMicrocents } from "../lib/ai";
 import {
@@ -38,6 +38,9 @@ export interface BuilderBriefOutput extends Record<string, unknown> {
   markdown: string;
   word_count: number;
   sections: string[];
+  /** The embedded Design Brief (null when it was omitted) — the route
+   * persists it to audits.design_brief when that column is empty. */
+  design_brief: DesignBrief | null;
 }
 
 export interface BuilderBriefContext {
@@ -197,6 +200,7 @@ export async function runBuilderBrief(
     // block so the generator reads fields while the markdown stays the human
     // view. Its failure never fails the Builder Brief — the block is omitted.
     let markdown = outcome.value;
+    let designBrief: DesignBrief | null = null;
     let designBriefMicrocents: number | null = 0;
     let designBriefTokens = 0;
     let designBriefNote: string | null = null;
@@ -208,6 +212,7 @@ export async function runBuilderBrief(
         ...(ctx.signal ? { signal: ctx.signal } : {}),
       });
       markdown = embedDesignBrief(markdown, design.brief);
+      designBrief = design.brief;
       designBriefMicrocents = design.costMicrocents;
       designBriefTokens = design.tokensUsed;
     } catch (err) {
@@ -227,6 +232,7 @@ export async function runBuilderBrief(
         markdown,
         word_count: countWords(markdown),
         sections,
+        design_brief: designBrief,
       },
       error: null,
       modelUsed: outcome.modelUsed,

@@ -499,6 +499,29 @@ describe("POST /api/businesses/:id/builder-brief", () => {
   });
 });
 
+describe("builder-brief embedded design brief (RFL.FIX.3f)", () => {
+  it("persists the embedded Design Brief to an empty audits.design_brief and never overwrites a stored one", async () => {
+    const { business } = await seedLead({
+      places_details: { ...FIXTURE_DETAILS["fx-001"], fetchedAt: "2026-07-06T07:00:00.000Z" },
+    });
+    const audit = await seedCompletedAudit(business.id);
+    expect(audit.design_brief ?? null).toBeNull();
+
+    const first = await api("POST", `/api/businesses/${business.id}/builder-brief`);
+    expect(first.status).toBe(200);
+    expect(first.json.builder_brief_md).toContain("## Design Brief (JSON)");
+    const persisted = (await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief;
+    expect(persisted).toMatchObject({ vertical: "plumber", source: { audit_id: audit.id } });
+    expect(first.json.builder_brief_md).toContain(JSON.stringify(persisted, null, 2));
+
+    const stored = { ...persisted, business_name: "Stored by the design-brief route" };
+    await store.updateAudit(audit.id, { design_brief: stored });
+    const forced = await api("POST", `/api/businesses/${business.id}/builder-brief?force=true`);
+    expect(forced.status).toBe(200);
+    expect((await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief).toEqual(stored);
+  });
+});
+
 describe("builder-brief competitors (RFL.FIX.3j)", () => {
   it("excludes chains and fx- fixture rows from the local competitors", async () => {
     const tag = Math.random().toString(36).slice(2, 7);
