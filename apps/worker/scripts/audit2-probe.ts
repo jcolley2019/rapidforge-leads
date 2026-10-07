@@ -51,7 +51,8 @@ import {
   buildReputationSummaryPrompt,
   REPUTATION_SUMMARY_SYSTEM,
 } from "../src/agents/prompts/reputation";
-import { buildSeoSummaryPrompt, SEO_SUMMARY_SYSTEM } from "../src/agents/prompts/seo";
+import { buildSeoSummaryPrompt, buildSeoSummarySystem } from "../src/agents/prompts/seo";
+import { resolveLocalTarget } from "../src/agents/prompts/config-vars";
 import {
   buildDesignBriefJudgmentPrompt,
   DESIGN_BRIEF_JUDGMENT_SYSTEM,
@@ -304,7 +305,7 @@ async function prompts(db: SupabaseClient, auditId: string): Promise<void> {
     sizeLine("reputation", REPUTATION_SUMMARY_SYSTEM, buildReputationSummaryPrompt({ ...signals, yelp_available: false, review_text_available: reviews.length > 0, ...(reviews.length > 0 ? { reviews } : {}) }));
   }
   const s = outputOf("seo");
-  if (s) sizeLine("seo", SEO_SUMMARY_SYSTEM, buildSeoSummaryPrompt(s));
+  if (s) sizeLine("seo", buildSeoSummarySystem(resolveLocalTarget(s.category, s.city)), buildSeoSummaryPrompt(s));
   sizeLine("design(vision)", DESIGN_CRITIQUE_SYSTEM, buildDesignPrompt(business.website_url ?? ""));
   const analystPrompt = buildAnalystPrompt(facts, vars);
   sizeLine("analyst", ANALYST_SYSTEM, analystPrompt);

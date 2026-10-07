@@ -54,3 +54,41 @@ export function resolveConfigVars(
     user_brand: pick(config?.user_brand, CONFIG_DEFAULTS.user_brand),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Per-business prompt variables ({category}, {city}) — same ONE-place rule
+// as the workspace variables above (RFL.FIX.3c). Places types are snake_case
+// ("general_contractor"); prompts, templates and keywords must never print
+// the raw token.
+// ---------------------------------------------------------------------------
+
+export interface LocalTargetVars {
+  /** Humanised category: "general contractor", never "general_contractor". */
+  category: string | null;
+  city: string | null;
+}
+
+/** "general_contractor" → "general contractor"; null stays null. */
+export function humanizeCategory(category: string | null | undefined): string | null {
+  const trimmed = category?.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/_+/g, " ").replace(/\s+/g, " ").toLowerCase();
+}
+
+export function resolveLocalTarget(
+  category: string | null | undefined,
+  city: string | null | undefined,
+): LocalTargetVars {
+  return { category: humanizeCategory(category), city: city?.trim() || null };
+}
+
+/**
+ * The search phrase a prompt or template names as the local target:
+ * "general contractor in Nampa"; falls back to what is known.
+ */
+export function describeLocalTarget(target: LocalTargetVars): string {
+  if (target.category && target.city) return `${target.category} in ${target.city}`;
+  if (target.category) return `${target.category} (city unknown)`;
+  if (target.city) return `local services in ${target.city} (category unknown)`;
+  return "the business's category in its city (both unknown)";
+}

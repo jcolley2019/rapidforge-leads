@@ -23,8 +23,13 @@ import {
   type SeoElement,
 } from "./guardrails/seo-summary";
 import {
+  describeLocalTarget,
+  humanizeCategory,
+  resolveLocalTarget,
+} from "./prompts/config-vars";
+import {
   buildSeoSummaryPrompt,
-  SEO_SUMMARY_SYSTEM,
+  buildSeoSummarySystem,
   SeoSummarySchema,
   type SeoSummary,
 } from "./prompts/seo";
@@ -184,7 +189,10 @@ export interface SeoChecks extends Record<string, unknown> {
   has_sitemap: boolean | null;
   has_robots_txt: boolean | null;
   city: string | null;
+  /** Raw Places type ("general_contractor") — the matching key. */
   category: string | null;
+  /** Humanised for prose ("general contractor") — what prompts and templates print (RFL.FIX.3c). */
+  category_label: string | null;
   title_has_city: boolean;
   title_has_category: boolean;
   h1_has_city: boolean;
@@ -217,6 +225,7 @@ export function runSeoChecks(
     has_robots_txt: hasRobots,
     city,
     category,
+    category_label: humanizeCategory(category),
     title_has_city: includesToken(title.value, city),
     title_has_category: mentionsCategory(title.value, category),
     h1_has_city: includesToken(h1Text, city),
@@ -241,12 +250,13 @@ export function buildTemplateSeoSummary(checks: SeoChecks): SeoSummary {
   if (checks.title.found && !checks.title_has_city && checks.city !== null) {
     gaps.push(`Title does not mention ${checks.city}`);
   }
+  const categoryLabel = checks.category_label ?? humanizeCategory(checks.category);
   if (
     checks.title.found &&
     !checks.title_has_category &&
-    checks.category !== null
+    categoryLabel !== null
   ) {
-    gaps.push(`Title does not mention "${checks.category}"`);
+    gaps.push(`Title does not mention "${categoryLabel}"`);
   }
 
   const complete =
@@ -262,8 +272,8 @@ export function buildTemplateSeoSummary(checks: SeoChecks): SeoSummary {
   if (score === 5 && !complete) score = 4;
 
   const local =
-    checks.city && checks.category
-      ? `Local target "${checks.category} in ${checks.city}": title ${
+    checks.city && categoryLabel
+      ? `Local target "${describeLocalTarget(resolveLocalTarget(categoryLabel, checks.city))}": title ${
           checks.title_has_city && checks.title_has_category
             ? "targets it"
             : "does not target it"
@@ -335,7 +345,9 @@ export async function runSeo(ctx: SeoContext): Promise<AgentResult<SeoOutput>> {
     const summary = await generateJsonSummary({
       model: MODEL_HAIKU,
       kind: "narration",
-      system: SEO_SUMMARY_SYSTEM,
+      system: buildSeoSummarySystem(
+        resolveLocalTarget(checks.category, checks.city),
+      ),
       prompt: buildSeoSummaryPrompt(checks),
       schema: SeoSummarySchema,
       guardrail: makeSeoSummaryGuardrail(checks),

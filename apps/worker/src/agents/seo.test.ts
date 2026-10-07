@@ -7,6 +7,8 @@ import {
   makeSeoSummaryGuardrail,
   seoChecksInvariant,
 } from "./guardrails/seo-summary";
+import { humanizeCategory, resolveLocalTarget } from "./prompts/config-vars";
+import { buildSeoSummarySystem } from "./prompts/seo";
 import {
   buildTemplateSeoSummary,
   categoryPattern,
@@ -118,6 +120,31 @@ describe("deterministic extraction (PRD 6.10)", () => {
     expect(checks.title_has_city).toBe(true);
     expect(checks.meta_has_city).toBe(true);
     expect(checks.h1_has_city).toBe(false);
+  });
+
+  it("template and system prompt print the humanised category, never the Places token (RFL.FIX.3c)", () => {
+    const checks = runSeoChecks(
+      `<title>Untitled Document</title><h1>Welcome</h1>`,
+      { address: "11567 Lake Shore Dr, Nampa, ID 83686, USA", category: "general_contractor" },
+      null,
+      null,
+    );
+    expect(checks.category).toBe("general_contractor"); // the matching key is unchanged
+    expect(checks.category_label).toBe("general contractor");
+    const summary = buildTemplateSeoSummary(checks);
+    expect(summary.gaps).toContain('Title does not mention "general contractor"');
+    expect(summary.reasoning).toContain('Local target "general contractor in Nampa"');
+    expect(JSON.stringify(summary)).not.toContain("general_contractor");
+
+    const system = buildSeoSummarySystem(resolveLocalTarget(checks.category, checks.city));
+    expect(system).toContain('"general contractor in Nampa"');
+    expect(system).not.toContain("{category}");
+    expect(system).not.toContain("{city}");
+    expect(system).not.toContain("general_contractor");
+    // Unknowns are named, never invented.
+    expect(buildSeoSummarySystem(resolveLocalTarget(null, null))).toContain("both unknown");
+    expect(humanizeCategory("auto_parts_store")).toBe("auto parts store");
+    expect(humanizeCategory(null)).toBeNull();
   });
 
   it("category plumber matches Plumbing; general_contractor matches General Contractor", () => {
