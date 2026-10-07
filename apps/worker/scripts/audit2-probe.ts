@@ -58,7 +58,13 @@ import {
   DESIGN_BRIEF_JUDGMENT_SYSTEM,
 } from "../src/agents/prompts/design-brief";
 import { buildDesignPrompt, DESIGN_CRITIQUE_SYSTEM } from "../src/agents/prompts/design";
-import { detectPlatform, extractCopyrightYear } from "../src/lib/platform";
+import { detectPlatform, extractCopyrightYear, extractLastModified, hasLegacyMarkup, hasRecentLastModified } from "../src/lib/platform";
+import { assembleScores } from "../src/agents/scorer";
+import { buildTemplateSeoSummary, type SeoOutput } from "../src/agents/seo";
+import type { HealthOutput } from "../src/agents/health";
+import type { ConversionOutput } from "../src/agents/conversion";
+import type { PresenceOutput } from "../src/agents/presence";
+import type { DesignOutput } from "../src/agents/design";
 import { reviewTextsFrom } from "../src/agents/reputation";
 
 const SINCE = "2026-10-04";
@@ -260,6 +266,64 @@ async function verify(db: SupabaseClient, auditId: string, htmlPath: string): Pr
   });
   console.log(`  design issues today (template)=${JSON.stringify(critiqueToday.critical_issues.map((i) => i.issue))}`);
   console.log(`  money-facts design.critical_issues today=${JSON.stringify(factsToday.design?.critical_issues)} stored-row-through-money-facts=${JSON.stringify(buildAuditFacts(business, audit).design?.critical_issues)}`);
+
+  // RFL.FIX.3d: re-score with today's deterministic measurements over the
+  // STORED PSI numbers (PSI is not re-run here) — before/after health, star,
+  // sellability, platform and the issues list. Nothing is written.
+  const now = new Date();
+  const healthToday: HealthOutput = {
+    ps_performance: audit.ps_performance,
+    ps_mobile_performance: audit.ps_mobile_performance,
+    desktop_measured: false,
+    ps_accessibility: audit.ps_accessibility,
+    ps_seo: audit.ps_seo,
+    ps_best_practices: audit.ps_best_practices,
+    ps_lcp_ms: audit.ps_lcp_ms,
+    ps_cls: audit.ps_cls,
+    ps_tbt_ms: null,
+    has_crux_data: audit.has_crux_data,
+    http_status: audit.http_status,
+    response_ms: audit.response_ms,
+    ssl_valid: audit.ssl_valid,
+    https_enforced: String(business.website_url ?? "").startsWith("https://"),
+    platform,
+    copyright_year: copyright,
+    has_recent_last_modified: hasRecentLastModified(headers, now),
+    last_modified_at: extractLastModified(headers),
+    legacy_markup: hasLegacyMarkup(html),
+    summary: { reasoning: "", critical_issues: [], summary_one_liner: "" },
+  };
+  const conversionToday = { ...conv, summary: { cta_strength: "none", evidence: [], reasoning: "", summary_one_liner: "" } } as unknown as ConversionOutput;
+  const presenceToday = {
+    nap,
+    social_links: findSocialLinks(html),
+    gbp_photo_count: audit.gbp_photo_count,
+    hours_completeness: "unknown",
+    summary: {},
+  } as unknown as PresenceOutput;
+  const designToday = { ...critiqueToday, used_vision: false } as DesignOutput;
+  const seoToday = { ...seo, summary: buildTemplateSeoSummary(seo) } as SeoOutput;
+  const rescored = assembleScores({
+    business,
+    health: healthToday,
+    conversion: conversionToday,
+    presence: presenceToday,
+    traffic: { has_crux_data: audit.has_crux_data, crux_mobile: null, crux_desktop: null },
+    design: designToday,
+    reputation: null,
+    seo: seoToday,
+    now,
+    psiUnmeasured: audit.ps_mobile_performance === null,
+  });
+  const hb = rescored.scoreBreakdown.health as Record<string, unknown>;
+  console.log("\nRESCORE (stored → today, stored PSI + today's markup/headers):");
+  console.log(`  health      ${audit.website_health_score} → ${rescored.healthScore}`);
+  console.log(`  star        ${audit.star_grade} → ${rescored.starGrade}`);
+  console.log(`  sellability ${audit.sellability_score} (${audit.score_breakdown?.capped ?? "-"}) → ${rescored.sellabilityScore} (${rescored.scoreBreakdown.capped ?? "-"})`);
+  console.log(`  platform    ${audit.platform} → ${rescored.platform} (detected ${healthToday.platform}; platform term ${hb.platform})`);
+  console.log(`  health terms today=${JSON.stringify(hb)}`);
+  console.log(`  issues stored=${JSON.stringify((audit.issues ?? []).map((i: any) => `${i.severity}:${i.label}`))}`);
+  console.log(`  issues today =${JSON.stringify(rescored.issues.map((i) => `${i.severity}:${i.label}`))}`);
 }
 
 function sizeLine(label: string, system: string, prompt: string): void {
