@@ -66,7 +66,7 @@ export function truncatedReply(text = '{"score": 7'): Partial<CompletionResponse
  * Select core mode (ANTHROPIC_API_KEY present, fixtures not forced) and the
  * narration-summary mode. Returns a restore function for afterEach.
  */
-export function coreModeEnv(opts: { summaries?: "haiku" | undefined } = {}): () => void {
+export function coreModeEnv(opts: { summaries?: string | undefined } = {}): () => void {
   const saved = {
     key: process.env.ANTHROPIC_API_KEY,
     force: process.env.RAPIDFORGE_FORCE_FIXTURES,

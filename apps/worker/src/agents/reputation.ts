@@ -263,6 +263,7 @@ export async function runReputation(
     const summary = await generateJsonSummary({
       model: MODEL_HAIKU,
       kind: "narration",
+      agent: "reputation",
       system: REPUTATION_SUMMARY_SYSTEM,
       prompt: buildReputationSummaryPrompt(signals),
       schema: ReputationSummarySchema,

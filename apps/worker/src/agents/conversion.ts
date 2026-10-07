@@ -270,6 +270,7 @@ export async function runConversion(
     const summary = await generateJsonSummary({
       model: MODEL_HAIKU,
       kind: "narration",
+      agent: "conversion",
       system: CONVERSION_SUMMARY_SYSTEM,
       prompt: buildConversionSummaryPrompt(signals),
       schema: ConversionSummarySchema,

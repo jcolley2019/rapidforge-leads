@@ -345,6 +345,7 @@ export async function runSeo(ctx: SeoContext): Promise<AgentResult<SeoOutput>> {
     const summary = await generateJsonSummary({
       model: MODEL_HAIKU,
       kind: "narration",
+      agent: "seo",
       system: buildSeoSummarySystem(
         resolveLocalTarget(checks.category, checks.city),
       ),

@@ -214,6 +214,7 @@ export async function runHealth(
     const summary = await generateJsonSummary({
       model: MODEL_HAIKU,
       kind: "narration",
+      agent: "health",
       system: HEALTH_SUMMARY_SYSTEM,
       prompt: buildHealthSummaryPrompt(measurements),
       schema: HealthSummarySchema,

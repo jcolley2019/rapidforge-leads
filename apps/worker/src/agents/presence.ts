@@ -297,6 +297,7 @@ export async function runPresence(
     const summary = await generateJsonSummary({
       model: MODEL_HAIKU,
       kind: "narration",
+      agent: "presence",
       system: PRESENCE_SUMMARY_SYSTEM,
       prompt: buildPresenceSummaryPrompt({
         business_name: ctx.business.name,
