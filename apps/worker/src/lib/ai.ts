@@ -166,10 +166,13 @@ function defaultProvider(): Transport {
 }
 
 let provider: Transport = defaultProvider();
+/** True while a test's fake provider is installed — the only way core mode runs under vitest. */
+let fakeProviderInstalled = false;
 
 /** Test seam: a fake provider (and a fresh unpriced-model log). Null restores the real one. */
 export function setAiProviderForTests(fake: Transport | null): void {
   provider = fake ?? defaultProvider();
+  fakeProviderInstalled = fake !== null;
   unpricedModelsLogged.clear();
 }
 
@@ -265,9 +268,12 @@ export async function callModel(options: AiCallOptions): Promise<AiCallResult> {
  * ANTHROPIC_API_KEY is present; 'template' produces deterministic
  * summaries built from the measured data (numbers included), so the
  * pipeline is fully functional with zero keys.
+ * Under vitest it is 'template' unless a test installed a fake provider via
+ * setAiProviderForTests — a real key never reaches the network (RFL.FIX.3a).
  */
 export function aiSummaryMode(): "core" | "template" {
   if (forceFixtures()) return "template";
+  if (process.env.VITEST && !fakeProviderInstalled) return "template";
   return process.env.ANTHROPIC_API_KEY ? "core" : "template";
 }
 
