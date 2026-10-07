@@ -28,7 +28,7 @@ import { parseConversionSignals } from "../src/agents/conversion";
 import { compareNap, findSocialLinks } from "../src/agents/presence";
 import { runSeoChecks } from "../src/agents/seo";
 import { cityFromPlacesAddress } from "../src/lib/address";
-import { computeTemplateModernity, readTemplateSignals } from "../src/agents/design";
+import { buildTemplateDesignCritique, computeTemplateModernity, readTemplateSignals } from "../src/agents/design";
 import { buildAuditFacts } from "../src/agents/money-facts";
 import { resolveConfigVars } from "../src/agents/prompts/config-vars";
 import { ANALYST_SYSTEM, buildAnalystPrompt } from "../src/agents/prompts/analyst";
@@ -251,6 +251,15 @@ async function verify(db: SupabaseClient, auditId: string, htmlPath: string): Pr
     new Date(),
   );
   console.log(`  template design signals today=${JSON.stringify(sig)} → modernity ${computeTemplateModernity(sig)} (stored ${v15.design?.modernity_0_100}, used_vision=${v15.design?.used_vision})`);
+  // RFL.FIX.3g: the Design issues the money agents would see today — the
+  // template critique from today's markup, read back through money-facts.
+  const critiqueToday = buildTemplateDesignCritique(sig, new Date());
+  const factsToday = buildAuditFacts(business, {
+    ...audit,
+    score_breakdown: { ...(audit.score_breakdown ?? {}), v15_agents: { ...v15, design: { ...critiqueToday, used_vision: false } } },
+  });
+  console.log(`  design issues today (template)=${JSON.stringify(critiqueToday.critical_issues.map((i) => i.issue))}`);
+  console.log(`  money-facts design.critical_issues today=${JSON.stringify(factsToday.design?.critical_issues)} stored-row-through-money-facts=${JSON.stringify(buildAuditFacts(business, audit).design?.critical_issues)}`);
 }
 
 function sizeLine(label: string, system: string, prompt: string): void {
