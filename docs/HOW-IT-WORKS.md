@@ -701,7 +701,7 @@ Other routes: `GET /health` (no login; queue and mode readout) and the static `/
 | Keyword Parser | v1.5 agent (§6.14) | Stub (`keyword-parser.ts` returns "not implemented"); keyword mode rejected at the API |
 | Refusal fallback | Fable only (§3.4) | Any model's refusal retries once on `claude-opus-4-8` |
 | Agents and Analytics views | Stats, toggles, funnel (§7.3) | "Coming soon" placeholders |
-| API | Includes `GET /api/agents` (§8) | No such route; adds cancel, costs, design-brief, report, places photo, usage, config, audits routes |
+| API | Includes `GET /api/agents` (§8) | No such route; adds `GET /api/searches`, `GET /api/leads`, cancel, costs, design-brief, report, places photo, config and audits routes |
 | Drawer tabs | 7 tabs (§7.4) | 8 tabs: adds Design Brief; Analyst has no generate button |
 | Plan limits | `max_results_per_search` from plan (§6.1) | `plans` is never read; 100 hard-coded, radius ≤ 25 via request schema |
 | Budget estimate | ~$0.30–0.80 per fully analyzed business (§3.5) | ≈ 20–23¢ per fully pursued lead at today's prices (see "Cost per lead") |
