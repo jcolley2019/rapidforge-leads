@@ -1,5 +1,5 @@
 /**
- * Health — PRD 6.3 (v1, deterministic + Sonnet 4.6 summary).
+ * Health — PRD 6.3 (v1, deterministic + Haiku narration / template).
  *
  * The orchestrator hands this agent the already-fetched homepage and the
  * mobile+desktop PSI runs (fetched ONCE per business, shared with
@@ -34,6 +34,14 @@ export interface HealthContext {
   site: FetchedSite | null;
   psiDesktop: PsiMetrics | null;
   psiMobile: PsiMetrics | null;
+  /**
+   * True only when a real desktop PSI run happened (PSI_DESKTOP=true).
+   * The orchestrator copies the mobile run into `psiDesktop` otherwise, so
+   * without this flag the template would narrate a measurement that was
+   * never taken (RFL.FIX.3e). Omitted = inferred from the two runs being
+   * different objects.
+   */
+  desktopMeasured?: boolean;
   /** Injected for determinism — copyright/freshness math needs "now". */
   now: Date;
 }
@@ -42,6 +50,8 @@ export interface HealthContext {
 export interface HealthMeasurements extends Record<string, unknown> {
   ps_performance: number | null;
   ps_mobile_performance: number | null;
+  /** False = `ps_performance` is a copy of the mobile run, not a desktop measurement. */
+  desktop_measured: boolean;
   ps_accessibility: number | null;
   ps_seo: number | null;
   ps_best_practices: number | null;
@@ -67,9 +77,12 @@ export interface HealthOutput extends HealthMeasurements {
 export function measureHealth(ctx: HealthContext): HealthMeasurements {
   const { business, site, psiDesktop, psiMobile, now } = ctx;
   const psiAny = psiMobile ?? psiDesktop;
+  const desktopMeasured =
+    ctx.desktopMeasured ?? (psiDesktop !== null && psiDesktop !== psiMobile);
   return {
     ps_performance: psiDesktop?.performance ?? null,
     ps_mobile_performance: psiMobile?.performance ?? null,
+    desktop_measured: desktopMeasured,
     ps_accessibility: psiMobile?.accessibility ?? psiDesktop?.accessibility ?? null,
     ps_seo: psiMobile?.seo ?? psiDesktop?.seo ?? null,
     ps_best_practices:
@@ -110,7 +123,11 @@ export function buildTemplateHealthSummary(
   m: HealthMeasurements,
 ): HealthSummary {
   const sentences: string[] = [];
-  if (m.ps_mobile_performance !== null && m.ps_performance !== null) {
+  if (m.ps_mobile_performance !== null && !m.desktop_measured) {
+    sentences.push(
+      `PSI mobile performance is ${m.ps_mobile_performance}/100 (desktop not measured).`,
+    );
+  } else if (m.ps_mobile_performance !== null && m.ps_performance !== null) {
     sentences.push(
       `PSI mobile performance is ${m.ps_mobile_performance}/100 and desktop is ${m.ps_performance}/100.`,
     );

@@ -1,0 +1,201 @@
+/**
+ * Health agent (PRD 6.3) — measureHealth + the deterministic template +
+ * the schema fix from RFL.FIX.3e (critical_issues[].value may be boolean;
+ * the template never narrates a desktop score that was never measured).
+ */
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Business } from "@rapidforge/shared";
+import { MODEL_HAIKU } from "../lib/ai";
+import { coreModeEnv, fakeProvider, jsonReply } from "../lib/ai.testkit";
+import { FixturePsiClient, type PsiMetrics } from "../lib/psi";
+import { FixtureSiteFetcher, type FetchedSite } from "../lib/site";
+import { makeHealthSummaryGuardrail } from "./guardrails/health-summary";
+import {
+  buildTemplateHealthSummary,
+  measureHealth,
+  runHealth,
+  type HealthMeasurements,
+} from "./health";
+import { HealthSummarySchema } from "./prompts/health";
+
+const NOW = new Date("2026-07-05T12:00:00.000Z");
+const URL = "https://snakeriverplumbing.com";
+
+const business: Business = {
+  id: "biz-1",
+  workspace_id: "ws-1",
+  google_place_id: "fx-001",
+  name: "Snake River Plumbing Co",
+  phone: "(208) 555-0101",
+  website_url: URL,
+  address: "1120 N Main St, Meridian, ID 83642",
+  lat: 43.61,
+  lng: -116.39,
+  google_rating: 4.7,
+  review_count: 127,
+  category: "plumber",
+  business_status: "OPERATIONAL",
+  is_chain: false,
+  website_kind: "real",
+  first_seen_at: null,
+  last_refreshed_at: null,
+};
+
+let site: FetchedSite;
+let mobile: PsiMetrics;
+let desktop: PsiMetrics;
+
+beforeEach(async () => {
+  site = (await new FixtureSiteFetcher().fetchHomepage(URL))!;
+  mobile = (await new FixturePsiClient().run(URL, "mobile"))!;
+  desktop = (await new FixturePsiClient().run(URL, "desktop"))!;
+});
+
+describe("measureHealth", () => {
+  it("desktop off: psiDesktop is the mobile copy, so desktop_measured is false and ps_performance mirrors mobile", () => {
+    const m = measureHealth({
+      business,
+      site,
+      psiDesktop: mobile,
+      psiMobile: mobile,
+      desktopMeasured: false,
+      now: NOW,
+    });
+    expect(m.desktop_measured).toBe(false);
+    expect(m.ps_performance).toBe(mobile.performance);
+    expect(m.ps_mobile_performance).toBe(mobile.performance);
+  });
+
+  it("infers desktop_measured from the two runs when the flag is omitted", () => {
+    const copy = measureHealth({ business, site, psiDesktop: mobile, psiMobile: mobile, now: NOW });
+    expect(copy.desktop_measured).toBe(false);
+    const real = measureHealth({ business, site, psiDesktop: desktop, psiMobile: mobile, now: NOW });
+    expect(real.desktop_measured).toBe(true);
+    expect(real.ps_performance).toBe(desktop.performance);
+  });
+
+  it("null PSI: every PSI field is null (unknown), site facts still measured", () => {
+    const m = measureHealth({ business, site, psiDesktop: null, psiMobile: null, now: NOW });
+    expect(m.ps_performance).toBeNull();
+    expect(m.ps_mobile_performance).toBeNull();
+    expect(m.ps_lcp_ms).toBeNull();
+    expect(m.has_crux_data).toBeNull();
+    expect(m.desktop_measured).toBe(false);
+    expect(m.http_status).toBe(site.httpStatus);
+    expect(m.https_enforced).toBe(true);
+    expect(m.platform).not.toBeNull();
+  });
+
+  it("null site: every site fact is null, nothing invented", () => {
+    const m = measureHealth({ business, site: null, psiDesktop: mobile, psiMobile: mobile, now: NOW });
+    expect(m.http_status).toBeNull();
+    expect(m.response_ms).toBeNull();
+    expect(m.ssl_valid).toBeNull();
+    expect(m.https_enforced).toBeNull();
+    expect(m.platform).toBeNull();
+    expect(m.copyright_year).toBeNull();
+    expect(m.has_recent_last_modified).toBe(false);
+    expect(m.ps_mobile_performance).toBe(mobile.performance);
+  });
+});
+
+describe("buildTemplateHealthSummary", () => {
+  function base(over: Partial<HealthMeasurements> = {}): HealthMeasurements {
+    return {
+      ps_performance: 99,
+      ps_mobile_performance: 99,
+      desktop_measured: false,
+      ps_accessibility: 80,
+      ps_seo: 70,
+      ps_best_practices: 60,
+      ps_lcp_ms: 2132,
+      ps_cls: 0.01,
+      ps_tbt_ms: 10,
+      has_crux_data: false,
+      http_status: 200,
+      response_ms: 262,
+      ssl_valid: false,
+      https_enforced: false,
+      platform: "custom",
+      copyright_year: null,
+      has_recent_last_modified: false,
+      ...over,
+    };
+  }
+
+  it("never claims a desktop score when desktop PSI was not run", () => {
+    const s = buildTemplateHealthSummary(base());
+    expect(s.reasoning).toContain("desktop not measured");
+    expect(s.reasoning).not.toMatch(/desktop is \d+\/100/);
+    expect(s.reasoning).toContain("99/100");
+  });
+
+  it("cites both strategies when desktop was really measured", () => {
+    const s = buildTemplateHealthSummary(base({ desktop_measured: true, ps_performance: 95 }));
+    expect(s.reasoning).toContain("mobile performance is 99/100 and desktop is 95/100");
+    expect(s.reasoning).not.toContain("not measured");
+  });
+
+  it("with no PSI at all says the site is unmeasured and still passes its own guardrail", () => {
+    const s = buildTemplateHealthSummary(
+      base({ ps_performance: null, ps_mobile_performance: null, ps_lcp_ms: null }),
+    );
+    expect(s.summary_one_liner).toContain("unmeasured");
+    expect(s.critical_issues.map((i) => i.metric)).toContain("ssl_valid");
+    expect(makeHealthSummaryGuardrail(null)(s).passed).toBe(true);
+  });
+
+  it("flags poor mobile performance and clears the < 50 guardrail", () => {
+    const s = buildTemplateHealthSummary(base({ ps_performance: 40, ps_mobile_performance: 40 }));
+    expect(s.critical_issues.map((i) => i.metric)).toContain("ps_mobile_performance");
+    expect(makeHealthSummaryGuardrail(40)(s).passed).toBe(true);
+    expect(s.summary_one_liner).toContain("poor");
+  });
+});
+
+describe("HealthSummarySchema (RFL.FIX.3e)", () => {
+  it("accepts a boolean critical_issues[].value — the live reply that used to be unparseable", () => {
+    const parsed = HealthSummarySchema.safeParse({
+      reasoning: "Mobile performance is 99/100 and LCP is 2.1s.",
+      critical_issues: [{ issue: "No valid SSL", metric: "ssl_valid", value: false }],
+      summary_one_liner: "Fast but insecure.",
+    });
+    expect(parsed.success).toBe(true);
+  });
+});
+
+describe("runHealth with a replayed boolean-value reply", () => {
+  let restoreProvider: () => void = () => {};
+  let restoreEnv: () => void = () => {};
+  afterEach(() => {
+    restoreProvider();
+    restoreEnv();
+  });
+
+  it("keeps the Haiku summary instead of falling to the template with model_used null", async () => {
+    restoreEnv = coreModeEnv({ summaries: "haiku" });
+    const reply = {
+      reasoning: "Mobile performance scores 99/100 with an LCP of 2.1s, but the site serves over plain HTTP.",
+      critical_issues: [{ issue: "No valid SSL", metric: "ssl_valid", value: false }],
+      summary_one_liner: "Fast static page with no SSL.",
+    };
+    const p = fakeProvider(jsonReply(reply));
+    restoreProvider = p.restore;
+    const result = await runHealth({
+      business,
+      site,
+      psiDesktop: mobile,
+      psiMobile: mobile,
+      desktopMeasured: false,
+      now: NOW,
+    });
+    expect(p.requests).toHaveLength(1);
+    expect(result.status).toBe("completed");
+    expect(result.modelUsed).toBe(MODEL_HAIKU);
+    expect(result.guardrailPassed).toBe(true);
+    expect(result.output!.summary).toEqual(reply);
+    expect(result.output!.desktop_measured).toBe(false);
+    // The model is told the desktop number is a copy.
+    expect(p.requests[0]!.messages.map((m) => String(m.content)).join(" ")).toContain('"desktop_measured": false');
+  });
+});
