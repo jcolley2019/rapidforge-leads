@@ -57,7 +57,11 @@ function htmlToExcerpt(html: string): string {
     .slice(0, 1500);
 }
 
-/** Top-3 fresh local competitors from the same workspace + category. */
+/**
+ * Top-3 fresh local competitors from the same workspace + category. Chains
+ * and fixture rows (google_place_id fx-…) are never a local competitor
+ * (RFL.FIX.3j).
+ */
 async function fetchCompetitors(
   store: DataStore,
   workspaceId: string,
@@ -67,7 +71,13 @@ async function fetchCompetitors(
   const leads = await store.listWorkspaceLeads(workspaceId);
   return leads
     .map((l) => l.business)
-    .filter((b) => b.id !== businessId && b.category === category)
+    .filter(
+      (b) =>
+        b.id !== businessId &&
+        b.category === category &&
+        b.is_chain !== true &&
+        !b.google_place_id.startsWith("fx-"),
+    )
     .sort((a, b) => (b.review_count ?? 0) - (a.review_count ?? 0))
     .slice(0, 3)
     .map((b) => ({
@@ -490,7 +500,7 @@ export function createApp(
         agentName: "analyst",
         businessId: business.id,
         auditId: audit.id,
-        run: () => runAnalyst({ business, audit, config }),
+        run: (signal) => runAnalyst({ business, audit, config, signal }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, { analyst_output: output }),
       });
@@ -543,7 +553,7 @@ export function createApp(
         agentName: "sales-summary",
         businessId: business.id,
         auditId: audit.id,
-        run: () => runSalesSummary({ business, audit, config }),
+        run: (signal) => runSalesSummary({ business, audit, config, signal }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, { sales_summary: output }),
       });
@@ -608,7 +618,8 @@ export function createApp(
         agentName: "design-brief",
         businessId: business.id,
         auditId: audit.id,
-        run: () => runDesignBrief({ business, audit, siteHtmlExcerpt }),
+        run: (signal) =>
+          runDesignBrief({ business, audit, siteHtmlExcerpt, signal }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, { design_brief: output }),
       });
@@ -686,17 +697,23 @@ export function createApp(
         agentName: "builder-brief",
         businessId: business.id,
         auditId: audit.id,
-        run: () =>
+        run: (signal) =>
           runBuilderBrief({
             business,
             audit,
             config,
             competitors,
             siteHtmlExcerpt,
+            signal,
           }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, {
             builder_brief_md: output.markdown,
+            // RFL.FIX.3f: the embedded Design Brief also fills
+            // audits.design_brief when nothing is stored there yet.
+            ...(output.design_brief && !audit.design_brief
+              ? { design_brief: output.design_brief }
+              : {}),
           }),
       });
       if (result.status !== "completed" || !result.output) {

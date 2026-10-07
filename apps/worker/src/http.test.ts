@@ -5,9 +5,11 @@
  */
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Business, SearchResult, WorkspaceConfig } from "@rapidforge/shared";
 import { createApp } from "./http";
+import { setAiProviderForTests } from "./lib/ai";
+import { coreModeEnv } from "./lib/ai.testkit";
 import { resetReportRenderer } from "./lib/pdf-report";
 import {
   FIXTURE_PHOTO_PNG,
@@ -21,7 +23,7 @@ import {
   FixtureScreenshotStorage,
 } from "./lib/screenshots";
 import { FixtureSiteFetcher } from "./lib/site";
-import type { OrchestratorDeps } from "./orchestrator";
+import { STAGE_BUDGET_MS, type OrchestratorDeps } from "./orchestrator";
 import type { QueuePoller } from "./queue";
 import { MemoryStore } from "./store/memory";
 import { DEV_USER_ID, DEV_WORKSPACE_ID, type LeadView } from "./store/types";
@@ -497,6 +499,69 @@ describe("POST /api/businesses/:id/builder-brief", () => {
   });
 });
 
+describe("builder-brief embedded design brief (RFL.FIX.3f)", () => {
+  it("persists the embedded Design Brief to an empty audits.design_brief and never overwrites a stored one", async () => {
+    const { business } = await seedLead({
+      places_details: { ...FIXTURE_DETAILS["fx-001"], fetchedAt: "2026-07-06T07:00:00.000Z" },
+    });
+    const audit = await seedCompletedAudit(business.id);
+    expect(audit.design_brief ?? null).toBeNull();
+
+    const first = await api("POST", `/api/businesses/${business.id}/builder-brief`);
+    expect(first.status).toBe(200);
+    expect(first.json.builder_brief_md).toContain("## Design Brief (JSON)");
+    const persisted = (await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief;
+    expect(persisted).toMatchObject({ vertical: "plumber", source: { audit_id: audit.id } });
+    expect(first.json.builder_brief_md).toContain(JSON.stringify(persisted, null, 2));
+
+    const stored = { ...persisted, business_name: "Stored by the design-brief route" };
+    await store.updateAudit(audit.id, { design_brief: stored });
+    const forced = await api("POST", `/api/businesses/${business.id}/builder-brief?force=true`);
+    expect(forced.status).toBe(200);
+    expect((await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief).toEqual(stored);
+  });
+});
+
+describe("builder-brief competitors (RFL.FIX.3j)", () => {
+  it("excludes chains and fx- fixture rows from the local competitors", async () => {
+    const tag = Math.random().toString(36).slice(2, 7);
+    const category = `roofing_contractor_${tag}`;
+    const { business } = await seedLead({
+      category,
+      google_place_id: `ChIJ-target-${tag}`,
+      name: `Target Roofing ${tag}`,
+    });
+    await seedCompletedAudit(business.id);
+    await seedLead({
+      category,
+      google_place_id: `fx-roof-${tag}`,
+      name: `Fixture Roofing ${tag}`,
+      review_count: 900,
+    });
+    await seedLead({
+      category,
+      google_place_id: `ChIJ-chain-${tag}`,
+      name: `Chain Roofing ${tag}`,
+      review_count: 800,
+      is_chain: true,
+      chain_reason: "known_brand",
+    });
+    await seedLead({
+      category,
+      google_place_id: `ChIJ-real-${tag}`,
+      name: `Real Roofing ${tag}`,
+      review_count: 50,
+    });
+
+    const res = await api("POST", `/api/businesses/${business.id}/builder-brief`);
+    expect(res.status).toBe(200);
+    const md: string = res.json.builder_brief_md;
+    expect(md).toContain(`Real Roofing ${tag}`);
+    expect(md).not.toContain(`Fixture Roofing ${tag}`);
+    expect(md).not.toContain(`Chain Roofing ${tag}`);
+  });
+});
+
 describe("stored builder brief / sales summary (RFL.FIX.3h)", () => {
   const runsFor = (businessId: string, agent: string) =>
     store.listAgentRuns().filter((r) => r.target_id === businessId && r.agent_name === agent);
@@ -571,6 +636,45 @@ describe("stored builder brief / sales summary (RFL.FIX.3h)", () => {
     expect(res.json.stored).toBe(false);
     expect(runsFor(business.id, "sales-summary")).toHaveLength(1);
   });
+});
+
+describe("on-demand budget (RFL.FIX.3i)", () => {
+  it.each(["analyst", "sales-summary", "builder-brief", "design-brief"])(
+    "a model call that never resolves fails %s at the 120 s budget",
+    async (agent) => {
+      const { business } = await seedLead();
+      await seedCompletedAudit(business.id);
+      const restoreEnv = coreModeEnv();
+      let reached!: () => void;
+      const providerCalled = new Promise<void>((resolve) => (reached = resolve));
+      setAiProviderForTests({
+        complete: () => {
+          reached();
+          return new Promise(() => undefined); // hung: never settles
+        },
+      });
+      // Only the timer the budget uses is faked; the HTTP round trip is real.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const pending = api("POST", `/api/businesses/${business.id}/${agent}?force=true`);
+        await providerCalled;
+        await vi.advanceTimersByTimeAsync(STAGE_BUDGET_MS.analyst);
+        const res = await pending;
+
+        expect(res.status).toBe(502);
+        expect(res.json.error).toBe(`${agent} timed out after ${STAGE_BUDGET_MS.analyst}ms`);
+        const runs = store
+          .listAgentRuns()
+          .filter((r) => r.target_id === business.id && r.agent_name === agent);
+        expect(runs).toHaveLength(1);
+        expect(runs[0]).toMatchObject({ status: "failed" });
+      } finally {
+        vi.useRealTimers();
+        setAiProviderForTests(null);
+        restoreEnv();
+      }
+    },
+  );
 });
 
 describe("GET /api/businesses/:id/report", () => {

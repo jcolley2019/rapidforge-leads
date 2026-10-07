@@ -24,7 +24,7 @@ export interface SalesSummaryContext {
   business: Business;
   audit: Audit;
   config: WorkspaceConfig | null;
-  /** Budget signal when run inside a job (RFL.QUEUE.8); absent on demand. */
+  /** Budget signal: the job stage (RFL.QUEUE.8) or the on-demand route (RFL.FIX.3i). */
   signal?: AbortSignal;
 }
 

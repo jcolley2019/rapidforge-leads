@@ -1,7 +1,8 @@
 /**
  * Analyst guardrails — PRD 6.11 self-checks as a pure function (CLAUDE.md
  * 6.2). Reject: fewer than 3 improvements; reasoning citing fewer than 3
- * agents by name; a one-line verdict over 20 words; a verdict inconsistent
+ * agents by name WITH a measured value (a number in the same sentence —
+ * RFL.FIX.3f); a one-line verdict over 20 words; a verdict inconsistent
  * with the deterministic star grade.
  */
 import type { GuardrailResult } from "../../lib/ai";
@@ -25,6 +26,26 @@ export function agentsCitedIn(text: string): string[] {
   );
 }
 
+/** Sentence split on . ! ? followed by whitespace ("4.5 stars" stays whole). */
+function sentencesOf(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+/).filter((s) => s.trim() !== "");
+}
+
+/**
+ * Agents cited WITH a value (RFL.FIX.3f): named in a sentence that also
+ * carries a number. "The health, design and seo results were reviewed."
+ * names three agents and cites none. An agent named only in a number-free
+ * sentence ("Conversion found no contact form.") is allowed but not counted.
+ */
+export function agentsCitedWithValueIn(text: string): string[] {
+  const cited = new Set<string>();
+  for (const sentence of sentencesOf(text)) {
+    if (!/\d/.test(sentence)) continue;
+    for (const agent of agentsCitedIn(sentence)) cited.add(agent);
+  }
+  return CITABLE_AGENTS.filter((agent) => cited.has(agent));
+}
+
 export function makeAnalystGuardrail(
   starGrade: number | null,
 ): (value: AnalystOutput) => GuardrailResult {
@@ -36,11 +57,12 @@ export function makeAnalystGuardrail(
       };
     }
 
-    const cited = agentsCitedIn(value.reasoning);
+    const cited = agentsCitedWithValueIn(value.reasoning);
     if (cited.length < MIN_AGENTS_CITED) {
+      const valueless = agentsCitedIn(value.reasoning).filter((a) => !cited.includes(a));
       return {
         passed: false,
-        notes: `Reasoning cites ${cited.length} agent(s) (${cited.join(", ") || "none"}); need ${MIN_AGENTS_CITED}.`,
+        notes: `Reasoning cites ${cited.length} agent(s) with a measured value in the same sentence (${cited.join(", ") || "none"}); need ${MIN_AGENTS_CITED}.${valueless.length > 0 ? ` Named without a value: ${valueless.join(", ")}.` : ""}`,
       };
     }
 

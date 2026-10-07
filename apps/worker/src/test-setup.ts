@@ -18,6 +18,8 @@ const HERMETIC_ENV = [
   "PSI_DESKTOP",
   "AI_SUMMARIES",
   "RAPIDFORGE_FORCE_FIXTURES",
+  "RAPIDFORGE_FORCE_MEMORY_STORE",
+  "RAPIDFORGE_ALLOW_FIXTURES_IN_SUPABASE",
 ] as const;
 
 for (const name of HERMETIC_ENV) delete process.env[name];

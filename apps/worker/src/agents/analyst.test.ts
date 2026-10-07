@@ -3,6 +3,7 @@ import type { Audit, Business } from "@rapidforge/shared";
 import { buildTemplateAnalyst, runAnalyst } from "./analyst";
 import {
   agentsCitedIn,
+  agentsCitedWithValueIn,
   countWords,
   makeAnalystGuardrail,
 } from "./guardrails/analyst";
@@ -144,6 +145,25 @@ describe("makeAnalystGuardrail", () => {
   it("rejects reasoning citing fewer than 3 agents", () => {
     const bad = { ...VALID, reasoning: "The health agent scored 36/100." };
     expect(guard(bad).passed).toBe(false);
+  });
+
+  it("requires a measured value in the same sentence as each counted agent (RFL.FIX.3f)", () => {
+    const vacuous = {
+      ...VALID,
+      reasoning: "The health, design and seo results were reviewed. The site is 10 years old.",
+    };
+    const verdict = guard(vacuous);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.notes).toBe(
+      "Reasoning cites 0 agent(s) with a measured value in the same sentence (none); need 3. Named without a value: health, design, seo.",
+    );
+    const partial = { ...VALID, reasoning: "The health agent scored 36/100. Design and SEO look weak." };
+    expect(guard(partial).passed).toBe(false);
+    expect(
+      agentsCitedWithValueIn(
+        "Health scored 36/100. Reputation shows 4.5 stars. SEO local fit is 2/5. Conversion found no form.",
+      ),
+    ).toEqual(["health", "reputation", "seo"]);
   });
 
   it("rejects a one-line verdict over 20 words", () => {

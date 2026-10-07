@@ -4,9 +4,15 @@
  * (CLAUDE.md 6.5): an agent_runs row, Realtime start/finish events, a
  * usage_events(ai_call) entry, and persistence onto the audit row. Realtime
  * is best-effort — a broadcast failure never fails the run.
+ *
+ * RFL.FIX.3i: run() is raced against the Analyst stage budget (120 s) and
+ * receives its signal, so a hung model call fails the run (and the route)
+ * instead of holding the HTTP request until ai-core gives up.
  */
 import type { AgentResult } from "@rapidforge/shared";
 import { broadcastAgentEvent } from "../events";
+import { withBudget } from "../lib/budget";
+import { STAGE_BUDGET_MS } from "../orchestrator";
 import type { DataStore } from "../store";
 
 export interface OnDemandRunInput<T extends Record<string, unknown>> {
@@ -15,7 +21,8 @@ export interface OnDemandRunInput<T extends Record<string, unknown>> {
   agentName: string;
   businessId: string;
   auditId: string;
-  run: () => Promise<AgentResult<T>>;
+  /** Receives the budget's signal to hand to the AI call (RFL.FIX.3i). */
+  run: (signal: AbortSignal) => Promise<AgentResult<T>>;
   /** Persist the successful output onto the audit row (dedicated column). */
   persist: (auditId: string, output: T) => Promise<void>;
 }
@@ -38,7 +45,24 @@ export async function runOnDemandAgent<T extends Record<string, unknown>>(
     target: businessId,
   });
 
-  const result = await input.run();
+  const startedAt = Date.now();
+  let result: AgentResult<T>;
+  try {
+    result = await withBudget(agentName, STAGE_BUDGET_MS.analyst, input.run);
+  } catch (err) {
+    result = {
+      agent: agentName,
+      status: "failed",
+      output: null,
+      error: err instanceof Error ? err.message : String(err),
+      modelUsed: null,
+      tokensUsed: 0,
+      costCents: 0,
+      durationMs: Date.now() - startedAt,
+      guardrailPassed: false,
+      guardrailNotes: null,
+    } as AgentResult<T>;
+  }
 
   await store.updateAgentRun(runRow.id, {
     status: result.status,

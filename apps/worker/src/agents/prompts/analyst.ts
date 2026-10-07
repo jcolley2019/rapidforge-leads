@@ -80,7 +80,7 @@ Return STRICT JSON only (no prose, no markdown fences), exactly this shape:
 
 Rules:
 - top_3_improvements MUST contain exactly 3 items, priority 1 (highest) to 3.
-- reasoning MUST cite at least THREE agents by name (e.g. health, design, seo) with the values they measured.
+- reasoning MUST cite at least THREE agents by name (e.g. health, design, seo), each in a sentence that states a number that agent measured (a score, ms, count, year or rating). A sentence that names an agent without a number does not count as a citation.
 - one_line_verdict MUST be 20 words or fewer.
 - The verdict MUST be consistent with the star grade you are given (a 5★ site is not "actively_losing_business"; a 1★ site is not "excellent").`;
 }

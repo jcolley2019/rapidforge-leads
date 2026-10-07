@@ -253,6 +253,8 @@ export interface DesignBriefContext {
   audit: Audit;
   /** Same homepage excerpt the Builder Brief prompt uses (route fetches it). */
   siteHtmlExcerpt: string | null;
+  /** Budget signal (on-demand route or the Builder Brief that embeds it). */
+  signal?: AbortSignal;
   /** Injected for determinism. */
   now?: Date;
 }
@@ -296,6 +298,7 @@ export async function buildDesignBrief(ctx: DesignBriefContext): Promise<DesignB
       tone_descriptors: templateTone(vertical),
       services: templateServices(business, audit),
     }),
+    ...(ctx.signal ? { signal: ctx.signal } : {}),
   });
 
   const brief: DesignBrief = {

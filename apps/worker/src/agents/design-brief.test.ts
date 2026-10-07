@@ -302,6 +302,22 @@ describe("buildDesignBrief", () => {
     expect(built.costCents).toBe(0);
   });
 
+  it("judgment call carries the caller's signal (RFL.FIX.3i)", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    const p = fakeProvider(
+      jsonReply({ tone_descriptors: ["warm"], services: ["Drain cleaning"] }),
+    );
+    const signal = new AbortController().signal;
+    await buildDesignBrief({
+      business: business(),
+      audit: audit(),
+      siteHtmlExcerpt: null,
+      signal,
+      now: NOW,
+    });
+    expect(p.requests[0]!.signal).toBe(signal);
+  });
+
   it.each<[string, FakeReply]>([
     ["the provider throws", new Error("AI Core unreachable")],
     ["the model refuses (and so does the Opus fallback)", refusalReply()],
