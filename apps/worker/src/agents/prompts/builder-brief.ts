@@ -5,6 +5,7 @@
  * (CLAUDE.md 6.1). A developer (or Claude Code) can paste the brief and
  * scaffold a modern site that addresses every measured gap. On-demand only.
  */
+import { cityFromPlacesAddress } from "../../lib/address";
 import type { AuditFacts } from "../money-facts";
 import { factsToPromptJson } from "../money-facts";
 import type { CascadingVars } from "./config-vars";
@@ -33,19 +34,10 @@ export interface CompetitorSummary {
   website_url: string | null;
 }
 
-/** Best-effort city from a Places address ("St, City, ST zip"). */
-export function parseCity(address: string | null): string | null {
-  if (!address) return null;
-  const parts = address.split(",").map((p) => p.trim());
-  if (parts.length >= 3) return parts[parts.length - 2] || null;
-  if (parts.length === 2) return parts[0] || null;
-  return null;
-}
-
 /** Target keywords for the rebuild — {city} + {category} (PRD 6.10/6.12). */
 export function deriveKeywords(facts: AuditFacts): string[] {
   const category = facts.business.category ?? "local service";
-  const city = parseCity(facts.business.address);
+  const city = cityFromPlacesAddress(facts.business.address);
   const kws = [
     city ? `${category} ${city}` : `${category} near me`,
     city ? `best ${category} in ${city}` : `best local ${category}`,

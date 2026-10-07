@@ -13,6 +13,7 @@
  * title/meta/H1 is rejected, re-run once, then persisted flagged.
  */
 import type { AgentResult, Business } from "@rapidforge/shared";
+import { cityFromPlacesAddress } from "../lib/address";
 import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import type { FetchedSite } from "../lib/site";
 import { stripTags } from "./conversion";
@@ -102,42 +103,74 @@ export function extractSchemaTypes(html: string): string[] {
   return [...types].sort();
 }
 
-/**
- * City from a Places-formatted address. Handles both
- * "1120 N Main St, Meridian, ID 83642" and "8990 W Overland Rd, Boise ID".
- */
-export function extractCityFromAddress(address: string | null): string | null {
-  if (!address) return null;
-  const parts = address.split(",").map((part) => part.trim());
-  if (parts.length >= 3) return parts[parts.length - 2] || null;
-  if (parts.length === 2) {
-    const city = parts[1]!
-      .replace(/\s+[A-Z]{2}(\s+\d{5}(-\d{4})?)?$/, "")
-      .trim();
-    return city || null;
-  }
-  return null;
-}
-
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
  * Word-boundary matching so "boisedrainpros" does NOT count as "Boise".
- * Categories match as a word PREFIX ("plumber" hits "Plumbers") since
- * Places categories are singular.
  */
-function includesToken(
-  haystack: string | null,
-  token: string | null,
-  matchAsPrefix = false,
-): boolean {
+function includesToken(haystack: string | null, token: string | null): boolean {
   if (!haystack || !token) return false;
-  const pattern = matchAsPrefix
-    ? new RegExp(`\\b${escapeRegExp(token)}`, "i")
-    : new RegExp(`\\b${escapeRegExp(token)}\\b`, "i");
-  return pattern.test(haystack);
+  return new RegExp(`\\b${escapeRegExp(token)}\\b`, "i").test(haystack);
+}
+
+/**
+ * How a page names each Places type (RFL.FIX.3b): "plumber" is written
+ * "Plumbing", "general_contractor" "Remodeling Contractor". Regex sources,
+ * matched at a word start ("plumb" hits "Plumbers"); a trailing \b makes a
+ * stem whole-word ("tan\b" never hits "Tank"). Covers every type in the web
+ * category picker plus the primary types Places has returned for them.
+ */
+const CATEGORY_STEMS: Readonly<Record<string, readonly string[]>> = {
+  plumber: ["plumb"],
+  electrician: ["electric"],
+  roofing_contractor: ["roof"],
+  general_contractor: ["contractor", "contracting", "construction", "remodel", "renovat", "handyman"],
+  hvac_contractor: ["hvac", "heating", "cooling", "air\\s+condition", "furnace"],
+  painter: ["paint"],
+  locksmith: ["lock"],
+  moving_company: ["mover", "moving"],
+  landscaper: ["landscap", "lawn", "yard"],
+  dentist: ["dentist", "dental"],
+  dental_clinic: ["dentist", "dental"],
+  hair_salon: ["salon", "hair", "barber", "stylist"],
+  barber_shop: ["barber", "hair"],
+  beauty_salon: ["salon", "beauty", "nail", "lash", "brow", "esthetic"],
+  nail_salon: ["nail", "salon"],
+  tanning_studio: ["tanning", "tan\\b"],
+  cosmetics_store: ["cosmetic", "makeup", "beauty", "skin\\s*care"],
+  spa: ["spas?\\b", "massage", "facial"],
+  gym: ["gym", "fitness", "crossfit"],
+  fitness_center: ["gym", "fitness", "crossfit"],
+  restaurant: ["restaurant", "grill", "kitchen", "bistro", "eatery", "diner", "dining", "cuisine"],
+  cafe: ["cafe", "café", "coffee", "espresso"],
+  coffee_shop: ["cafe", "café", "coffee", "espresso"],
+  car_repair: ["auto", "mechanic", "repair", "brake", "transmission"],
+  car_wash: ["wash", "detailing"],
+  real_estate_agency: ["real\\s+estate", "realt", "broker", "homes\\s+for\\s+sale"],
+  lawyer: ["lawyer", "attorney", "law\\b", "legal", "counsel"],
+  veterinary_care: ["vets?\\b", "veterinar", "animal\\s+(hospital|clinic)"],
+  florist: ["florist", "floral", "flower"],
+  educational_institution: ["school", "academy", "college", "institute", "education"],
+};
+
+/**
+ * Word-start pattern for a Places type: its stems (by exact type, else by
+ * its last word — "mexican_restaurant" uses "restaurant") plus the type
+ * itself with "_" → space as a whole word, plural allowed ("general
+ * contractors"; "spa" never hits "Spanish").
+ */
+export function categoryPattern(category: string): RegExp {
+  const words = category.toLowerCase().split("_").filter((w) => w.length > 0);
+  const stems = CATEGORY_STEMS[category.toLowerCase()] ?? CATEGORY_STEMS[words.at(-1) ?? ""] ?? [];
+  const humanised = `${words.map(escapeRegExp).join("\\s+")}s?\\b`;
+  return new RegExp(`\\b(?:${[...stems, humanised].join("|")})`, "i");
+}
+
+function mentionsCategory(haystack: string | null, category: string | null): boolean {
+  if (!haystack || !category) return false;
+  return categoryPattern(category).test(haystack);
 }
 
 export interface SeoChecks extends Record<string, unknown> {
@@ -170,7 +203,7 @@ export function runSeoChecks(
   const meta = extractMetaDescription(html);
   const h1s = extractH1s(html);
   const schemaTypes = extractSchemaTypes(html);
-  const city = extractCityFromAddress(business.address);
+  const city = cityFromPlacesAddress(business.address);
   const category = business.category;
   const h1Text = h1s.join(" ");
   return {
@@ -185,11 +218,11 @@ export function runSeoChecks(
     city,
     category,
     title_has_city: includesToken(title.value, city),
-    title_has_category: includesToken(title.value, category, true),
+    title_has_category: mentionsCategory(title.value, category),
     h1_has_city: includesToken(h1Text, city),
-    h1_has_category: includesToken(h1Text, category, true),
+    h1_has_category: mentionsCategory(h1Text, category),
     meta_has_city: includesToken(meta.value, city),
-    meta_has_category: includesToken(meta.value, category, true),
+    meta_has_category: mentionsCategory(meta.value, category),
   };
 }
 

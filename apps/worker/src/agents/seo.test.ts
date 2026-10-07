@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Business } from "@rapidforge/shared";
+import { cityFromPlacesAddress } from "../lib/address";
 import type { FetchedSite } from "../lib/site";
 import { SITE_FIXTURES } from "../lib/site-fixtures";
 import {
@@ -8,7 +9,7 @@ import {
 } from "./guardrails/seo-summary";
 import {
   buildTemplateSeoSummary,
-  extractCityFromAddress,
+  categoryPattern,
   extractH1s,
   extractMetaDescription,
   extractSchemaTypes,
@@ -90,11 +91,74 @@ describe("deterministic extraction (PRD 6.10)", () => {
   });
 
   it("parses the city from both Places address shapes", () => {
-    expect(extractCityFromAddress("1120 N Main St, Meridian, ID 83642")).toBe(
+    expect(cityFromPlacesAddress("1120 N Main St, Meridian, ID 83642")).toBe(
       "Meridian",
     );
-    expect(extractCityFromAddress("8990 W Overland Rd, Boise ID")).toBe("Boise");
-    expect(extractCityFromAddress(null)).toBeNull();
+    expect(cityFromPlacesAddress("8990 W Overland Rd, Boise ID")).toBe("Boise");
+    expect(cityFromPlacesAddress(null)).toBeNull();
+  });
+
+  it("city from a 4-part Places (New) address", () => {
+    // Places (New) formattedAddress ends in the country (RFL.AUDIT.2 Part 3).
+    expect(cityFromPlacesAddress("11567 Lake Shore Dr, Nampa, ID 83686, USA")).toBe("Nampa");
+    expect(cityFromPlacesAddress("1519 W Florida Ave, Nampa, ID 83686, USA")).toBe("Nampa");
+    expect(cityFromPlacesAddress("123 Main St, Ste 4, Boise, ID 83702-1234, USA")).toBe("Boise");
+    expect(cityFromPlacesAddress("Nampa, ID 83686, USA")).toBe("Nampa");
+    expect(cityFromPlacesAddress("ID 83686, USA")).toBeNull();
+    // Landers: title + meta name Nampa; the old parser read "ID 83686".
+    const checks = runSeoChecks(
+      `<title>Nampa Handyman &amp; Remodeling Contractor, Landers Home Services</title>
+       <meta name="description" content="Landers is a top rated Nampa Handyman &amp; Remodeling Service.">
+       <h1>Hire Home repair experts you can trust</h1>`,
+      { address: "1519 W Florida Ave, Nampa, ID 83686, USA", category: "general_contractor" },
+      null,
+      null,
+    );
+    expect(checks.city).toBe("Nampa");
+    expect(checks.title_has_city).toBe(true);
+    expect(checks.meta_has_city).toBe(true);
+    expect(checks.h1_has_city).toBe(false);
+  });
+
+  it("category plumber matches Plumbing; general_contractor matches General Contractor", () => {
+    const allPlumbing = runSeoChecks(
+      "<title>Plumbing &amp; Sewer Services | Professional Plumbing</title><h1>Plumbing Services</h1>",
+      { address: "3165 E Greenhurst Rd, Nampa, ID 83686, USA", category: "plumber" },
+      null,
+      null,
+    );
+    expect(allPlumbing.title_has_category).toBe(true);
+    expect(allPlumbing.h1_has_category).toBe(true);
+    expect(categoryPattern("general_contractor").test("Boise General Contractor")).toBe(true);
+    expect(categoryPattern("general_contractor").test("Nampa Handyman & Remodeling")).toBe(true);
+    expect(categoryPattern("plumber").test("Boise Electricians")).toBe(false);
+    // Unknown types fall back to their last word, then the humanised type.
+    expect(categoryPattern("mexican_restaurant").test("Best tacos — Casa Grill")).toBe(true);
+    expect(categoryPattern("auto_parts_store").test("Auto Parts Store in Boise")).toBe(true);
+  });
+
+  it("every picker category matches how a page names it — and not its look-alikes", () => {
+    const named: Array<[string, string]> = [
+      ["plumber", "Plumbers"], ["electrician", "Electrical Services"], ["roofing_contractor", "Roofing & Repairs"],
+      ["general_contractor", "Construction"], ["painter", "Painting Co"], ["locksmith", "Lock & Key"],
+      ["moving_company", "Movers"], ["dentist", "Family Dental"], ["hair_salon", "Hair Studio"],
+      ["beauty_salon", "Nail & Lash Bar"], ["spa", "Day Spa"], ["gym", "Fitness Center"],
+      ["restaurant", "Bar & Grill"], ["cafe", "Coffee House"], ["car_repair", "Auto Repair"],
+      ["car_wash", "Express Wash"], ["real_estate_agency", "Real Estate Group"], ["lawyer", "Smith Law"],
+      ["veterinary_care", "Animal Hospital"], ["florist", "Flower Shop"], ["hvac_contractor", "Heating & Cooling"],
+      ["landscaper", "Landscaping"], ["tanning_studio", "Spray Tan"], ["cosmetics_store", "Skincare"],
+      ["educational_institution", "Beauty Academy"],
+    ];
+    for (const [type, text] of named) {
+      expect(categoryPattern(type).test(text), `${type} ~ "${text}"`).toBe(true);
+    }
+    const lookalikes: Array<[string, string]> = [
+      ["lawyer", "Lawn Care"], ["florist", "Florida Ave"], ["tanning_studio", "Tankless Water Heaters"],
+      ["spa", "Spanish Spoken"], ["veterinary_care", "Vetted Pros"],
+    ];
+    for (const [type, text] of lookalikes) {
+      expect(categoryPattern(type).test(text), `${type} !~ "${text}"`).toBe(false);
+    }
   });
 
   it("detects local keywords in the measured elements", () => {

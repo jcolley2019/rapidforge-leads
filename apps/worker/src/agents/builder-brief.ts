@@ -8,6 +8,7 @@
  * twice-failed guardrail falls back to a complete deterministic template.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
+import { cityFromPlacesAddress } from "../lib/address";
 import { centsFromMicrocents, generateMarkdown, MODEL_OPUS, sumMicrocents } from "../lib/ai";
 import { buildDesignBrief, embedDesignBrief } from "./design-brief";
 import { builderBriefGuardrail, h2Headings } from "./guardrails/builder-brief";
@@ -19,7 +20,6 @@ import {
   buildBuilderBriefPrompt,
   BUILDER_BRIEF_SYSTEM,
   deriveKeywords,
-  parseCity,
   type CompetitorSummary,
 } from "./prompts/builder-brief";
 
@@ -56,7 +56,7 @@ export function buildTemplateBrief(
   const b = facts.business;
   const name = b.name;
   const category = b.category ?? vars.target_industry;
-  const city = parseCity(b.address) ?? vars.user_location;
+  const city = cityFromPlacesAddress(b.address) ?? vars.user_location;
   const health = facts.scores.health_score ?? "an unaudited";
   const star = facts.scores.star_grade;
   const platform = facts.health.platform;

@@ -23,9 +23,11 @@
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { buildIssues, type IssueInputs } from "@rapidforge/shared";
 import { parseConversionSignals } from "../src/agents/conversion";
 import { compareNap, findSocialLinks } from "../src/agents/presence";
-import { extractCityFromAddress, runSeoChecks } from "../src/agents/seo";
+import { runSeoChecks } from "../src/agents/seo";
+import { cityFromPlacesAddress } from "../src/lib/address";
 import { computeTemplateModernity, readTemplateSignals } from "../src/agents/design";
 import { buildAuditFacts } from "../src/agents/money-facts";
 import { resolveConfigVars } from "../src/agents/prompts/config-vars";
@@ -34,7 +36,6 @@ import {
   BUILDER_BRIEF_SYSTEM,
   buildBuilderBriefPrompt,
   deriveKeywords,
-  parseCity,
 } from "../src/agents/prompts/builder-brief";
 import {
   buildSalesSummaryPrompt,
@@ -206,13 +207,12 @@ async function verify(db: SupabaseClient, auditId: string, htmlPath: string): Pr
   const v15 = audit.score_breakdown?.v15_agents ?? {};
   console.log(`VERIFY ${business.name} — ${business.website_url} — html ${html.length} chars (today's fetch)`);
   console.log(`address: ${business.address}`);
-  console.log(`extractCityFromAddress (seo.ts) → ${JSON.stringify(extractCityFromAddress(business.address))}`);
-  console.log(`parseCity (builder-brief.ts)    → ${JSON.stringify(parseCity(business.address))}`);
+  console.log(`cityFromPlacesAddress (lib/address.ts) → ${JSON.stringify(cityFromPlacesAddress(business.address))}`);
 
   const conv = parseConversionSignals(html);
   const storedConv = v15.conversion ?? {};
   console.log("\nCONVERSION (today vs stored):");
-  for (const k of ["has_tel_link", "has_visible_phone", "visible_phone", "form_count", "has_form", "has_booking", "booking_url", "has_chat", "has_viewport_meta", "has_schema_markup", "has_cta_above_fold", "cta_candidates"]) {
+  for (const k of ["has_tel_link", "has_visible_phone", "visible_phone", "form_count", "has_form", "has_booking", "booking_url", "has_chat", "has_viewport_meta", "has_schema_markup", "has_cta_above_fold", "cta_candidates", "cta_source"]) {
     const stored = k in storedConv ? storedConv[k] : k === "has_viewport_meta" ? audit.has_viewport_meta : k === "has_schema_markup" ? audit.has_schema_markup : k === "has_chat" ? audit.has_chat : k === "has_visible_phone" ? audit.has_phone : "(not stored)";
     console.log(`  ${k.padEnd(20)} today=${JSON.stringify((conv as any)[k])}  stored=${JSON.stringify(stored)}`);
   }
@@ -222,20 +222,20 @@ async function verify(db: SupabaseClient, auditId: string, htmlPath: string): Pr
   console.log("\nPRESENCE (today vs stored):");
   console.log(`  nap today=${JSON.stringify(nap)}`);
   console.log(`  nap stored=${JSON.stringify(v15.presence)}`);
+  // The NAP bullets the Scorer would write from today's compare (RFL.FIX.3c).
+  const napIssues = buildIssues({
+    currentYear: new Date().getFullYear(),
+    napConsistent: nap.nap_consistent,
+    napAddressMatch: nap.nap_address_match,
+    napGoogleStreet: nap.google_street,
+  } as IssueInputs).filter((i) => /Google listing|Address not shown/.test(i.label));
+  console.log(`  nap issues today=${JSON.stringify(napIssues)}`);
   console.log(`  social today=${JSON.stringify(findSocialLinks(html))}`);
 
   const seo = runSeoChecks(html, business, null, null);
   console.log("\nSEO (today vs stored):");
   for (const k of ["title", "meta_description", "h1s", "schema_types", "city", "category", "title_has_city", "title_has_category", "h1_has_city", "h1_has_category", "meta_has_city", "meta_has_category"]) {
     console.log(`  ${k.padEnd(20)} today=${JSON.stringify((seo as any)[k])}  stored=${JSON.stringify(v15.seo?.[k])}`);
-  }
-  // What the city check WOULD say with the city Places actually means.
-  const parts = (business.address ?? "").split(",").map((p: string) => p.trim());
-  const realCity = parts.length >= 3 ? parts[parts.length - 3] : null;
-  if (realCity) {
-    const seoFixed = runSeoChecks(html, { address: business.address, category: business.category }, null, null);
-    const rx = new RegExp(`\\b${realCity}\\b`, "i");
-    console.log(`  with city="${realCity}": title_has_city=${rx.test(seo.title.value ?? "")} h1_has_city=${rx.test(seo.h1s.join(" "))} meta_has_city=${rx.test(seo.meta_description.value ?? "")} (stored category check unchanged: ${seoFixed.title_has_category})`);
   }
 
   console.log("\nHEALTH/DESIGN signals (today vs stored):");

@@ -8,10 +8,10 @@ import {
   placeholdersIn,
 } from "./guardrails/builder-brief";
 import { buildAuditFacts } from "./money-facts";
+import { cityFromPlacesAddress } from "../lib/address";
 import {
   BRIEF_SECTIONS,
   deriveKeywords,
-  parseCity,
 } from "./prompts/builder-brief";
 import { resolveConfigVars } from "./prompts/config-vars";
 
@@ -94,8 +94,17 @@ function templateBrief(): string {
 
 describe("builder brief helpers", () => {
   it("parses a city from a Places address", () => {
-    expect(parseCity("7800 W Fairview Ave, Boise, ID 83704")).toBe("Boise");
-    expect(parseCity(null)).toBeNull();
+    expect(cityFromPlacesAddress("7800 W Fairview Ave, Boise, ID 83704")).toBe("Boise");
+    // Places (New) 4-part form — the old parser returned "ID 83686".
+    expect(cityFromPlacesAddress("1519 W Florida Ave, Nampa, ID 83686, USA")).toBe("Nampa");
+    expect(cityFromPlacesAddress(null)).toBeNull();
+    const facts = buildAuditFacts(
+      makeBusiness({ address: "1519 W Florida Ave, Nampa, ID 83686, USA" }),
+      makeAudit(),
+    );
+    const kws = deriveKeywords(facts);
+    expect(kws).toContain("best plumber in Nampa");
+    expect(kws.some((k) => k.includes("83686"))).toBe(false);
   });
 
   it("derives {city}+{category} keywords", () => {

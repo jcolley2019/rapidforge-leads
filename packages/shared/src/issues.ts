@@ -65,6 +65,13 @@ export interface IssueInputs {
   hasSchemaMarkup: boolean;
   hasCruxData: boolean | null;
   napConsistent: boolean | null;
+  /**
+   * RFL.FIX.3c: true = Google's street line is on the homepage; false = a
+   * different street address is; null = none shown, or Presence didn't run.
+   */
+  napAddressMatch: boolean | null;
+  /** Google's street line as Presence compared it; null = none / not run. */
+  napGoogleStreet: string | null;
   // -- Sprint 6 (Design / Reputation / SEO agents). Null = agent didn't run.
   designModernity: number | null;
   designFeelsLikeYear: number | null;
@@ -223,6 +230,15 @@ export function buildIssues(input: IssueInputs): Issue[] {
     add(
       "medium",
       "Phone or address on the site doesn't match the Google listing",
+    );
+  }
+  // Absence is not a mismatch (RFL.FIX.3c): Google has an address, the
+  // homepage shows none.
+  if (input.napAddressMatch === null && input.napGoogleStreet !== null) {
+    add(
+      "low",
+      "Address not shown on the homepage",
+      `Google lists ${input.napGoogleStreet}`,
     );
   }
   if (input.hasCruxData === false) {
