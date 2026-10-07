@@ -490,7 +490,7 @@ export function createApp(
         agentName: "analyst",
         businessId: business.id,
         auditId: audit.id,
-        run: () => runAnalyst({ business, audit, config }),
+        run: (signal) => runAnalyst({ business, audit, config, signal }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, { analyst_output: output }),
       });
@@ -543,7 +543,7 @@ export function createApp(
         agentName: "sales-summary",
         businessId: business.id,
         auditId: audit.id,
-        run: () => runSalesSummary({ business, audit, config }),
+        run: (signal) => runSalesSummary({ business, audit, config, signal }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, { sales_summary: output }),
       });
@@ -608,7 +608,8 @@ export function createApp(
         agentName: "design-brief",
         businessId: business.id,
         auditId: audit.id,
-        run: () => runDesignBrief({ business, audit, siteHtmlExcerpt }),
+        run: (signal) =>
+          runDesignBrief({ business, audit, siteHtmlExcerpt, signal }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, { design_brief: output }),
       });
@@ -686,13 +687,14 @@ export function createApp(
         agentName: "builder-brief",
         businessId: business.id,
         auditId: audit.id,
-        run: () =>
+        run: (signal) =>
           runBuilderBrief({
             business,
             audit,
             config,
             competitors,
             siteHtmlExcerpt,
+            signal,
           }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, {

@@ -5,9 +5,11 @@
  */
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Business, SearchResult, WorkspaceConfig } from "@rapidforge/shared";
 import { createApp } from "./http";
+import { setAiProviderForTests } from "./lib/ai";
+import { coreModeEnv } from "./lib/ai.testkit";
 import { resetReportRenderer } from "./lib/pdf-report";
 import {
   FIXTURE_PHOTO_PNG,
@@ -21,7 +23,7 @@ import {
   FixtureScreenshotStorage,
 } from "./lib/screenshots";
 import { FixtureSiteFetcher } from "./lib/site";
-import type { OrchestratorDeps } from "./orchestrator";
+import { STAGE_BUDGET_MS, type OrchestratorDeps } from "./orchestrator";
 import type { QueuePoller } from "./queue";
 import { MemoryStore } from "./store/memory";
 import { DEV_USER_ID, DEV_WORKSPACE_ID, type LeadView } from "./store/types";
@@ -571,6 +573,45 @@ describe("stored builder brief / sales summary (RFL.FIX.3h)", () => {
     expect(res.json.stored).toBe(false);
     expect(runsFor(business.id, "sales-summary")).toHaveLength(1);
   });
+});
+
+describe("on-demand budget (RFL.FIX.3i)", () => {
+  it.each(["analyst", "sales-summary", "builder-brief", "design-brief"])(
+    "a model call that never resolves fails %s at the 120 s budget",
+    async (agent) => {
+      const { business } = await seedLead();
+      await seedCompletedAudit(business.id);
+      const restoreEnv = coreModeEnv();
+      let reached!: () => void;
+      const providerCalled = new Promise<void>((resolve) => (reached = resolve));
+      setAiProviderForTests({
+        complete: () => {
+          reached();
+          return new Promise(() => undefined); // hung: never settles
+        },
+      });
+      // Only the timer the budget uses is faked; the HTTP round trip is real.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const pending = api("POST", `/api/businesses/${business.id}/${agent}?force=true`);
+        await providerCalled;
+        await vi.advanceTimersByTimeAsync(STAGE_BUDGET_MS.analyst);
+        const res = await pending;
+
+        expect(res.status).toBe(502);
+        expect(res.json.error).toBe(`${agent} timed out after ${STAGE_BUDGET_MS.analyst}ms`);
+        const runs = store
+          .listAgentRuns()
+          .filter((r) => r.target_id === business.id && r.agent_name === agent);
+        expect(runs).toHaveLength(1);
+        expect(runs[0]).toMatchObject({ status: "failed" });
+      } finally {
+        vi.useRealTimers();
+        setAiProviderForTests(null);
+        restoreEnv();
+      }
+    },
+  );
 });
 
 describe("GET /api/businesses/:id/report", () => {

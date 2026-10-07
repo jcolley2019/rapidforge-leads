@@ -48,7 +48,7 @@ export interface BuilderBriefContext {
   competitors: CompetitorSummary[];
   /** Excerpt of the current homepage (route fetches it), or null. */
   siteHtmlExcerpt: string | null;
-  /** Budget signal when run inside a job (RFL.QUEUE.8); absent on demand. */
+  /** Budget signal: the job stage (RFL.QUEUE.8) or the on-demand route (RFL.FIX.3i). */
   signal?: AbortSignal;
 }
 
@@ -205,6 +205,7 @@ export async function runBuilderBrief(
         business: ctx.business,
         audit: ctx.audit,
         siteHtmlExcerpt: ctx.siteHtmlExcerpt,
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
       });
       markdown = embedDesignBrief(markdown, design.brief);
       designBriefMicrocents = design.costMicrocents;

@@ -37,7 +37,7 @@ import {
 export const ANALYST_EFFORT = "low" as const;
 
 export interface AnalystContext {
-  /** Budget signal when run inside a job (RFL.QUEUE.8); absent on demand. */
+  /** Budget signal: the job stage (RFL.QUEUE.8) or the on-demand route (RFL.FIX.3i). */
   signal?: AbortSignal;
   business: Business;
   /** The completed audit to synthesize (its measured data + scores). */
