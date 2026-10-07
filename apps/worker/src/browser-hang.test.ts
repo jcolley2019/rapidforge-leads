@@ -209,7 +209,9 @@ describe("a browser launch never blocks the worker (RFL.QUEUE.8a)", () => {
     await until(() => pptr.launch.mock.calls.length === 1);
     const ticksBefore = tickLines().length;
 
-    await advance(ABANDON_AFTER_MS - 10_000);
+    // No real I/O while wedged: step a watchdog interval at a time. 250ms steps
+    // meant ~880 real 1ms yields, ~13s on Windows (~15ms timer granularity).
+    await advance(ABANDON_AFTER_MS - 10_000, WATCHDOG_INTERVAL_MS);
     expect(poller.inFlight()).toBe(1); // still held — but the loop never stopped
     const during = tickLines().slice(ticksBefore);
     expect(during.length).toBeGreaterThanOrEqual(Math.floor((ABANDON_AFTER_MS - 10_000) / WATCHDOG_INTERVAL_MS) - 1);
