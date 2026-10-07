@@ -96,8 +96,25 @@ export function readTemplateSignals(
     copyrightYear,
     copyrightAge: copyrightYear === null ? null : currentYear - copyrightYear,
     hasViewportMeta: /<meta[^>]+name\s*=\s*["']viewport["']/i.test(site.html),
-    hasLegacyMarkup: /<font\b|bgcolor\s*=|<table[^>]+width\s*=/i.test(site.html),
+    hasLegacyMarkup: hasLegacyMarkup(site.html),
   };
+}
+
+/**
+ * Pre-CSS-era markup fingerprints (RFL.FIX.3g): <font>/bgcolor/table-width
+ * plus align= attributes, <center>, Dreamweaver "twoCol*" templates, a
+ * Dreamweaver/FrontPage generator meta and inline Verdana font stacks.
+ */
+export function hasLegacyMarkup(html: string): boolean {
+  return (
+    /<font\b|bgcolor\s*=|<table[^>]+width\s*=/i.test(html) ||
+    /<(?:h[1-6]|p|div|td|table|img|tr)\b[^>]*\balign\s*=/i.test(html) ||
+    /<center\b/i.test(html) ||
+    /\btwoCol[A-Za-z]*\b/.test(html) ||
+    /<meta[^>]+name\s*=\s*["']generator["'][^>]+content\s*=\s*["'][^"']*(?:dreamweaver|frontpage)/i.test(html) ||
+    /<meta[^>]+content\s*=\s*["'][^"']*(?:dreamweaver|frontpage)[^"']*["'][^>]+name\s*=\s*["']generator["']/i.test(html) ||
+    /style\s*=\s*["'][^"']*font-family\s*:\s*verdana/i.test(html)
+  );
 }
 
 const PLATFORM_DEDUCTIONS: Partial<Record<PlatformKey, number>> = {
@@ -131,10 +148,13 @@ function feelsLikeYearFor(modernity: number, currentYear: number): number {
 
 /**
  * Template notes must themselves clear the >=15-word guardrail: a fixed
- * 19-word frame around the measured facts guarantees it.
+ * frame around the measured facts guarantees it. The leading
+ * `inference:` marker (RFL.FIX.3g) lets readers — and the drawer — tell a
+ * markup-derived estimate from a real vision critique.
  */
+export const TEMPLATE_NOTE_PREFIX = "inference:";
 function templateNote(facts: string): string {
-  return `Visual inspection unavailable in template mode; inference from measured markup signals: ${facts} Deterministic assessment pending a real vision critique.`;
+  return `${TEMPLATE_NOTE_PREFIX} visual inspection unavailable in template mode; estimated from measured markup signals only: ${facts} Deterministic assessment pending a real vision critique.`;
 }
 
 export function buildTemplateDesignCritique(
@@ -154,7 +174,7 @@ export function buildTemplateDesignCritique(
     ? "a responsive viewport meta tag is present."
     : "no responsive viewport meta tag exists in the document head.";
   const legacyFact = signals.hasLegacyMarkup
-    ? "legacy table/font layout markup is present."
+    ? "legacy pre-CSS markup (font/bgcolor/align/center attributes, table layout, or a Dreamweaver/FrontPage template) is present."
     : "no legacy table/font layout markup was detected.";
 
   const critical_issues: DesignCritique["critical_issues"] = [];
@@ -178,8 +198,8 @@ export function buildTemplateDesignCritique(
   }
   if (signals.hasLegacyMarkup) {
     critical_issues.push({
-      issue: "Page is built with legacy table/font markup",
-      evidence: "font/bgcolor/table-width attributes in the page source (measured, not visual)",
+      issue: "Page is built with legacy pre-CSS markup",
+      evidence: "font/bgcolor/align/center attributes, table layout, or a Dreamweaver/FrontPage template in the page source (measured, not visual)",
     });
   }
 

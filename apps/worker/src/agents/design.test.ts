@@ -5,8 +5,10 @@ import { SITE_FIXTURES } from "../lib/site-fixtures";
 import {
   buildTemplateDesignCritique,
   computeTemplateModernity,
+  hasLegacyMarkup,
   readTemplateSignals,
   runDesign,
+  TEMPLATE_NOTE_PREFIX,
 } from "./design";
 import { designCritiqueGuardrail } from "./guardrails/design-critique";
 import type { DesignCritique } from "./prompts/design";
@@ -145,6 +147,54 @@ describe("template design critique (deterministic)", () => {
     const critique = buildTemplateDesignCritique(signals, NOW);
     expect(critique.feels_like_year).toBe(2006);
     expect(designCritiqueGuardrail(critique).passed).toBe(true);
+  });
+
+  it("flags Dreamweaver/align legacy markup (Accurbore-style page, RFL.FIX.3g)", () => {
+    const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN">
+<html><head><title>Untitled Document</title>
+<style>.twoColHybLt #container { width: 80%; }</style></head>
+<body class="twoColHybLt"><div id="container"><div id="mainContent">
+<h1 align="center">Accurbore, Inc.</h1>
+<p style="font-family: Verdana, Arial, sans-serif;">Directional boring since 1998.</p>
+</div></div></body></html>`;
+    expect(hasLegacyMarkup(html)).toBe(true);
+    // Each marker on its own.
+    expect(hasLegacyMarkup('<h1 align="center">x</h1>')).toBe(true);
+    expect(hasLegacyMarkup("<center>x</center>")).toBe(true);
+    expect(hasLegacyMarkup('<meta name="generator" content="Microsoft FrontPage 4.0">')).toBe(true);
+    expect(hasLegacyMarkup('<meta content="Adobe Dreamweaver CS3" name="generator">')).toBe(true);
+    expect(hasLegacyMarkup('<p style="font-family:verdana">x</p>')).toBe(true);
+    expect(hasLegacyMarkup('<div class="twoColFixLtHdr">x</div>')).toBe(true);
+    // A modern page with none of them.
+    expect(hasLegacyMarkup('<meta name="generator" content="WordPress 6.5"><div class="hero"><h1>x</h1></div>')).toBe(false);
+    expect(hasLegacyMarkup('<div style="text-align:center">x</div>')).toBe(false);
+
+    const signals = readTemplateSignals(
+      { html, httpStatus: 200, responseMs: 100, finalUrl: "http://www.accurbore.com/", sslValid: false, headers: { server: "Microsoft-IIS/10.0" } },
+      "http://www.accurbore.com/",
+      NOW,
+    );
+    expect(signals.hasLegacyMarkup).toBe(true);
+    expect(signals.hasViewportMeta).toBe(false);
+    expect(computeTemplateModernity(signals)).toBeLessThanOrEqual(45);
+    const critique = buildTemplateDesignCritique(signals, NOW);
+    expect(critique.critical_issues.map((i) => i.issue)).toContain(
+      "Page is built with legacy pre-CSS markup",
+    );
+    expect(designCritiqueGuardrail(critique).passed).toBe(true);
+  });
+
+  it("template dimension notes are marked as inference (no screenshot)", () => {
+    const signals = readTemplateSignals(
+      siteFor("snakeriverplumbing.com"),
+      "https://snakeriverplumbing.com/",
+      NOW,
+    );
+    const critique = buildTemplateDesignCritique(signals, NOW);
+    for (const dim of Object.values(critique.dimensions)) {
+      expect(dim.notes.startsWith(TEMPLATE_NOTE_PREFIX)).toBe(true);
+      expect(dim.score_0_100).toBe(critique.modernity_0_100);
+    }
   });
 
   it("scores a fresh custom site >= 70 with no forced issues", () => {
