@@ -26,6 +26,8 @@ function healthyInputs(overrides: Partial<IssueInputs> = {}): IssueInputs {
     hasSchemaMarkup: true,
     hasCruxData: true,
     napConsistent: true,
+    napAddressMatch: true,
+    napGoogleStreet: "1120 N Main St",
     // Sprint 6 agents — healthy defaults.
     designModernity: 82,
     designFeelsLikeYear: 2026,
@@ -175,6 +177,8 @@ describe("buildIssues thresholds", () => {
         copyrightYear: null,
         hasCruxData: null,
         napConsistent: null,
+        napAddressMatch: null,
+        napGoogleStreet: null,
         designModernity: null,
         designFeelsLikeYear: null,
         googleRating: null,
@@ -286,6 +290,24 @@ describe("buildIssues thresholds", () => {
         label: "No real-user traffic data in the Chrome UX Report",
       }),
     );
+  });
+
+  it("an address absent from the homepage is a low issue, never a NAP mismatch (RFL.FIX.3c)", () => {
+    const absent = buildIssues(
+      healthyInputs({ napConsistent: null, napAddressMatch: null, napGoogleStreet: "1519 W Florida Ave" }),
+    );
+    expect(absent).toEqual([
+      { severity: "low", label: "Address not shown on the homepage", detail: "Google lists 1519 W Florida Ave" },
+    ]);
+    // No Google address (or Presence didn't run): nothing to say.
+    expect(
+      buildIssues(healthyInputs({ napConsistent: null, napAddressMatch: null, napGoogleStreet: null })),
+    ).toEqual([]);
+    // A different address on the page stays the medium mismatch, alone.
+    const different = buildIssues(healthyInputs({ napConsistent: false, napAddressMatch: false }));
+    expect(different.map((i) => i.label)).toEqual([
+      "Phone or address on the site doesn't match the Google listing",
+    ]);
   });
 
   it("sorts most-severe first", () => {

@@ -141,6 +141,8 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     hasSchemaMarkup: conversion?.has_schema_markup ?? false,
     hasCruxData: traffic?.has_crux_data ?? null,
     napConsistent: presence?.nap.nap_consistent ?? null,
+    napAddressMatch: presence?.nap.nap_address_match ?? null,
+    napGoogleStreet: presence?.nap.google_street ?? null,
     // Sprint 6 agents (null = agent didn't run — no bullet invented).
     designModernity: design?.modernity_0_100 ?? null,
     designFeelsLikeYear: design?.feels_like_year ?? null,
@@ -240,6 +242,9 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
                 hours_completeness: presence.hours_completeness,
                 gbp_photo_count: presence.gbp_photo_count,
                 nap_consistent: presence.nap.nap_consistent,
+                // RFL.FIX.3c: which half matched — null address = none shown.
+                nap_phone_match: presence.nap.nap_phone_match,
+                nap_address_match: presence.nap.nap_address_match,
               },
             }
           : {}),

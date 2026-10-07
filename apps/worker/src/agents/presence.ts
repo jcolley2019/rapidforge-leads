@@ -57,12 +57,25 @@ export function normalizeAddress(raw: string): string {
   return out.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * A street address (house number + street suffix) in normalized page text
+ * (RFL.FIX.3c). Only its presence matters: it turns "Google's street is not
+ * on the page" into a real mismatch instead of an absence.
+ */
+const STREET_ADDRESS_RE =
+  /\b\d{2,6}\s+[A-Za-z0-9. ]{2,40}\b(st|ave|rd|dr|blvd|ln|ct|pl|hwy|way)\b/i;
+
 export interface NapComparison extends Record<string, unknown> {
   google_phone: string | null;
   site_phones: string[];
   /** Null = unknown (a side is missing) — never invented. */
   nap_phone_match: boolean | null;
   google_street: string | null;
+  /**
+   * true = Google's street line is on the homepage; false = a DIFFERENT
+   * street address is; null = the homepage shows no street address (or
+   * Google has none) — absence is not a mismatch (RFL.FIX.3c).
+   */
   nap_address_match: boolean | null;
   /** True only when phone AND address both verifiably match. */
   nap_consistent: boolean | null;
@@ -94,9 +107,12 @@ export function compareNap(business: Business, html: string): NapComparison {
   const googleStreet = business.address
     ? (business.address.split(",")[0] ?? "").trim() || null
     : null;
-  const napAddressMatch = googleStreet
-    ? normalizeAddress(text).includes(normalizeAddress(googleStreet))
-    : null;
+  let napAddressMatch: boolean | null = null;
+  if (googleStreet) {
+    const siteText = normalizeAddress(text);
+    if (siteText.includes(normalizeAddress(googleStreet))) napAddressMatch = true;
+    else if (STREET_ADDRESS_RE.test(siteText)) napAddressMatch = false;
+  }
 
   let napConsistent: boolean | null;
   if (napPhoneMatch === false || napAddressMatch === false) {
@@ -216,7 +232,11 @@ export function buildTemplatePresenceSummary(
   }
   if (nap.google_street) {
     sentences.push(
-      `Street line "${nap.google_street}" ${nap.nap_address_match ? "appears" : "does NOT appear"} on the homepage.`,
+      nap.nap_address_match === true
+        ? `Street line "${nap.google_street}" appears on the homepage.`
+        : nap.nap_address_match === false
+          ? `Street line "${nap.google_street}" does NOT appear; the homepage shows a different street address.`
+          : `The homepage shows no street address to compare with "${nap.google_street}".`,
     );
   } else {
     sentences.push("Google listing has no address to compare.");

@@ -98,6 +98,31 @@ describe("compareNap", () => {
     expect(nap.nap_consistent).toBe(false);
   });
 
+  it("an address absent from the page is unknown, not a mismatch", () => {
+    // Accurbore / Landers shape (RFL.AUDIT.2 Part 3): matching phone, no
+    // street address anywhere on the homepage.
+    const biz = business({
+      phone: "(208) 371-5731",
+      address: "11567 Lake Shore Dr, Nampa, ID 83686, USA",
+    });
+    const html =
+      "<h1>Horizontal Earth Boring</h1><p>Serving Nampa for 30 years. Call 208-371-5731</p><a href='/contact'>Contact</a>";
+    const nap = compareNap(biz, html);
+    expect(nap.google_street).toBe("11567 Lake Shore Dr");
+    expect(nap.nap_phone_match).toBe(true);
+    expect(nap.nap_address_match).toBeNull();
+    expect(nap.nap_consistent).toBeNull(); // never "false" on absence
+    const summary = buildTemplatePresenceSummary(biz, nap, []);
+    expect(summary.nap_assessment).toBe("unknown");
+    expect(summary.reasoning).toContain("shows no street address");
+    expect(summary.reasoning).not.toContain("does NOT appear");
+    expect(makePresenceSummaryGuardrail({ napConsistent: nap.nap_consistent })(summary).passed).toBe(true);
+    // A different street address on the page is still a mismatch.
+    const moved = compareNap(biz, `${html}<footer>Visit us: 402 E Main Street, Nampa</footer>`);
+    expect(moved.nap_address_match).toBe(false);
+    expect(moved.nap_consistent).toBe(false);
+  });
+
   it("returns unknown (null) instead of inventing when a side is missing", () => {
     // Business has no phone; site has no phone either (gcgaragedoor).
     const nap = compareNap(

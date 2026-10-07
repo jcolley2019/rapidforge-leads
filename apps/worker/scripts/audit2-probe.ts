@@ -23,6 +23,7 @@
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { buildIssues, type IssueInputs } from "@rapidforge/shared";
 import { parseConversionSignals } from "../src/agents/conversion";
 import { compareNap, findSocialLinks } from "../src/agents/presence";
 import { runSeoChecks } from "../src/agents/seo";
@@ -221,6 +222,14 @@ async function verify(db: SupabaseClient, auditId: string, htmlPath: string): Pr
   console.log("\nPRESENCE (today vs stored):");
   console.log(`  nap today=${JSON.stringify(nap)}`);
   console.log(`  nap stored=${JSON.stringify(v15.presence)}`);
+  // The NAP bullets the Scorer would write from today's compare (RFL.FIX.3c).
+  const napIssues = buildIssues({
+    currentYear: new Date().getFullYear(),
+    napConsistent: nap.nap_consistent,
+    napAddressMatch: nap.nap_address_match,
+    napGoogleStreet: nap.google_street,
+  } as IssueInputs).filter((i) => /Google listing|Address not shown/.test(i.label));
+  console.log(`  nap issues today=${JSON.stringify(napIssues)}`);
   console.log(`  social today=${JSON.stringify(findSocialLinks(html))}`);
 
   const seo = runSeoChecks(html, business, null, null);
