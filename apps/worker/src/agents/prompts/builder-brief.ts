@@ -5,6 +5,7 @@
  * (CLAUDE.md 6.1). A developer (or Claude Code) can paste the brief and
  * scaffold a modern site that addresses every measured gap. On-demand only.
  */
+import type { BriefHours, ReviewQuote } from "@rapidforge/shared";
 import { cityFromPlacesAddress } from "../../lib/address";
 import type { AuditFacts } from "../money-facts";
 import { factsToPromptJson } from "../money-facts";
@@ -80,12 +81,60 @@ You MUST output ALL TWELVE of the H2 sections below, verbatim and in this exact 
 
 Before you finish, re-read your output and confirm all twelve \`## \` headers above are present, in order — if any is missing, add it. Keep the whole brief under 2000 words: be concise within each section rather than dropping any section.`;
 
+/**
+ * Google Business Profile facts the loaded rows already carry (RFL.FIX.3h):
+ * no new fetches — places_details on the business row and the screenshot
+ * URLs on the audit row. Null / empty = not held, printed as "unknown".
+ */
+export interface BriefBusinessInputs {
+  hours: BriefHours[] | null;
+  /** Photos on the listing; null when no Places details are held. */
+  photo_count: number | null;
+  /** Up to three verbatim review quotes, highest rated first. */
+  review_quotes: ReviewQuote[];
+  screenshot_desktop_url: string | null;
+  screenshot_mobile_url: string | null;
+}
+
+export const BRIEF_REVIEW_QUOTES_MAX = 3;
+
+function hoursLine(hours: BriefHours[] | null): string {
+  if (!hours) return "unknown (no Places details held)";
+  return hours
+    .map((h) => `${h.day.slice(0, 3)} ${h.open && h.close ? `${h.open}–${h.close}` : "closed"}`)
+    .join(", ");
+}
+
+export function briefBusinessInputsBlock(inputs: BriefBusinessInputs | null): string[] {
+  if (!inputs) return ["Google Business Profile: unknown (no details held)"];
+  const quotes =
+    inputs.review_quotes.length > 0
+      ? inputs.review_quotes
+          .slice(0, BRIEF_REVIEW_QUOTES_MAX)
+          .map((q) => `- "${q.text}"${q.rating !== null ? ` (${q.rating}★)` : ""}`)
+          .join("\n")
+      : "- none held";
+  const shots =
+    inputs.screenshot_desktop_url || inputs.screenshot_mobile_url
+      ? `desktop ${inputs.screenshot_desktop_url ?? "not captured"}; mobile ${inputs.screenshot_mobile_url ?? "not captured"}`
+      : "not captured";
+  return [
+    "Google Business Profile (stored Places details; unknown = not held, never guess):",
+    `- Hours: ${hoursLine(inputs.hours)}`,
+    `- Photos on the listing: ${inputs.photo_count ?? "unknown"}`,
+    "- Review quotes (verbatim, highest rated first — reuse them as-is or not at all):",
+    quotes,
+    `- Current-site screenshots: ${shots}`,
+  ];
+}
+
 export function buildBuilderBriefPrompt(
   facts: AuditFacts,
   vars: CascadingVars,
   competitors: CompetitorSummary[],
   keywords: string[],
   siteHtmlExcerpt: string | null,
+  inputs: BriefBusinessInputs | null = null,
 ): string {
   const competitorLines =
     competitors.length > 0
@@ -107,6 +156,8 @@ export function buildBuilderBriefPrompt(
     "",
     "Top local competitors (pulled fresh):",
     competitorLines,
+    "",
+    ...briefBusinessInputsBlock(inputs),
     "",
     "Existing homepage content excerpt (may be empty):",
     siteHtmlExcerpt ? siteHtmlExcerpt.slice(0, 1500) : "(none captured)",

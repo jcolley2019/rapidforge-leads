@@ -66,6 +66,7 @@ import type { ConversionOutput } from "../src/agents/conversion";
 import type { PresenceOutput } from "../src/agents/presence";
 import type { DesignOutput } from "../src/agents/design";
 import { reviewTextsFrom } from "../src/agents/reputation";
+import { briefBusinessInputsOf } from "../src/agents/builder-brief";
 
 const SINCE = "2026-10-04";
 const mode = process.argv[2] ?? "count";
@@ -384,7 +385,7 @@ async function prompts(db: SupabaseClient, auditId: string): Promise<void> {
   const analystSystem = buildAnalystSystem(vars);
   sizeLine("analyst", analystSystem, analystPrompt);
   const keywords = deriveKeywords(facts);
-  const briefPrompt = buildBuilderBriefPrompt(facts, vars, [], keywords, "x".repeat(1500));
+  const briefPrompt = buildBuilderBriefPrompt(facts, vars, [], keywords, "x".repeat(1500), briefBusinessInputsOf(business, audit));
   sizeLine("builder-brief", BUILDER_BRIEF_SYSTEM, briefPrompt);
   const salesPrompt = buildSalesSummaryPrompt(facts, vars, (audit.analyst_output as any) ?? null);
   sizeLine("sales-summary", buildSalesSummarySystem(vars), salesPrompt);

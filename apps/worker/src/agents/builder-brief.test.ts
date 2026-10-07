@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Audit, Business } from "@rapidforge/shared";
-import { buildTemplateBrief, runBuilderBrief } from "./builder-brief";
+import { briefBusinessInputsOf, buildTemplateBrief, runBuilderBrief } from "./builder-brief";
+import { reviewTextsOf } from "./design-brief";
+import { FIXTURE_DETAILS } from "../lib/places/fixtures";
 import { countWords } from "./guardrails/analyst";
 import {
   builderBriefGuardrail,
@@ -10,7 +12,9 @@ import {
 import { buildAuditFacts } from "./money-facts";
 import { cityFromPlacesAddress } from "../lib/address";
 import {
+  BRIEF_REVIEW_QUOTES_MAX,
   BRIEF_SECTIONS,
+  buildBuilderBriefPrompt,
   deriveKeywords,
 } from "./prompts/builder-brief";
 import { resolveConfigVars } from "./prompts/config-vars";
@@ -132,6 +136,54 @@ describe("builder brief helpers", () => {
     expect(placeholdersIn("Call [INSERT NAME] today").length).toBe(1);
     expect(placeholdersIn("Set the {business_name} here").length).toBe(1);
     expect(placeholdersIn("See [our services](/services) now")).toEqual([]);
+  });
+});
+
+describe("Builder Brief GBP inputs (RFL.FIX.3h) — from loaded rows only", () => {
+  it("prints hours, photo count, up to 3 verbatim quotes and screenshot URLs when the rows hold them", () => {
+    const business = makeBusiness({
+      places_details: FIXTURE_DETAILS["fx-001"] as Business["places_details"],
+    });
+    const audit = makeAudit({
+      screenshot_desktop_url: "https://cdn.example/desk.jpg",
+      screenshot_mobile_url: "https://cdn.example/mob.jpg",
+    });
+    const inputs = briefBusinessInputsOf(business, audit);
+    expect(inputs.hours).not.toBeNull();
+    expect(inputs.hours!.map((h) => h.day)).toContain("Monday");
+    expect(inputs.photo_count).toBe(2);
+    expect(inputs.review_quotes.length).toBeGreaterThan(0);
+    expect(inputs.review_quotes.length).toBeLessThanOrEqual(BRIEF_REVIEW_QUOTES_MAX);
+    const haystack = reviewTextsOf(business).join("\n");
+    for (const q of inputs.review_quotes) expect(haystack).toContain(q.text);
+
+    const facts = buildAuditFacts(business, audit);
+    const prompt = buildBuilderBriefPrompt(facts, resolveConfigVars(null), [], deriveKeywords(facts), null, inputs);
+    expect(prompt).toContain("- Hours: Sun ");
+    expect(prompt).toContain("- Photos on the listing: 2");
+    expect(prompt).toContain(`- "${inputs.review_quotes[0]!.text}"`);
+    expect(prompt).toContain("desktop https://cdn.example/desk.jpg; mobile https://cdn.example/mob.jpg");
+  });
+
+  it("says unknown / none held / not captured when the rows hold nothing — never invents", () => {
+    const inputs = briefBusinessInputsOf(makeBusiness(), makeAudit());
+    expect(inputs).toEqual({
+      hours: null,
+      photo_count: null,
+      review_quotes: [],
+      screenshot_desktop_url: null,
+      screenshot_mobile_url: null,
+    });
+    const facts = buildAuditFacts(makeBusiness(), makeAudit());
+    const prompt = buildBuilderBriefPrompt(facts, resolveConfigVars(null), [], deriveKeywords(facts), null, inputs);
+    expect(prompt).toContain("- Hours: unknown (no Places details held)");
+    expect(prompt).toContain("- Photos on the listing: unknown");
+    expect(prompt).toContain("- none held");
+    expect(prompt).toContain("- Current-site screenshots: not captured");
+    // Omitting the block entirely (older callers) is also honest.
+    expect(buildBuilderBriefPrompt(facts, resolveConfigVars(null), [], deriveKeywords(facts), null)).toContain(
+      "Google Business Profile: unknown (no details held)",
+    );
   });
 });
 

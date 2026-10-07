@@ -10,16 +10,23 @@
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
 import { cityFromPlacesAddress } from "../lib/address";
 import { centsFromMicrocents, generateMarkdown, MODEL_OPUS, sumMicrocents } from "../lib/ai";
-import { buildDesignBrief, embedDesignBrief } from "./design-brief";
+import {
+  buildDesignBrief,
+  embedDesignBrief,
+  normalizeHours,
+  pickReviewQuotes,
+} from "./design-brief";
 import { builderBriefGuardrail, h2Headings } from "./guardrails/builder-brief";
 import { countWords } from "./guardrails/analyst";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
 import { resolveConfigVars, type CascadingVars } from "./prompts/config-vars";
 import {
+  BRIEF_REVIEW_QUOTES_MAX,
   BRIEF_SECTIONS,
   buildBuilderBriefPrompt,
   BUILDER_BRIEF_SYSTEM,
   deriveKeywords,
+  type BriefBusinessInputs,
   type CompetitorSummary,
 } from "./prompts/builder-brief";
 
@@ -132,6 +139,25 @@ ${competitorLines}
 `;
 }
 
+/**
+ * RFL.FIX.3h: the GBP facts the loaded rows already carry — hours, photo
+ * count and up to three verbatim quotes from businesses.places_details, the
+ * screenshot URLs from the audit row. No fetches; nothing invented.
+ */
+export function briefBusinessInputsOf(
+  business: Business,
+  audit: Audit,
+): BriefBusinessInputs {
+  const details = (business.places_details ?? null) as { photos?: unknown[] } | null;
+  return {
+    hours: normalizeHours(business.places_details),
+    photo_count: details ? (Array.isArray(details.photos) ? details.photos.length : 0) : null,
+    review_quotes: pickReviewQuotes(business).slice(0, BRIEF_REVIEW_QUOTES_MAX),
+    screenshot_desktop_url: audit.screenshot_desktop_url ?? null,
+    screenshot_mobile_url: audit.screenshot_mobile_url ?? null,
+  };
+}
+
 export async function runBuilderBrief(
   ctx: BuilderBriefContext,
 ): Promise<AgentResult<BuilderBriefOutput>> {
@@ -140,6 +166,7 @@ export async function runBuilderBrief(
     const facts = buildAuditFacts(ctx.business, ctx.audit);
     const vars: CascadingVars = resolveConfigVars(ctx.config);
     const keywords = deriveKeywords(facts);
+    const inputs = briefBusinessInputsOf(ctx.business, ctx.audit);
 
     const outcome = await generateMarkdown({
       model: MODEL_OPUS,
@@ -151,6 +178,7 @@ export async function runBuilderBrief(
         ctx.competitors,
         keywords,
         ctx.siteHtmlExcerpt,
+        inputs,
       ),
       maxTokens: 4000,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
