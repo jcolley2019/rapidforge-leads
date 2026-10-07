@@ -560,6 +560,37 @@ describe("builder-brief competitors (RFL.FIX.3j)", () => {
     expect(md).not.toContain(`Fixture Roofing ${tag}`);
     expect(md).not.toContain(`Chain Roofing ${tag}`);
   });
+
+  it("a business found by two searches (two leads) is one competitor (RFL.FIX.3g)", async () => {
+    const tag = Math.random().toString(36).slice(2, 7);
+    const category = `painter_${tag}`;
+    const { business } = await seedLead({
+      category,
+      google_place_id: `ChIJ-target-${tag}`,
+      name: `Target Painting ${tag}`,
+    });
+    await seedLead({
+      category,
+      google_place_id: `ChIJ-real-${tag}`,
+      name: `Real Painting ${tag}`,
+      review_count: 50,
+    });
+    await seedCompletedAudit(business.id);
+    // Same google_place_id → the upsert returns one business; each seedLead
+    // adds its own search + search_result, so the workspace holds two leads.
+    const dupe = { category, google_place_id: `ChIJ-dupe-${tag}`, name: `Dupe Painting ${tag}`, review_count: 300 };
+    const first = await seedLead(dupe);
+    const second = await seedLead(dupe);
+    expect(second.business.id).toBe(first.business.id);
+    const leads = await store.listWorkspaceLeads(DEV_WORKSPACE_ID);
+    expect(leads.filter((l) => l.business.id === first.business.id)).toHaveLength(2);
+
+    const res = await api("POST", `/api/businesses/${business.id}/builder-brief`);
+    expect(res.status).toBe(200);
+    const md: string = res.json.builder_brief_md;
+    expect(md.split(`Dupe Painting ${tag}`)).toHaveLength(2);
+    expect(md).toContain(`Real Painting ${tag}`);
+  });
 });
 
 describe("stored builder brief / sales summary (RFL.FIX.3h)", () => {

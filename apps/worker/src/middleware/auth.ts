@@ -9,7 +9,8 @@
  *
  * Dev mode (env absent — Sprint 2 modified constraint): any Bearer token
  * is accepted and the fixed dev workspace/user attached, so the full flow
- * runs with zero external services. Logged loudly at startup.
+ * runs with zero external services. Logged loudly at startup — and refused
+ * outright when NODE_ENV=production (RFL.FIX.3g, audit Part 1 #18).
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
@@ -43,6 +44,11 @@ export function createRequireSupabaseJwt(store: DataStore): RequestHandler {
       : null;
 
   if (!admin) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "[auth] refusing to start: dev-mode auth in production — a memory store or missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY would map any Bearer token to the dev workspace",
+      );
+    }
     console.warn(
       "[auth] dev mode — Supabase env absent; any Bearer token maps to the dev workspace",
     );

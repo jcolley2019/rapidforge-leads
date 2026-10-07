@@ -60,7 +60,8 @@ function htmlToExcerpt(html: string): string {
 /**
  * Top-3 fresh local competitors from the same workspace + category. Chains
  * and fixture rows (google_place_id fx-…) are never a local competitor
- * (RFL.FIX.3j).
+ * (RFL.FIX.3j). A business found by several searches is one lead per search,
+ * so leads collapse to distinct businesses first (RFL.FIX.3g).
  */
 async function fetchCompetitors(
   store: DataStore,
@@ -69,8 +70,8 @@ async function fetchCompetitors(
   category: string | null,
 ): Promise<CompetitorSummary[]> {
   const leads = await store.listWorkspaceLeads(workspaceId);
-  return leads
-    .map((l) => l.business)
+  const businesses = new Map(leads.map((l) => [l.business.id, l.business]));
+  return [...businesses.values()]
     .filter(
       (b) =>
         b.id !== businessId &&
