@@ -1,10 +1,10 @@
 /**
  * Reputation agent prompt contract (PRD 6.9, GOOGLE-FIRST per the Sprint 6
  * Yelp decision). Deterministic signals — rating, review count, volume
- * band, cross-audit review velocity — are measured by the worker; Sonnet
- * writes the verdict narrative and extracts themes ONLY from review text it
- * is given (none in v1 — Places review text is not fetched), so themes must
- * stay empty and no quote may be invented.
+ * band, cross-audit review velocity — are measured by the worker; Haiku
+ * (AI_SUMMARIES) writes the verdict narrative and extracts themes ONLY from
+ * review text it is given (the Places reviews in places_details, RFL-06),
+ * and no quote may be invented.
  */
 import { z } from "zod";
 

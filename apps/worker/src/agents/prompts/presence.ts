@@ -1,6 +1,6 @@
 /**
  * Presence agent prompt contract (PRD 6.5). The deterministic NAP compare
- * runs first; Sonnet only adjudicates near-misses and writes the
+ * runs first; Haiku (AI_SUMMARIES) only adjudicates near-misses and writes the
  * narrative — it never overrides an exact match/mismatch.
  */
 import { z } from "zod";

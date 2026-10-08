@@ -5,7 +5,7 @@
  *   npx tsx scripts/design-smoke.ts
  *
  * Screenshots are captured by the real PuppeteerScreenshotCapturer (local
- * Chrome, no cost); the critique goes to claude-sonnet-4-6 via lib/ai.ts.
+ * Chrome, no cost); the critique goes to claude-sonnet-5-5 via lib/ai.ts.
  * MUST run WITHOUT RAPIDFORGE_FORCE_FIXTURES so aiSummaryMode() = "core".
  * Hard spend cap: aborts before any call once cumulative cost nears $1.
  */

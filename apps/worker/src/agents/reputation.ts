@@ -13,7 +13,8 @@
  *   - Yelp cross-reference/divergence: stubbed behind lib/yelp.ts with a
  *     YELP_API_KEY check, clearly marked v1.5 — divergence stays null.
  *
- * Sonnet writes the verdict narrative; themes come only from provided
+ * The narration (Haiku with AI_SUMMARIES, else the template) writes the
+ * verdict narrative; themes come only from provided
  * review text — the Places reviews persisted in businesses.places_details
  * (RFL-06) when present — so guardrails reject any quote that is not
  * verbatim from that text. The deterministic template never invents themes.
@@ -246,7 +247,7 @@ export async function runReputation(
         : null;
 
     // RFL-06: Places review text (when Filter persisted details) feeds the
-    // existing Sonnet theme extraction; quotes must be verbatim from it.
+    // existing Haiku theme extraction; quotes must be verbatim from it.
     const reviews = reviewTextsFrom(business.places_details);
     const signals = {
       google_rating: rating,

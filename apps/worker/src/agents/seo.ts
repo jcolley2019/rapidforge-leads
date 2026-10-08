@@ -1,12 +1,13 @@
 /**
- * SEO — PRD 6.10 (v1.5, deterministic + Sonnet 4.6).
+ * SEO — PRD 6.10 (v1.5, deterministic + Haiku narration / template).
  *
  * The worker MEASURES everything (CLAUDE.md 4.2 deterministic-before-AI):
  * title, meta description, H1s, schema.org types from the fetched
  * homepage; /sitemap.xml + /robots.txt existence via the SiteFetcher seam
  * (null = unknown, never "missing"); and local-keyword presence for
- * {city} + {category} (city parsed from the Places address). Sonnet only
- * judges element quality and local fit over those facts.
+ * {city} + {category} (city parsed from the Places address). The narration
+ * (Haiku with AI_SUMMARIES, else the template) only judges element quality
+ * and local fit over those facts.
  *
  * Guardrails (PRD 6.10): found=true with a null value never persists
  * (deterministic invariant), and a local-fit score of 5 with a missing

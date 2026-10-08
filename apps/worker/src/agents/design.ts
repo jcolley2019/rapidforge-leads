@@ -1,8 +1,8 @@
 /**
- * Design — PRD 6.8 (v1.5, Sonnet 4.6 VISION).
+ * Design — PRD 6.8 (v1.5, Sonnet 5.5 VISION).
  *
  * Live path: both homepage screenshots (desktop 1440px + mobile 390px) go
- * to claude-sonnet-4-6 as image parts via lib/ai.ts; the strict-JSON
+ * to claude-sonnet-5-5 as image parts via lib/ai.ts; the strict-JSON
  * critique is guardrailed (vague notes, year/score consistency, missing
  * critical issues) with one re-run then persist-flagged (CLAUDE.md 6.2).
  *

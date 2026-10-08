@@ -1,6 +1,6 @@
 /**
- * Conversion agent prompt contract (PRD 6.4). Sonnet evaluates CTA
- * strength over the DETERMINISTICALLY parsed signals — evidence must be
+ * Conversion agent prompt contract (PRD 6.4). Haiku (AI_SUMMARIES) evaluates
+ * CTA strength over the DETERMINISTICALLY parsed signals — evidence must be
  * exact quoted element text, never a general impression.
  */
 import { z } from "zod";

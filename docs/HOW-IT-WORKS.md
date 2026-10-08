@@ -331,7 +331,6 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 - **Known gaps:**
   - "Above the fold" is a character-count slice of the body, not a rendered check.
   - Booking and chat detection uses a fixed provider list.
-  - The header comment names the retired Sonnet model.
 
 ### 5. Presence
 - **Job:** check that the Google listing and the website agree, and read listing depth.
@@ -353,7 +352,6 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 - **Known gaps:**
   - The business *name* is never compared; only phone and street are.
   - The PRD's "review response proxy" is not built.
-  - The header comment names the retired Sonnet model.
 
 ### 6. Traffic
 - **Job:** tell whether real people visit the site, for free.
@@ -393,7 +391,6 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - With screenshots: about 2¢. That is 3¢ measured on the retired Sonnet at $3/$15, re-priced to Sonnet 5.5's $2/$10 (3¢ × 2/3).
   - Output ceiling 1,600 × $10/M = 1.6¢ plus the two images.
 - **Known gaps:**
-  - The header comment names the retired Sonnet model ID.
   - The template deducts for the *detected* platform, so a page the Scorer reclassifies as `legacy_static` is deducted as `custom` (0) here; its legacy markup still costs 12.
 
 ### 8. Reputation
@@ -421,7 +418,6 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - Yelp, BBB and Facebook cross-reference are not built (`rating_divergence` is always null).
   - `last_review_at` is always null.
   - The `audits.gbp_review_velocity` column is never written; velocity lives only in `score_breakdown`.
-  - One sentence of the header comment still says Sonnet writes the narrative; the code uses Haiku.
 
 ### 9. SEO
 - **Job:** check whether the homepage targets "{category} in {city}" searches.
@@ -442,7 +438,6 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 - **Typical cost per lead:** $0 by default; about 0.19¢ with Haiku.
 - **Known gaps:**
   - Category matching is only as good as the stem list: a type with no entry and no matching last word relies on its humanised name alone.
-  - The header comment names the retired Sonnet model.
 
 ### 10. Scorer
 - **Job:** turn the seven agents' measurements into the three scores and the issues list, and finalize the audit.
@@ -524,7 +519,6 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - "Competitors (pulled fresh)" come from stored workspace leads, not a new Places search.
   - Screenshots reach the prompt as URLs only; the model never sees the images.
   - The template fallback prints the raw Places type ("a general_contractor serving Nampa").
-  - The prompt file's header comment still says Fable 5; the code uses `MODEL_OPUS`.
 
 ### 12b. Design Brief
 - **Job:** produce the structured JSON brief the rapidforge-demos generator reads to build a demo site.

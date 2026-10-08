@@ -1,5 +1,5 @@
 /**
- * Conversion — PRD 6.4 (v1, deterministic parse + Sonnet 4.6 summary).
+ * Conversion — PRD 6.4 (v1, deterministic parse + Haiku narration / template).
  *
  * Deterministically detects every contact/booking affordance on the
  * fetched homepage: tel: links, forms + field counts, booking links,

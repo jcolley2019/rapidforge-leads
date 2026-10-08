@@ -1,5 +1,5 @@
 /**
- * Builder Brief prompt + contract — PRD 6.12 (Fable 5, MARKDOWN output).
+ * Builder Brief prompt + contract — PRD 6.12 (Opus 4.8, MARKDOWN output).
  *
  * The one agent whose output is paste-ready markdown, not strict JSON
  * (CLAUDE.md 6.1). A developer (or Claude Code) can paste the brief and

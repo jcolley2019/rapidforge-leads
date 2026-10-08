@@ -1,11 +1,12 @@
 /**
- * Presence — PRD 6.5 (v1, deterministic + Sonnet 4.6 summary).
+ * Presence — PRD 6.5 (v1, deterministic + Haiku narration / template).
  *
  * NAP comparison (name/address/phone) between the stored Places data and
  * the fetched homepage: deterministic normalize + compare. GBP photo
  * count / hours completeness are not captured by Scout in v1 — they stay
  * null/"unknown", never invented (CLAUDE.md 6.3). The summary (model or
- * template) narrates; a Sonnet call may only adjudicate near-misses.
+ * template) narrates; a Haiku call (AI_SUMMARIES) may only adjudicate
+ * near-misses.
  */
 import type { AgentResult, Business } from "@rapidforge/shared";
 import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
