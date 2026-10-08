@@ -601,7 +601,7 @@ The left rail has eight views (apps/web/src/views/views.ts). The web app holds n
 | Design Brief | `POST /api/businesses/:id/design-brief` | Returns the stored brief; `?force=true` regenerates | ≈ 0.4¢ when generated |
 | Sales Script | `POST /api/businesses/:id/sales-summary` | Returns the stored script; `?force=true` (the drawer's "Regenerate") writes a new one | ≈ 1.3¢ when generated |
 | PDF report | `GET /api/businesses/:id/report` | Two-page report (apps/worker/src/lib/pdf-report.ts). Real PDF needs `SCREENSHOTS_ENABLED=true` (else 503 "screenshots disabled"); fixture mode returns HTML | $0 |
-| Re-audit | `POST /api/businesses/:id/reaudit` | Queues an `audit_business` job under the newest search for that business. The drawer and Workspace buttons send `force: true` (skips the 30-day cache). When the audit's `lead.scored` arrives, the web bumps `leadsVersion` (debounced 500 ms), so the Leads list, an open command palette and the drawer show the new score without a reload | a fresh audit |
+| Re-audit | `POST /api/businesses/:id/reaudit` | Queues an `audit_business` job under the newest search for that business. The drawer and Workspace buttons send `force: true` (skips the 30-day cache). When the audit's `lead.scored` arrives, the web bumps `leadsVersion` (debounced 500 ms), so the Leads list, the Pipeline board, an open command palette and the drawer (opened from Leads, Workspace or Pipeline) show the new score without a reload | a fresh audit |
 | Cancel search | `POST /api/searches/:id/cancel` | Fails queued jobs, aborts running ones, search → `failed`; 409 if already finished | $0 |
 
 Other routes: `GET /health` (no login; queue and mode readout) and the static `/fixtures/screenshots` route for fixture images.

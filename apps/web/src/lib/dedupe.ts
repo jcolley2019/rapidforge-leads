@@ -87,3 +87,19 @@ export function dedupeLeads(leads: LeadView[]): DedupedLead[] {
     return a.business.name.localeCompare(b.business.name);
   });
 }
+
+/**
+ * The reloaded row an open drawer should move onto (same search_result id,
+ * new object), or null when the drawer is closed, already on it, or the row
+ * is no longer listed. Pipeline reloads on leadsVersion, which every
+ * lead.scored bumps, so a finished audit's scores reach the drawer
+ * (RFL.FIX.3i.1, as Leads and Workspace do since 3i V6).
+ */
+export function freshDrawerLead<T extends LeadView>(
+  rows: T[],
+  open: LeadView | null,
+): T | null {
+  if (!open) return null;
+  const fresh = rows.find((l) => l.result.id === open.result.id);
+  return fresh && fresh !== open ? fresh : null;
+}

@@ -19,7 +19,7 @@ import {
   updateLeadStatus,
   type LeadView,
 } from "@/lib/api";
-import { dedupeLeads, type DedupedLead } from "@/lib/dedupe";
+import { dedupeLeads, freshDrawerLead, type DedupedLead } from "@/lib/dedupe";
 import { relativeTime } from "@/lib/format";
 import { spring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -37,7 +37,7 @@ const COLUMN_LABELS: Record<LeadStatus, string> = {
 const DRAG_MIME = "application/x-rapidforge-lead";
 
 export function PipelineView() {
-  const { openLead, leadsVersion, notifyLeadsChanged } = useLeadDrawer();
+  const { lead: drawerLead, openLead, leadsVersion, notifyLeadsChanged } = useLeadDrawer();
   const [leads, setLeads] = useState<LeadView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -58,15 +58,25 @@ export function PipelineView() {
   }, [load, leadsVersion]);
 
   // One card per business across all searches (S5.5 dedupe).
+  const deduped = useMemo(() => (leads ? dedupeLeads(leads) : null), [leads]);
+
+  // Keep an open drawer on the fresh card (a finished audit's scores,
+  // RFL.FIX.3i.1) — the same sync Leads and Workspace run.
+  useEffect(() => {
+    if (!deduped) return;
+    const fresh = freshDrawerLead(deduped, drawerLead);
+    if (fresh) openLead(fresh);
+  }, [deduped, drawerLead, openLead]);
+
   const filtered = useMemo(() => {
-    if (!leads) return [];
+    if (!deduped) return [];
     const q = query.trim().toLowerCase();
-    return dedupeLeads(leads).filter((lead) => {
+    return deduped.filter((lead) => {
       if (q && !lead.business.name.toLowerCase().includes(q)) return false;
       if (hotOnly && (lead.audit?.sellability_score ?? 0) < 90) return false;
       return true;
     });
-  }, [leads, query, hotOnly]);
+  }, [deduped, query, hotOnly]);
 
   const byColumn = useMemo(() => {
     const map = new Map<LeadStatus, DedupedLead[]>(

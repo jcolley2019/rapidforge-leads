@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Audit, Business, SearchResult } from "@rapidforge/shared";
 import type { LeadView } from "@/lib/api";
-import { dedupeLeads } from "./dedupe";
+import { dedupeLeads, freshDrawerLead } from "./dedupe";
 
 let counter = 0;
 
@@ -175,5 +175,68 @@ describe("dedupeLeads", () => {
       lead({ businessId: "hot", name: "Hot", audit: { sellability_score: 95 } }),
     ]);
     expect(rows.map((r) => r.business.id)).toEqual(["hot", "low", "none"]);
+  });
+});
+
+describe("freshDrawerLead (RFL.FIX.3i.1: Pipeline's open drawer follows a finished audit)", () => {
+  it("moves the drawer onto the reloaded card's new scores, then settles", () => {
+    const before = dedupeLeads([
+      lead({
+        businessId: "landers",
+        name: "Landers Home Services",
+        audit: { website_health_score: 72, star_grade: 4, sellability_score: 55 },
+      }),
+    ]);
+    const open = before[0]!;
+    // lead.scored bumps leadsVersion → Pipeline refetches: same row, new objects.
+    const reloaded = dedupeLeads(
+      before.map((l) => ({
+        business: { ...l.business },
+        result: { ...l.result },
+        audit: { ...l.audit!, website_health_score: 70, star_grade: 3, sellability_score: 62 },
+      })),
+    );
+    const fresh = freshDrawerLead(reloaded, open);
+    expect(fresh?.result.id).toBe(open.result.id);
+    expect(fresh?.audit).toMatchObject({
+      website_health_score: 70,
+      star_grade: 3,
+      sellability_score: 62,
+    });
+    // Once the drawer holds the fresh card there is nothing to do — no re-open loop.
+    expect(freshDrawerLead(reloaded, fresh)).toBeNull();
+  });
+
+  it("a business seen in two searches: the card's latest audit and seenIn reach the drawer", () => {
+    const worked = lead({
+      searchId: "s1",
+      status: "called",
+      lastContactedAt: "2026-10-06T00:00:00.000Z",
+      audit: { sellability_score: 55, completed_at: "2026-10-07T01:00:00.000Z" },
+    });
+    const other = lead({
+      searchId: "s2",
+      audit: { sellability_score: 55, completed_at: "2026-10-07T01:00:00.000Z" },
+    });
+    const open = dedupeLeads([worked, other])[0]!;
+    // The re-audit lands on the other search's row.
+    const reloaded = dedupeLeads([
+      { ...worked },
+      {
+        ...other,
+        audit: { ...other.audit!, sellability_score: 62, completed_at: "2026-10-07T02:00:00.000Z" },
+      },
+    ]);
+    const fresh = freshDrawerLead(reloaded, open);
+    expect(fresh?.result.id).toBe(worked.result.id);
+    expect(fresh?.result.status).toBe("called");
+    expect(fresh?.audit?.sellability_score).toBe(62);
+    expect(fresh?.seenIn).toBe(2);
+  });
+
+  it("closed drawer, or a row no longer listed → null", () => {
+    const rows = dedupeLeads([lead({ audit: { sellability_score: 60 } })]);
+    expect(freshDrawerLead(rows, null)).toBeNull();
+    expect(freshDrawerLead(rows, lead({ businessId: "gone" }))).toBeNull();
   });
 });
