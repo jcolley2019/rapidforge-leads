@@ -1,6 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Audit, Business } from "@rapidforge/shared";
-import { briefBusinessInputsOf, buildTemplateBrief, runBuilderBrief } from "./builder-brief";
+import {
+  BRIEF_MAX_TOKENS,
+  BRIEF_TIMEOUT_MS,
+  briefBusinessInputsOf,
+  buildTemplateBrief,
+  runBuilderBrief,
+} from "./builder-brief";
 import { reviewTextsOf } from "./design-brief";
 import { FIXTURE_DETAILS } from "../lib/places/fixtures";
 import { countWords } from "./guardrails/analyst";
@@ -18,6 +24,9 @@ import {
   deriveKeywords,
 } from "./prompts/builder-brief";
 import { resolveConfigVars } from "./prompts/config-vars";
+import { MODEL_HAIKU, MODEL_OPUS } from "../lib/ai";
+import { coreModeEnv, fakeProvider, jsonReply, truncatedReply } from "../lib/ai.testkit";
+import { STAGE_BUDGET_MS } from "../orchestrator";
 
 function makeBusiness(overrides: Partial<Business> = {}): Business {
   return {
@@ -302,5 +311,73 @@ describe("RFL.BRIEF.7 — section anchoring and embedded Design Brief JSON", () 
     expect(brief.hours).toHaveLength(7);
     // The 12 PRD sections are still exactly the 12 (the JSON H2 is extra).
     expect(result.output!.sections).toHaveLength(12);
+  });
+});
+
+describe("runBuilderBrief on Opus (RFL.VERIFY.3 V1) — one call, 8,000 cap, request timeout = budget", () => {
+  let restoreEnv: () => void;
+  let restoreProvider: (() => void) | null = null;
+  beforeEach(() => {
+    restoreEnv = coreModeEnv();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    restoreProvider?.();
+    restoreProvider = null;
+    restoreEnv();
+    vi.restoreAllMocks();
+  });
+
+  const judgment = jsonReply({
+    tone_descriptors: ["dependable", "local", "straightforward"],
+    services: ["Drain cleaning"],
+  });
+  const ctx = () => ({
+    business: makeBusiness(),
+    audit: makeAudit(),
+    config: null,
+    competitors: [],
+    siteHtmlExcerpt: null,
+  });
+
+  it("the cap is 8,000 and the request timeout is the on-demand budget", () => {
+    expect(BRIEF_MAX_TOKENS).toBe(8_000);
+    expect(BRIEF_TIMEOUT_MS).toBe(STAGE_BUDGET_MS.analyst);
+  });
+
+  it("a truncation makes exactly one Opus call, fails the run 'truncated at 8000' and keeps the template as output", async () => {
+    const p = fakeProvider((req) =>
+      req.model === MODEL_OPUS ? truncatedReply("## Project overview\nOPUS-CUT-OFF-TEXT") : judgment,
+    );
+    restoreProvider = p.restore;
+    const result = await runBuilderBrief(ctx());
+
+    const opus = p.requests.filter((r) => r.model === MODEL_OPUS);
+    expect(opus).toHaveLength(1);
+    expect(opus[0]).toMatchObject({ maxTokens: 8_000, timeoutMs: 120_000 });
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe("truncated at 8000");
+    expect(result.modelUsed).toBeNull();
+    expect(result.guardrailPassed).toBe(false);
+    expect(result.guardrailNotes).toContain("Truncated at max_tokens 8000");
+    // The template is the output the route stores; the cut-off text is not.
+    expect(result.output!.markdown.startsWith(templateBrief().replace(/\s+$/, ""))).toBe(true);
+    expect(result.output!.markdown).not.toContain("OPUS-CUT-OFF-TEXT");
+    expect(result.output!.sections).toHaveLength(12);
+    // The cut-off call was paid for, so it is counted.
+    expect(result.costMicrocents).toBeGreaterThan(0);
+  });
+
+  it("a reply that finishes is one Opus call and a completed run", async () => {
+    const p = fakeProvider((req) => (req.model === MODEL_OPUS ? { text: templateBrief() } : judgment));
+    restoreProvider = p.restore;
+    const result = await runBuilderBrief(ctx());
+
+    expect(p.requests.filter((r) => r.model === MODEL_OPUS)).toHaveLength(1);
+    expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(1);
+    expect(result.status).toBe("completed");
+    expect(result.error).toBeNull();
+    expect(result.modelUsed).toBe(MODEL_OPUS);
+    expect(result.guardrailPassed).toBe(true);
   });
 });

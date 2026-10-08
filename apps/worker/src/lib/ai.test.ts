@@ -198,6 +198,27 @@ describe("generateJsonSummary — structured output + OutputParseError mapping",
     await generateJsonSummary(spec({ signal: controller.signal }));
     expect(p.requests[0]!.signal).toBe(controller.signal);
   });
+
+  it("noRetryOnTruncation (RFL.VERIFY.3 V1): one call, template, truncatedAt = the cap", async () => {
+    const p = fakeProvider(truncatedReply());
+    restoreProvider = p.restore;
+    const out = await generateJsonSummary(spec({ maxTokens: 8_000, noRetryOnTruncation: true }));
+    expect(p.requests.map((r) => r.maxTokens)).toEqual([8_000]);
+    expect(out.value).toEqual(TEMPLATE);
+    expect(out.modelUsed).toBeNull();
+    expect(out.truncatedAt).toBe(8_000);
+    expect(out.tokensUsed).toBe(FAKE_USAGE.totalTokens);
+    expect(out.guardrailNotes).toBe("Fell back to deterministic template — Truncated at max_tokens 8000");
+  });
+
+  it("timeoutMs travels per request; absent unless the caller sets it (RFL.VERIFY.3 V1)", async () => {
+    const p = fakeProvider(jsonReply(GOOD));
+    restoreProvider = p.restore;
+    await generateJsonSummary(spec());
+    await generateJsonSummary(spec({ timeoutMs: 120_000 }));
+    expect(p.requests[0]!.timeoutMs).toBeUndefined();
+    expect(p.requests[1]!.timeoutMs).toBe(120_000);
+  });
 });
 
 describe("narration summaries (AI_SUMMARIES)", () => {
@@ -358,5 +379,19 @@ describe("generateMarkdown", () => {
     const out2 = await generateMarkdown(md());
     expect(cut.requests.map((r) => r.maxTokens)).toEqual([4_000, 8_000]);
     expect(out2.value).toBe("## Goal\nfull");
+    expect(out2.truncatedAt).toBeUndefined();
+  });
+
+  it("noRetryOnTruncation + timeoutMs (RFL.VERIFY.3 V1): one call at the cap, then the template", async () => {
+    const p = fakeProvider(truncatedReply("## Goal\ncut mid-sent"));
+    restoreProvider = p.restore;
+    const out = await generateMarkdown(md({ maxTokens: 8_000, noRetryOnTruncation: true, timeoutMs: 120_000 }));
+    expect(p.requests).toHaveLength(1);
+    expect(p.requests[0]).toMatchObject({ maxTokens: 8_000, timeoutMs: 120_000 });
+    // The cut-off reply passes the guardrail here, yet it is never accepted.
+    expect(out.value).toBe("## Goal\ntemplate");
+    expect(out.modelUsed).toBeNull();
+    expect(out.truncatedAt).toBe(8_000);
+    expect(out.guardrailNotes).toBe("Fell back to deterministic template — Truncated at max_tokens 8000");
   });
 });

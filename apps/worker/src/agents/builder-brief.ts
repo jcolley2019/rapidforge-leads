@@ -6,6 +6,8 @@
  * built over the measured audit + fresh local competitors + target keywords.
  * On-demand only (PRD 3.3) via the lead drawer. A hard AI failure or a
  * twice-failed guardrail falls back to a complete deterministic template.
+ * RFL.VERIFY.3 V1: one Opus call — a reply cut off at the cap is not
+ * retried; the run fails ("truncated at 8000") and the template is stored.
  */
 import type { AgentResult, Audit, Business, DesignBrief, WorkspaceConfig } from "@rapidforge/shared";
 import { cityFromPlacesAddress } from "../lib/address";
@@ -18,6 +20,7 @@ import {
 } from "./design-brief";
 import { builderBriefGuardrail, h2Headings } from "./guardrails/builder-brief";
 import { countWords } from "./guardrails/analyst";
+import { STAGE_BUDGET_MS } from "../orchestrator";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
 import { resolveConfigVars, type CascadingVars } from "./prompts/config-vars";
 import {
@@ -33,6 +36,20 @@ import {
 /** Opus effort — "low" keeps cost down; the strengthened prompt carries the
  * section structure. Raise later if section completeness ever regresses. */
 const BRIEF_EFFORT = "low" as const;
+
+/**
+ * RFL.VERIFY.3 V1: Opus 4.8's thinking tokens count against the cap, so
+ * 4,000 always stopped at max_tokens and paid for a doubled retry. 8,000
+ * lets one call finish; a truncation at 8,000 is not retried.
+ */
+export const BRIEF_MAX_TOKENS = 8000;
+
+/**
+ * Request timeout aligned with the on-demand budget (ai-core's default is
+ * 60 s, which a ~55 s Opus call raced). The budget starts before the call,
+ * so when both would fire the budget wins: the run fails and the route 502s.
+ */
+export const BRIEF_TIMEOUT_MS = STAGE_BUDGET_MS.analyst;
 
 export interface BuilderBriefOutput extends Record<string, unknown> {
   markdown: string;
@@ -183,7 +200,9 @@ export async function runBuilderBrief(
         ctx.siteHtmlExcerpt,
         inputs,
       ),
-      maxTokens: 4000,
+      maxTokens: BRIEF_MAX_TOKENS,
+      noRetryOnTruncation: true,
+      timeoutMs: BRIEF_TIMEOUT_MS,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
       guardrail: builderBriefGuardrail,
       template: () =>
@@ -225,16 +244,19 @@ export async function runBuilderBrief(
     );
 
     const costMicrocents = sumMicrocents([outcome.costMicrocents, designBriefMicrocents]);
+    // A cut-off reply is a failed run with its reason; the template it fell
+    // back to is still the output, so the route stores it (on-demand.ts).
+    const truncated = outcome.truncatedAt !== undefined;
     return {
       agent: "builder-brief",
-      status: "completed",
+      status: truncated ? "failed" : "completed",
       output: {
         markdown,
         word_count: countWords(markdown),
         sections,
         design_brief: designBrief,
       },
-      error: null,
+      error: truncated ? `truncated at ${outcome.truncatedAt}` : null,
       modelUsed: outcome.modelUsed,
       tokensUsed: outcome.tokensUsed + designBriefTokens,
       costCents: centsFromMicrocents(costMicrocents),

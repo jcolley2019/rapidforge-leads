@@ -85,6 +85,12 @@ export interface AiCallOptions {
   format?: JsonSchemaFormat;
   /** The stage budget's signal (RFL.QUEUE.8): an abort cancels the request. */
   signal?: AbortSignal;
+  /**
+   * Per-request timeout (ms) forwarded to ai-core (RFL.VERIFY.3 V1); unset
+   * keeps ai-core's own 60 s default. A stage budget that started earlier
+   * still fires first when both would.
+   */
+  timeoutMs?: number;
 }
 
 export interface AiCallResult {
@@ -206,6 +212,7 @@ function buildRequest(options: AiCallOptions, model: string): CompletionRequest 
     maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
     ...(Object.keys(outputConfig).length > 0 ? { outputConfig } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
   };
 }
 
@@ -403,6 +410,13 @@ export interface SummarySpec<T> {
   template: () => T;
   /** Stage budget signal (RFL.QUEUE.8). */
   signal?: AbortSignal;
+  /**
+   * RFL.VERIFY.3 V1: a reply cut off at max_tokens goes straight to the
+   * template instead of the doubled retry — one call (the Builder Brief).
+   */
+  noRetryOnTruncation?: boolean;
+  /** Per-request timeout forwarded to ai-core (see AiCallOptions.timeoutMs). */
+  timeoutMs?: number;
 }
 
 export interface SummaryOutcome<T> {
@@ -416,6 +430,8 @@ export interface SummaryOutcome<T> {
   costCents: number | null;
   guardrailPassed: boolean;
   guardrailNotes: string | null;
+  /** Set when the template answered because the reply hit max_tokens: the cap it was cut at. */
+  truncatedAt?: number;
 }
 
 function templateOutcome<T>(spec: { template: () => T; guardrail: (v: T) => GuardrailResult }): SummaryOutcome<T> {
@@ -443,8 +459,9 @@ function describeError(err: unknown): string {
  *     (guardrail_passed:false + notes); never silently accept bad output.
  *   OutputParseError.reason: refused → template (the model already got its
  *     one refusal fallback inside callModel); truncated → retry once with
- *     max_tokens doubled, then template; invalid_json / schema_mismatch →
- *     template. Transport errors → template (the provider already retried).
+ *     max_tokens doubled, then template (straight to the template under
+ *     `noRetryOnTruncation`); invalid_json / schema_mismatch → template.
+ *     Transport errors → template (the provider already retried).
  * At most two model calls per summary; the audit always completes.
  */
 export async function generateJsonSummary<T>(
@@ -460,6 +477,7 @@ export async function generateJsonSummary<T>(
   let tokensUsed = 0;
   let costMicrocents: number | null = 0;
   let lastFailure = "";
+  let truncatedAt: number | undefined;
   let flagged: { value: T; modelUsed: string; notes: string } | null = null;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -474,6 +492,7 @@ export async function generateJsonSummary<T>(
         ...(spec.images ? { images: spec.images } : {}),
         ...(spec.effort && spec.model !== MODEL_HAIKU ? { effort: spec.effort } : {}),
         ...(spec.signal ? { signal: spec.signal } : {}),
+        ...(spec.timeoutMs !== undefined ? { timeoutMs: spec.timeoutMs } : {}),
       });
     } catch (err) {
       lastFailure = `AI call failed: ${describeError(err)}`;
@@ -490,16 +509,19 @@ export async function generateJsonSummary<T>(
         lastFailure = `Unparseable model output: ${describeError(err)}`;
         break;
       }
-      if (err.reason === "truncated" && attempt === 1) {
+      if (err.reason === "truncated" && attempt === 1 && !spec.noRetryOnTruncation) {
         lastFailure = `Truncated at max_tokens ${maxTokens}`;
         maxTokens *= 2;
         continue;
       }
+      if (err.reason === "truncated") truncatedAt = maxTokens;
       lastFailure =
         err.reason === "refused"
           ? `Refused by ${result.modelUsed}${err.stopDetails?.category ? ` (${err.stopDetails.category})` : ""}`
           : err.reason === "truncated"
-            ? `Truncated at max_tokens ${maxTokens} after one doubled retry`
+            ? spec.noRetryOnTruncation
+              ? `Truncated at max_tokens ${maxTokens}`
+              : `Truncated at max_tokens ${maxTokens} after one doubled retry`
             : `${err.reason}: ${err.message}`;
       break;
     }
@@ -546,6 +568,7 @@ export async function generateJsonSummary<T>(
     costCents: centsFromMicrocents(costMicrocents),
     guardrailPassed: false,
     guardrailNotes: `Fell back to deterministic template — ${lastFailure}`,
+    ...(truncatedAt !== undefined ? { truncatedAt } : {}),
   };
 }
 
@@ -566,6 +589,10 @@ export interface MarkdownSpec {
   /** Deterministic fallback — template mode AND terminal AI failures. */
   template: () => string;
   signal?: AbortSignal;
+  /** See SummarySpec.noRetryOnTruncation — one call; a cut-off reply → template. */
+  noRetryOnTruncation?: boolean;
+  /** Per-request timeout forwarded to ai-core (see AiCallOptions.timeoutMs). */
+  timeoutMs?: number;
 }
 
 export type MarkdownOutcome = SummaryOutcome<string>;
@@ -582,7 +609,8 @@ export function stripMarkdownFence(raw: string): string {
  * Guardrail protocol (CLAUDE.md 6.2) for a markdown deliverable: run → fail →
  * re-run once → on the second failure persist flagged. A refusal (after
  * callModel's fallback) or transport error falls back to the template; a
- * reply cut off at max_tokens retries once with the cap doubled.
+ * reply cut off at max_tokens retries once with the cap doubled, or goes
+ * straight to the template under `noRetryOnTruncation` (`truncatedAt` set).
  */
 export async function generateMarkdown(
   spec: MarkdownSpec,
@@ -593,6 +621,7 @@ export async function generateMarkdown(
   let tokensUsed = 0;
   let costMicrocents: number | null = 0;
   let lastFailure = "";
+  let truncatedAt: number | undefined;
   let flagged: { value: string; modelUsed: string; notes: string } | null = null;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -606,6 +635,7 @@ export async function generateMarkdown(
         ...(spec.images ? { images: spec.images } : {}),
         ...(spec.effort && spec.model !== MODEL_HAIKU ? { effort: spec.effort } : {}),
         ...(spec.signal ? { signal: spec.signal } : {}),
+        ...(spec.timeoutMs !== undefined ? { timeoutMs: spec.timeoutMs } : {}),
       });
     } catch (err) {
       lastFailure = `AI call failed: ${describeError(err)}`;
@@ -615,6 +645,11 @@ export async function generateMarkdown(
     costMicrocents = sumMicrocents([costMicrocents, result.costMicrocents]);
     if (result.stopReason === "refusal") {
       lastFailure = `Refused by ${result.modelUsed}${result.response.stopDetails?.category ? ` (${result.response.stopDetails.category})` : ""}`;
+      break;
+    }
+    if (result.stopReason === "max_tokens" && spec.noRetryOnTruncation) {
+      lastFailure = `Truncated at max_tokens ${maxTokens}`;
+      truncatedAt = maxTokens;
       break;
     }
     if (result.stopReason === "max_tokens" && attempt === 1) {
@@ -664,5 +699,6 @@ export async function generateMarkdown(
     costCents: centsFromMicrocents(costMicrocents),
     guardrailPassed: false,
     guardrailNotes: `Fell back to deterministic template — ${lastFailure}`,
+    ...(truncatedAt !== undefined ? { truncatedAt } : {}),
   };
 }

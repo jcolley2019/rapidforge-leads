@@ -249,7 +249,9 @@ describe("judgment agents", () => {
     const models = new Set(p.requests.map((r) => r.model));
     expect(models).toEqual(new Set([MODEL_OPUS, MODEL_HAIKU]));
     const brief = p.requests.find((r) => r.model === MODEL_OPUS)!;
-    expect(brief.maxTokens).toBe(4_000);
+    // RFL.VERIFY.3 V1: one call at the 8,000 cap, request timeout = the budget.
+    expect(brief.maxTokens).toBe(8_000);
+    expect(brief.timeoutMs).toBe(120_000);
     expect(brief.outputConfig).toEqual({ effort: "low" });
     const designBrief = p.requests.find((r) => r.model === MODEL_HAIKU)!;
     expect(designBrief.outputConfig?.effort).toBeUndefined();

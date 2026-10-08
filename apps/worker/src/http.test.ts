@@ -8,8 +8,9 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Business, SearchResult, WorkspaceConfig } from "@rapidforge/shared";
 import { createApp } from "./http";
-import { setAiProviderForTests } from "./lib/ai";
-import { coreModeEnv } from "./lib/ai.testkit";
+import { TimeoutError, type CompletionRequest } from "@rapidforge/ai-core";
+import { MODEL_OPUS, setAiProviderForTests } from "./lib/ai";
+import { coreModeEnv, fakeProvider, jsonReply, truncatedReply } from "./lib/ai.testkit";
 import { resetReportRenderer } from "./lib/pdf-report";
 import {
   FIXTURE_PHOTO_PNG,
@@ -669,6 +670,48 @@ describe("stored builder brief / sales summary (RFL.FIX.3h)", () => {
   });
 });
 
+describe("builder-brief truncation (RFL.VERIFY.3 V1)", () => {
+  it("one Opus call; agent_runs records failed 'truncated at 8000'; the template is stored and returned", async () => {
+    const { business } = await seedLead();
+    await seedCompletedAudit(business.id);
+    const restoreEnv = coreModeEnv();
+    const p = fakeProvider((req) =>
+      req.model === MODEL_OPUS
+        ? truncatedReply("## Project overview\ncut off mid-sent")
+        : jsonReply({ tone_descriptors: ["dependable", "local", "plain"], services: ["Drain cleaning"] }),
+    );
+    try {
+      const res = await api("POST", `/api/businesses/${business.id}/builder-brief?force=true`);
+      expect(p.requests.filter((r) => r.model === MODEL_OPUS)).toHaveLength(1);
+      expect(res.status).toBe(200);
+      expect(res.json.error).toBe("truncated at 8000");
+      expect(res.json.model_used).toBeNull();
+      expect(res.json.builder_brief_md).toContain("## Deploy instructions");
+      expect(res.json.builder_brief_md).not.toContain("cut off mid-sent");
+
+      const runs = store
+        .listAgentRuns()
+        .filter((r) => r.target_id === business.id && r.agent_name === "builder-brief");
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({
+        status: "failed",
+        error: "truncated at 8000",
+        guardrail_passed: false,
+      });
+      const reloaded = await store.getLatestCompletedAuditForBusiness(business.id);
+      expect(reloaded?.builder_brief_md).toBe(res.json.builder_brief_md);
+      // The cut-off call was spent, so its ai_call row is still written.
+      const spend = store
+        .listUsageEvents()
+        .filter((e) => e.event_type === "ai_call" && e.metadata?.business_id === business.id);
+      expect(spend).toHaveLength(1);
+    } finally {
+      p.restore();
+      restoreEnv();
+    }
+  });
+});
+
 describe("on-demand budget (RFL.FIX.3i)", () => {
   it.each(["analyst", "sales-summary", "builder-brief", "design-brief"])(
     "a model call that never resolves fails %s at the 120 s budget",
@@ -706,6 +749,49 @@ describe("on-demand budget (RFL.FIX.3i)", () => {
       }
     },
   );
+
+  it("builder-brief: when its 120 s request timeout and the budget coincide, the budget wins (RFL.VERIFY.3 V1)", async () => {
+    const { business } = await seedLead();
+    await seedCompletedAudit(business.id);
+    const restoreEnv = coreModeEnv();
+    let reached!: () => void;
+    const providerCalled = new Promise<void>((resolve) => (reached = resolve));
+    const opusTimeouts: Array<number | undefined> = [];
+    // Behaves like ai-core: rejects with TimeoutError at request.timeoutMs,
+    // or with the caller's abort reason when the budget's signal fires.
+    setAiProviderForTests({
+      complete: (request: CompletionRequest) => {
+        if (request.model === MODEL_OPUS) opusTimeouts.push(request.timeoutMs);
+        reached();
+        return new Promise((_resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new TimeoutError("anthropic", request.timeoutMs ?? 60_000)),
+            request.timeoutMs ?? 60_000,
+          );
+          request.signal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(request.signal!.reason);
+          });
+        });
+      },
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = api("POST", `/api/businesses/${business.id}/builder-brief?force=true`);
+      await providerCalled;
+      await vi.advanceTimersByTimeAsync(STAGE_BUDGET_MS.analyst);
+      const res = await pending;
+
+      expect(opusTimeouts).toEqual([STAGE_BUDGET_MS.analyst]);
+      // Had the request timeout won, the template would have answered (200).
+      expect(res.status).toBe(502);
+      expect(res.json.error).toBe(`builder-brief timed out after ${STAGE_BUDGET_MS.analyst}ms`);
+    } finally {
+      vi.useRealTimers();
+      setAiProviderForTests(null);
+      restoreEnv();
+    }
+  });
 });
 
 describe("GET /api/businesses/:id/report", () => {

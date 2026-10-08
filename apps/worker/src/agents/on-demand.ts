@@ -8,6 +8,10 @@
  * RFL.FIX.3i: run() is raced against the Analyst stage budget (120 s) and
  * receives its signal, so a hung model call fails the run (and the route)
  * instead of holding the HTTP request until ai-core gives up.
+ *
+ * RFL.VERIFY.3 V1: a run that failed but still carries output (the Builder
+ * Brief truncated and fell back to its template) is persisted and its spend
+ * logged; the agent_runs row keeps status failed with the reason.
  */
 import type { AgentResult } from "@rapidforge/shared";
 import { broadcastAgentEvent } from "../events";
@@ -76,7 +80,7 @@ export async function runOnDemandAgent<T extends Record<string, unknown>>(
     duration_ms: result.durationMs,
   });
 
-  if (result.status === "completed" && result.output) {
+  if (result.output) {
     await input.persist(auditId, result.output);
     await store.logUsageEvent({
       workspace_id: workspaceId,

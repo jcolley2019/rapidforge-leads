@@ -197,7 +197,7 @@ Three shared rules apply to every AI agent (apps/worker/src/lib/ai.ts):
   - fails the guardrail → one more attempt;
   - fails twice → saved with `guardrail_passed = false` plus notes;
   - unparseable JSON, a reply that fails the Zod schema, a refusal, or a transport error → the deterministic template is used instead;
-  - cut off at the token limit → retried once with double the limit.
+  - cut off at the token limit → retried once with double the limit (the Builder Brief opts out: one call, then its template; `noRetryOnTruncation`).
 - **Refusal rule.** A `stop_reason: "refusal"` from any model retries the identical request once on `claude-opus-4-8`. Transport retries happen only inside AI Core (`maxRetries: 2`).
 - **Cost.** Cost comes from AI Core's price table (dated 2026-10-03), in dollars per million tokens:
 
@@ -501,7 +501,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - A ≤ 1,500-character text excerpt of a fresh homepage fetch (apps/worker/src/http.ts).
   - Its template fallback is a complete 12-section brief (without the Google Business Profile block).
 - **What the AI judges:** writes all twelve required H2 sections in order: Project overview · Business details · Target audience · Pages to build · Design direction · SEO requirements · AEO requirements · Conversion requirements · Performance requirements · Content to migrate · Assets · Deploy instructions. The client stack is fixed as Vite + React + Tailwind + shadcn/ui. Uses `{your_offer}`, `{ideal_website_traits}`, `{target_industry}`, `{user_location}`. Prompt: apps/worker/src/agents/prompts/builder-brief.ts.
-- **Model and settings:** `claude-opus-4-8`, effort `low`, maxTokens 4,000 (8,000 on a truncation retry); one 120 s budget covers the whole run, embedded Design Brief included. It also runs the Design Brief (12b) and appends its JSON under "## Design Brief (JSON)".
+- **Model and settings:** `claude-opus-4-8`, effort `low`, maxTokens 8,000 and exactly one call. A reply cut off at 8,000 is not retried: the `agent_runs` row is recorded `failed` with error "truncated at 8000", and the deterministic template is stored and returned. The request timeout is 120 s, the same as the one 120 s budget that covers the whole run (embedded Design Brief included); the budget starts first, so it wins when both would fire and the route answers 502. It also runs the Design Brief (12b) and appends its JSON under "## Design Brief (JSON)".
 - **Guardrails** (guardrails/builder-brief.ts):
   - every section must be its own H2 line;
   - no placeholders (`[INSERT …]`, `{business_name}`, lorem ipsum);
@@ -515,7 +515,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 - **Who reads it downstream:** drawer Builder Brief tab (copy and regenerate); you or Claude Code.
 - **Typical cost per lead:**
   - About 11¢ measured, plus about 0.4¢ for the embedded Design Brief.
-  - Output ceiling 4,000 × $25/M = 10¢ per attempt.
+  - Output ceiling 8,000 × $25/M = 20¢ for the one call (thinking tokens count against it).
 - **Known gaps:**
   - "Competitors (pulled fresh)" come from stored workspace leads, not a new Places search.
   - Screenshots reach the prompt as URLs only; the model never sees the images.
@@ -639,7 +639,7 @@ Other routes: `GET /health` (no login; queue and mode readout) and the static `/
 - The Design Brief tab adds 0.4¢ the first time it is generated (0 if a Builder Brief already filled `audits.design_brief`), plus 1¢ per photo request that reaches the worker (up to 8 per brief).
 - A re-audit repeats column B (or C's Analyst line, if eligible).
 - A refusal can add one `claude-opus-4-8` attempt.
-- A truncated reply retries at double the token limit.
+- A truncated reply retries at double the token limit, except the Builder Brief, which stops after one call.
 - Each agent's output ceiling caps the worst case.
 - `agent_runs.cost_cents` rounds each run to the nearest cent, so a 0.19¢ Haiku summary shows as 0¢ there. The `audit_run` usage row sums exact microcents first.
 

@@ -717,7 +717,9 @@ export function createApp(
               : {}),
           }),
       });
-      if (result.status !== "completed" || !result.output) {
+      // RFL.VERIFY.3 V1: a truncated brief is a failed run that still
+      // stored its template — answer with that template and the reason.
+      if (!result.output) {
         res.status(502).json({ error: result.error ?? "Builder brief failed" });
         return;
       }
@@ -729,6 +731,7 @@ export function createApp(
         guardrail_passed: result.guardrailPassed,
         guardrail_notes: result.guardrailNotes,
         model_used: result.modelUsed,
+        ...(result.status === "failed" ? { error: result.error } : {}),
       });
     } catch (err) {
       console.error("[api] POST /api/businesses/:id/builder-brief failed:", err);
