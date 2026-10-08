@@ -1,13 +1,22 @@
 /**
  * Settings (PRD 7.3, Glass v2) — the cascading agent variables editor
  * (workspace_config via GET/PUT /api/config; RLS update policy is
- * migration 0005), search defaults (localStorage → New Search), and the
- * persisted theme preference. API keys are NOT here — worker env only
- * (CLAUDE.md Section 9).
+ * migration 0005), search defaults (localStorage → New Search), the
+ * persisted theme preference, and Help + the coaching-tips reset
+ * (RFL.HELP.4). API keys are NOT here — worker env only (CLAUDE.md
+ * Section 9).
  */
-import { Check, Loader2, Moon, Sun } from "lucide-react";
+import {
+  Check,
+  CircleHelp,
+  Loader2,
+  Moon,
+  RotateCcw,
+  Sun,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { UpdateWorkspaceConfigRequest } from "@rapidforge/shared";
+import { useCoaching } from "@/components/CoachingTip";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fetchConfig, saveConfig } from "@/lib/api";
+import { resetAll } from "@/lib/coaching";
 import {
   getSearchDefaults,
   saveSearchDefaults,
@@ -94,6 +104,8 @@ export function SettingsView() {
     defaults?.category_type ?? "plumber",
   );
   const [theme, setTheme] = useState<Theme>(getTheme);
+  const { userId, openHelp } = useCoaching();
+  const [tipsFlash, setTipsFlash] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,6 +171,12 @@ export function SettingsView() {
   function switchTheme(next: Theme) {
     applyTheme(next);
     setTheme(next);
+  }
+
+  function resetTips() {
+    resetAll(userId);
+    setTipsFlash(true);
+    window.setTimeout(() => setTipsFlash(false), 2000);
   }
 
   return (
@@ -314,6 +332,28 @@ export function SettingsView() {
               {label}
             </button>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Help &amp; coaching</CardTitle>
+          <CardDescription>
+            Help walks through every screen. Tips you dismiss stay hidden on
+            this browser until you reset them.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          {openHelp && (
+            <Button variant="outline" onClick={openHelp}>
+              <CircleHelp aria-hidden />
+              Open Help
+            </Button>
+          )}
+          <Button variant="outline" onClick={resetTips}>
+            {tipsFlash ? <Check aria-hidden /> : <RotateCcw aria-hidden />}
+            {tipsFlash ? "Tips reset" : "Reset coaching tips"}
+          </Button>
         </CardContent>
       </Card>
     </div>
