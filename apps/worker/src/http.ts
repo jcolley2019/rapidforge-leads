@@ -706,6 +706,7 @@ export function createApp(
             competitors,
             siteHtmlExcerpt,
             signal,
+            force: req.query.force === "true",
           }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, {

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Business, SearchResult, WorkspaceConfig } from "@rapidforge/shared";
 import { createApp } from "./http";
 import { TimeoutError, type CompletionRequest } from "@rapidforge/ai-core";
-import { MODEL_OPUS, setAiProviderForTests } from "./lib/ai";
+import { MODEL_HAIKU, MODEL_OPUS, setAiProviderForTests } from "./lib/ai";
 import { coreModeEnv, fakeProvider, jsonReply, truncatedReply } from "./lib/ai.testkit";
 import { resetReportRenderer } from "./lib/pdf-report";
 import {
@@ -520,6 +520,38 @@ describe("builder-brief embedded design brief (RFL.FIX.3f)", () => {
     const forced = await api("POST", `/api/businesses/${business.id}/builder-brief?force=true`);
     expect(forced.status).toBe(200);
     expect((await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief).toEqual(stored);
+  });
+});
+
+describe("builder-brief reuses the Design Brief tab's stored brief (RFL.VERIFY.3 V8)", () => {
+  it("Design Brief tab first, then Generate brief: zero Design Brief calls, the stored JSON is embedded", async () => {
+    const { business } = await seedLead({
+      places_details: { ...FIXTURE_DETAILS["fx-001"], fetchedAt: "2026-07-06T07:00:00.000Z" },
+    });
+    await seedCompletedAudit(business.id);
+    // The Design Brief tab (template mode here) stores audits.design_brief.
+    const tab = await api("POST", `/api/businesses/${business.id}/design-brief`);
+    expect(tab.status).toBe(200);
+    const stored = (await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief;
+    expect(stored).toBeTruthy();
+
+    const restoreEnv = coreModeEnv();
+    const p = fakeProvider((req) =>
+      req.model === MODEL_OPUS
+        ? truncatedReply("## Project overview\ncut")
+        : jsonReply({ tone_descriptors: ["fresh-a", "fresh-b", "fresh-c"], services: ["Fresh service"] }),
+    );
+    try {
+      const res = await api("POST", `/api/businesses/${business.id}/builder-brief`);
+      expect(res.status).toBe(200);
+      expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(0);
+      expect(p.requests.filter((r) => r.model === MODEL_OPUS)).toHaveLength(1);
+      expect(res.json.builder_brief_md).toContain(JSON.stringify(stored, null, 2));
+      expect((await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief).toEqual(stored);
+    } finally {
+      p.restore();
+      restoreEnv();
+    }
   });
 });
 

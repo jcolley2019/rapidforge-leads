@@ -9,7 +9,14 @@
  * RFL.VERIFY.3 V1: one Opus call — a reply cut off at the cap is not
  * retried; the run fails ("truncated at 8000") and the template is stored.
  */
-import type { AgentResult, Audit, Business, DesignBrief, WorkspaceConfig } from "@rapidforge/shared";
+import {
+  DesignBriefSchema,
+  type AgentResult,
+  type Audit,
+  type Business,
+  type DesignBrief,
+  type WorkspaceConfig,
+} from "@rapidforge/shared";
 import { cityFromPlacesAddress } from "../lib/address";
 import { centsFromMicrocents, generateMarkdown, MODEL_OPUS, sumMicrocents } from "../lib/ai";
 import {
@@ -70,6 +77,20 @@ export interface BuilderBriefContext {
   siteHtmlExcerpt: string | null;
   /** Budget signal: the job stage (RFL.QUEUE.8) or the on-demand route (RFL.FIX.3i). */
   signal?: AbortSignal;
+  /**
+   * The route's ?force=true (RFL.VERIFY.3 V8): regenerate the embedded Design
+   * Brief instead of reusing the one stored in audits.design_brief.
+   */
+  force?: boolean;
+}
+
+/**
+ * The Design Brief already stored on this audit (RFL.FIX.3f persisted it),
+ * or null when there is none or it no longer parses — then it is rebuilt.
+ */
+export function storedDesignBrief(audit: Audit): DesignBrief | null {
+  const parsed = DesignBriefSchema.safeParse(audit.design_brief ?? null);
+  return parsed.success ? parsed.data : null;
 }
 
 /** Deterministic, placeholder-free, all-sections brief (< 2000 words). */
@@ -218,18 +239,24 @@ export async function runBuilderBrief(
     // RFL.BRIEF.7: the structured Design Brief rides along as a fenced JSON
     // block so the generator reads fields while the markdown stays the human
     // view. Its failure never fails the Builder Brief — the block is omitted.
+    // RFL.VERIFY.3 V8: a brief already stored on this audit is embedded as-is
+    // (no second Haiku call; the Design Brief tab and the JSON agree) unless
+    // the request forces a regeneration.
     let markdown = outcome.value;
     let designBrief: DesignBrief | null = null;
     let designBriefMicrocents: number | null = 0;
     let designBriefTokens = 0;
     let designBriefNote: string | null = null;
+    const stored = ctx.force ? null : storedDesignBrief(ctx.audit);
     try {
-      const design = await buildDesignBrief({
-        business: ctx.business,
-        audit: ctx.audit,
-        siteHtmlExcerpt: ctx.siteHtmlExcerpt,
-        ...(ctx.signal ? { signal: ctx.signal } : {}),
-      });
+      const design = stored
+        ? { brief: stored, costMicrocents: 0, tokensUsed: 0 }
+        : await buildDesignBrief({
+            business: ctx.business,
+            audit: ctx.audit,
+            siteHtmlExcerpt: ctx.siteHtmlExcerpt,
+            ...(ctx.signal ? { signal: ctx.signal } : {}),
+          });
       markdown = embedDesignBrief(markdown, design.brief);
       designBrief = design.brief;
       designBriefMicrocents = design.costMicrocents;

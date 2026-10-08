@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Audit, Business } from "@rapidforge/shared";
+import type { Audit, Business, DesignBrief } from "@rapidforge/shared";
 import {
   BRIEF_MAX_TOKENS,
   BRIEF_TIMEOUT_MS,
   briefBusinessInputsOf,
   buildTemplateBrief,
   runBuilderBrief,
+  storedDesignBrief,
 } from "./builder-brief";
 import { reviewTextsOf } from "./design-brief";
 import { FIXTURE_DETAILS } from "../lib/places/fixtures";
@@ -379,5 +380,82 @@ describe("runBuilderBrief on Opus (RFL.VERIFY.3 V1) — one call, 8,000 cap, req
     expect(result.error).toBeNull();
     expect(result.modelUsed).toBe(MODEL_OPUS);
     expect(result.guardrailPassed).toBe(true);
+  });
+});
+
+describe("Builder Brief reuses a stored Design Brief (RFL.VERIFY.3 V8)", () => {
+  let restoreEnv: () => void;
+  let restoreProvider: (() => void) | null = null;
+  beforeEach(() => {
+    restoreEnv = coreModeEnv();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    restoreProvider?.();
+    restoreProvider = null;
+    restoreEnv();
+    vi.restoreAllMocks();
+  });
+
+  const STORED: DesignBrief = {
+    business_name: "Boise Drain Pros",
+    vertical: "plumber",
+    tone_descriptors: ["stored-tone-a", "stored-tone-b", "stored-tone-c"],
+    services: ["Stored service"],
+    review_quotes: [],
+    photo_urls: [],
+    hours: null,
+    phone: "(208) 555-0102",
+    address: "7800 W Fairview Ave, Boise, ID 83704",
+    primary_cta: { label: "Call (208) 555-0102", kind: "phone", href: "tel:2085550102" },
+    current_site_problem: "Slow on mobile",
+    generated_at: "2026-10-07T23:24:54.000Z",
+    source: { audit_id: "aud-1", haiku_model: "claude-haiku-4-5", template_fallback: false },
+  };
+  const replies = () =>
+    fakeProvider((req) =>
+      req.model === MODEL_OPUS
+        ? { text: templateBrief() }
+        : jsonReply({ tone_descriptors: ["fresh-a", "fresh-b", "fresh-c"], services: ["Fresh service"] }),
+    );
+  const ctx = (audit: Audit, force?: boolean) => ({
+    business: makeBusiness(),
+    audit,
+    config: null,
+    competitors: [],
+    siteHtmlExcerpt: null,
+    ...(force === undefined ? {} : { force }),
+  });
+
+  it("a stored brief → zero Design Brief calls; the markdown embeds the stored JSON", async () => {
+    const p = replies();
+    restoreProvider = p.restore;
+    const result = await runBuilderBrief(ctx(makeAudit({ design_brief: STORED })));
+
+    expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(0);
+    expect(p.requests.filter((r) => r.model === MODEL_OPUS)).toHaveLength(1);
+    expect(result.status).toBe("completed");
+    expect(result.output!.design_brief).toEqual(STORED);
+    expect(result.output!.markdown).toContain(JSON.stringify(STORED, null, 2));
+  });
+
+  it("?force=true still regenerates it: one Design Brief call, fresh fields", async () => {
+    const p = replies();
+    restoreProvider = p.restore;
+    const result = await runBuilderBrief(ctx(makeAudit({ design_brief: STORED }), true));
+
+    expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(1);
+    expect(result.output!.design_brief?.tone_descriptors).toEqual(["fresh-a", "fresh-b", "fresh-c"]);
+  });
+
+  it("nothing stored, or a stored value that no longer parses → one Design Brief call", async () => {
+    expect(storedDesignBrief(makeAudit())).toBeNull();
+    expect(storedDesignBrief(makeAudit({ design_brief: { business_name: "half a brief" } }))).toBeNull();
+    expect(storedDesignBrief(makeAudit({ design_brief: STORED }))).toEqual(STORED);
+
+    const p = replies();
+    restoreProvider = p.restore;
+    await runBuilderBrief(ctx(makeAudit({ design_brief: { business_name: "half a brief" } })));
+    expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(1);
   });
 });

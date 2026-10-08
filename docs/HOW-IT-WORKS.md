@@ -501,7 +501,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - A ≤ 1,500-character text excerpt of a fresh homepage fetch (apps/worker/src/http.ts).
   - Its template fallback is a complete 12-section brief (without the Google Business Profile block).
 - **What the AI judges:** writes all twelve required H2 sections in order: Project overview · Business details · Target audience · Pages to build · Design direction · SEO requirements · AEO requirements · Conversion requirements · Performance requirements · Content to migrate · Assets · Deploy instructions. The client stack is fixed as Vite + React + Tailwind + shadcn/ui. Uses `{your_offer}`, `{ideal_website_traits}`, `{target_industry}`, `{user_location}`. Prompt: apps/worker/src/agents/prompts/builder-brief.ts.
-- **Model and settings:** `claude-opus-4-8`, effort `low`, maxTokens 8,000 and exactly one call. A reply cut off at 8,000 is not retried: the `agent_runs` row is recorded `failed` with error "truncated at 8000", and the deterministic template is stored and returned. The request timeout is 120 s, the same as the one 120 s budget that covers the whole run (embedded Design Brief included); the budget starts first, so it wins when both would fire and the route answers 502. It also runs the Design Brief (12b) and appends its JSON under "## Design Brief (JSON)".
+- **Model and settings:** `claude-opus-4-8`, effort `low`, maxTokens 8,000 and exactly one call. A reply cut off at 8,000 is not retried: the `agent_runs` row is recorded `failed` with error "truncated at 8000", and the deterministic template is stored and returned. The request timeout is 120 s, the same as the one 120 s budget that covers the whole run (embedded Design Brief included); the budget starts first, so it wins when both would fire and the route answers 502. It appends the Design Brief (12b) JSON under "## Design Brief (JSON)": the one already stored in `audits.design_brief` when it parses (no new call, so the brief and the Design Brief tab agree), otherwise a fresh one. `?force=true` regenerates it too (`storedDesignBrief`, apps/worker/src/agents/builder-brief.ts).
 - **Guardrails** (guardrails/builder-brief.ts):
   - every section must be its own H2 line;
   - no placeholders (`[INSERT …]`, `{business_name}`, lorem ipsum);
@@ -537,7 +537,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 - **Guardrails** (guardrails/design-brief.ts): quotes must be verbatim from `places_details.reviews`, tone and services must be non-empty, and the whole object must parse against `DesignBriefSchema`. Otherwise the agent fails and writes nothing.
 - **Inputs → outputs:**
   - On its own route: `audits.design_brief`, plus `agent_runs` and `ai_call` rows. A stored brief is returned without new spend unless `?force=true`.
-  - Inside the Builder Brief: the JSON block in the markdown, also saved to `audits.design_brief` when that column is empty.
+  - Inside the Builder Brief: the JSON block in the markdown, also saved to `audits.design_brief` when that column is empty. A brief already stored there is embedded as-is instead of making a new call, unless the Builder Brief request has `?force=true`.
 - **Who reads it downstream:** the rapidforge-demos repo; drawer Design Brief tab (shows the photos through the proxy).
 - **Typical cost per lead:**
   - Under about 0.4¢: output ceiling 600 × $5/M = 0.3¢, plus input. The input is a short system prompt, ≤ 1,500 characters of excerpt and ≤ 5 × 400 characters of reviews, ≈ 1,000 tokens at ~4 characters per token, so ≈ 0.1¢.
@@ -599,7 +599,7 @@ The left rail has eight views (apps/web/src/views/views.ts). The web app holds n
 | Action | Route | What it does | Spend |
 |---|---|---|---|
 | Analyst | `POST /api/businesses/:id/analyst` | Runs the Analyst on the latest completed audit. Chains get 409 unless `?force=true`. Runs every time (no stored reuse). **No button calls it today.** | ≈ 3¢ |
-| Builder Brief | `POST /api/businesses/:id/builder-brief` | Returns the stored brief; `?force=true` (the drawer's "Regenerate") writes a new one and fills an empty `audits.design_brief` | ≈ 11.4¢ when generated |
+| Builder Brief | `POST /api/businesses/:id/builder-brief` | Returns the stored brief; `?force=true` (the drawer's "Regenerate") writes a new one and fills an empty `audits.design_brief`. Without `?force=true` a stored Design Brief is embedded rather than regenerated | ≈ 11.4¢ when generated |
 | Design Brief | `POST /api/businesses/:id/design-brief` | Returns the stored brief; `?force=true` regenerates | ≈ 0.4¢ when generated |
 | Sales Script | `POST /api/businesses/:id/sales-summary` | Returns the stored script; `?force=true` (the drawer's "Regenerate") writes a new one | ≈ 1.3¢ when generated |
 | PDF report | `GET /api/businesses/:id/report` | Two-page report (apps/worker/src/lib/pdf-report.ts). Real PDF needs `SCREENSHOTS_ENABLED=true` (else 503 "screenshots disabled"); fixture mode returns HTML | $0 |
@@ -636,7 +636,7 @@ Other routes: `GET /health` (no login; queue and mode readout) and the static `/
 
 **What moves the numbers:**
 - Only a deliberate "Regenerate" (`?force=true`) repeats the Builder Brief or Sales Script line; otherwise the stored result comes back free. The on-demand Analyst route re-spends on every call (no button calls it).
-- The Design Brief tab adds 0.4¢ the first time it is generated (0 if a Builder Brief already filled `audits.design_brief`), plus 1¢ per photo request that reaches the worker (up to 8 per brief).
+- The Design Brief tab adds 0.4¢ the first time it is generated (0 if a Builder Brief already filled `audits.design_brief`), plus 1¢ per photo request that reaches the worker (up to 8 per brief). The reverse also holds: a first Builder Brief after the tab reuses its stored brief and skips the 0.4¢.
 - A re-audit repeats column B (or C's Analyst line, if eligible).
 - A refusal can add one `claude-opus-4-8` attempt.
 - A truncated reply retries at double the token limit, except the Builder Brief, which stops after one call.
