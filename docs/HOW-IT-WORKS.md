@@ -139,9 +139,9 @@ All of this is plain math in `packages/shared/src/scoring.ts`. No model ever set
 | freshness | 0.10 | share of 3: copyright year within 2 years · `Last-Modified` header within 365 days · no broken images |
 | design | 0.05 | Design agent's modernity score; 50 if Design produced nothing |
 
-Mobile outweighs desktop (RFL.FIX.3i). Before that change desktop was 0.25 and mobile 0.20, so with `PSI_DESKTOP=true` a fast desktop run could lift a page that fails on phones: Landers (desktop 94, mobile 48) scored 72 · 4★. With the current weights it scores 70.
+Mobile outweighs desktop (RFL.FIX.3i). Before that change desktop was 0.25 and mobile 0.20, so with `PSI_DESKTOP=true` a fast desktop run could lift a page that fails on phones: Landers (desktop 94, mobile 48) scored 72 · 4★. With the current weights it scores 70, and it grades 3★ because its mobile run fails the healthy-site rule below.
 
-**Star grade** comes from Health: ≥ 85 → 5★ · 70–84 → 4★ · 50–69 → 3★ · 30–49 → 2★ · < 30 → 1★ (whole stars only).
+**Star grade** comes from Health: ≥ 85 → 5★ · 70–84 → 4★ · 50–69 → 3★ · 30–49 → 2★ · < 30 → 1★ (whole stars only). Sites failing the healthy-site rule (health ≥ 70 AND PSI mobile performance ≥ 60; null mobile = unmeasured → health ≥ 70 alone) are capped at 3★ whatever their health (`UNHEALTHY_SITE_STAR_CAP`, RFL.FIX.3i.1).
 
 **Sellability (0–100)**, weights as read from `SELLABILITY_WEIGHTS` (these match CLAUDE.md §4.2):
 
@@ -160,9 +160,9 @@ Mobile outweighs desktop (RFL.FIX.3i). Before that change desktop was 0.25 and m
 |---|---|---|
 | `chain` | 40 | `is_chain` is true |
 | `provisional` | 55 | bot-blocked audit |
-| `healthy_site` | 55 | health ≥ 70 **and** PSI mobile performance ≥ 50 (`isHealthySite`; unmeasured mobile → health alone). Not applied to blocked audits |
+| `healthy_site` | 55 | health ≥ 70 **and** PSI mobile performance ≥ 60 (`isHealthySite`; null mobile = unmeasured → health ≥ 70 alone). Not applied to blocked audits |
 
-A page with mobile performance below 50 is never capped `healthy_site`, whatever its blended health. Landers at 70 with mobile 48 keeps its blended sellability of 62. The star grade still comes from health alone, so Landers is 4★, and the Analyst does not auto-run because that needs 3★ or lower. The Health narration uses the same rule: a 4★ page with mobile below 50 is described as "middling", not "healthy".
+A page with mobile performance below 60 is never capped `healthy_site` and never grades above 3★, whatever its blended health. The line was 50 until RFL.FIX.3i.1: Google's PSI bands call 0–49 poor and 50–89 needs-improvement, and 60 clears the run-to-run noise that moved Landers between mobile 48 and 50. Landers at health 70 with mobile 50 keeps its blended sellability of 62 and grades 3★, so the Analyst auto-runs. The Health narration uses the same rule: such a page is described as "middling", not "healthy".
 
 The no-website / social-only 95 is never capped. A null rating or review count adds a low "Unverified reputation" issue (packages/shared/src/issues.ts).
 
@@ -291,7 +291,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - Whether the HTML carries legacy pre-CSS markup (`legacy_markup`, from `hasLegacyMarkup` in apps/worker/src/lib/platform.ts; the patterns are listed under Design).
   - `desktop_measured`: true only when a real desktop PSI run happened; false means `ps_performance` is a copy of the mobile run.
 - **What the AI judges:** writes a short interpretation (`reasoning`, `critical_issues`, `summary_one_liner`) citing the numbers. A critical issue's `value` may be a string, number or boolean, so a reply like `ssl_valid: false` parses. Prompt: apps/worker/src/agents/prompts/health.ts.
-- **Model and settings:** `claude-haiku-4-5`, only when `AI_SUMMARIES` is `haiku` or lists `health` (no effort parameter; default max 4,096 tokens). **Deterministic template by default.** With desktop PSI off the template says "PSI mobile performance is N/100 (desktop not measured)" instead of quoting the mobile copy as a desktop score. Health runs before the Scorer, so once the audit is scored the orchestrator re-renders the template narration on the Health `agent_runs` row from the final verdict: the one-liner states the health band (4–5★ healthy, but only when mobile performance is at least 50, the same rule as the `healthy_site` cap; 3★, or 4★ with mobile below 50, middling; 1–2★ poor) and the classified platform (`legacy_static` reads "legacy static site", never "custom"), for example "Site is middling: health 60/100 (3★), a legacy static site; mobile performance 99/100 with 1 critical issue(s)." A Haiku narration is kept as the model wrote it.
+- **Model and settings:** `claude-haiku-4-5`, only when `AI_SUMMARIES` is `haiku` or lists `health` (no effort parameter; default max 4,096 tokens). **Deterministic template by default.** With desktop PSI off the template says "PSI mobile performance is N/100 (desktop not measured)" instead of quoting the mobile copy as a desktop score. Health runs before the Scorer, so once the audit is scored the orchestrator re-renders the template narration on the Health `agent_runs` row from the final verdict: the one-liner states the health band (4–5★ healthy; 3★ middling, which includes every page with mobile performance below 60 because the star grade is capped at 3★ there, the same rule as the `healthy_site` cap; 1–2★ poor) and the classified platform (`legacy_static` reads "legacy static site", never "custom"), for example "Site is middling: health 60/100 (3★), a legacy static site; mobile performance 99/100 with 1 critical issue(s)." A Haiku narration is kept as the model wrote it.
 - **Guardrails** (apps/worker/src/agents/guardrails/health-summary.ts): the reasoning must contain at least 2 numbers, and `critical_issues` can't be empty when the worst performance score is below 50. Fail → retry once → saved flagged.
 - **Inputs → outputs:**
   - Reads the shared homepage and PSI.
@@ -679,7 +679,7 @@ Other routes: `GET /health` (no login; queue and mode readout) and the static `/
 - **Realtime:** Supabase's live push channel; the worker broadcasts agent events on `workspace:{id}` and the web app updates without refreshing.
 - **Refusal:** the model declines to answer (`stop_reason: "refusal"`); retried once on `claude-opus-4-8`, then the template answers.
 - **RLS (Row Level Security):** database rules that let a logged-in user see only their own workspace's rows.
-- **Sellability cap:** a ceiling applied after the weighted math: chain 40, provisional 55, healthy site 55 (health ≥ 70 and mobile ≥ 50).
+- **Sellability cap:** a ceiling applied after the weighted math: chain 40, provisional 55, healthy site 55 (health ≥ 70 and mobile ≥ 60).
 - **Service-role key:** the Supabase key that bypasses RLS; it exists only in the worker's env.
 - **Stage budget:** the time limit for one step (PSI, screenshot, agent…); an overrun is skipped and noted.
 - **Stale reclaim:** requeueing jobs a crashed worker left `running` for over 10 minutes.
@@ -700,7 +700,8 @@ Other routes: `GET /health` (no login; queue and mode readout) and the static `/
 | Narration model (Health, Conversion, Presence, Reputation, SEO) | Sonnet 4.6 summaries (PRD §3.2, §3.4) | Deterministic template by default; `claude-haiku-4-5` for all five with `AI_SUMMARIES=haiku`, or for the agents a comma list names (`AI_SUMMARIES=reputation`) |
 | Design and Sales Summary model | Sonnet 4.6 | `claude-sonnet-5-5`, effort `low` |
 | Health weights | performance (desktop) 25 % · mobile 20 % (§4.1) | performance 0.20 · mobile 0.25 (RFL.FIX.3i) |
-| Sellability weights | 40 / 20 / 15 / 10 / 10 / 5 (§4.3) | 50 / 15 / 10 / 10 / 10 / 5, plus caps: chain 40, provisional 55, healthy site 55 (health ≥ 70 and mobile ≥ 50) |
+| Star grade | From health bands alone (§4.2) | Same bands, capped at 3★ when the healthy-site rule fails (mobile below 60) |
+| Sellability weights | 40 / 20 / 15 / 10 / 10 / 5 (§4.3) | 50 / 15 / 10 / 10 / 10 / 5, plus caps: chain 40, provisional 55, healthy site 55 (health ≥ 70 and mobile ≥ 60) |
 | Platform score | Wix/GoDaddy 20, Squarespace 45, WordPress 65, Webflow/custom 85 (§4.1) | Adds `legacy_static` = 30, assigned by the Scorer to a hand-coded page with no viewport, legacy markup and a stale or missing `Last-Modified` |
 | Null reputation | Not addressed | Null rating or review count scores a neutral 50 and adds an "Unverified reputation" issue |
 | Analyst auto-run | Sellability ≥ 60 (§6.11) | Star ≤ 3 AND sellability ≥ 60 AND not chain AND not provisional |

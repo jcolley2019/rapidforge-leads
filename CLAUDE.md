@@ -82,7 +82,7 @@ Scores are **deterministic math** (PRD Section 4; constants in `packages/shared/
 | Not a chain | 0.10 | |
 | Operational | 0.05 | |
 
-Caps after blending, lowest wins (`score_breakdown.capped`): health ≥ 70 → 55 (`healthy_site`); provisional/bot-blocked audit → 55 (`provisional`); `is_chain` → 40 (`chain`). No-website / social-only stays 95 (6.7). Analyst auto-runs only when star ≤ 3 AND sellability ≥ 60 AND not `is_chain` AND not provisional.
+Caps after blending, lowest wins (`score_breakdown.capped`): health ≥ 70 AND PSI mobile performance ≥ 60 → 55 (`healthy_site`; null mobile = unmeasured → health ≥ 70 alone); provisional/bot-blocked audit → 55 (`provisional`); `is_chain` → 40 (`chain`). No-website / social-only stays 95 (6.7). Sites failing the healthy-site rule are capped at 3★ whatever their health (RFL.FIX.3i.1). Analyst auto-runs only when star ≤ 3 AND sellability ≥ 60 AND not `is_chain` AND not provisional.
 
 ---
 
