@@ -393,7 +393,7 @@ export function HelpView({ onGoTo }: HelpViewProps) {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6">
+    <div className="mx-auto w-full max-w-4xl space-y-6">
       <div className="space-y-1">
         <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-primary">
           Account
@@ -404,10 +404,13 @@ export function HelpView({ onGoTo }: HelpViewProps) {
         </p>
       </div>
 
-      <div className="lg:grid lg:grid-cols-[10.5rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+      <div className="lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        {/* Sticky offsets are measured inside <main>'s 2rem padding:
+            -top-8 pins the narrow chip bar flush under the top bar so text
+            can't scroll through the gap above it. */}
         <nav
           aria-label="Help sections"
-          className="sticky top-0 z-10 -mx-1 mb-4 bg-background/95 px-1 py-2 lg:top-0 lg:m-0 lg:bg-transparent lg:p-0"
+          className="sticky -top-8 z-10 -mx-1 mb-4 bg-background/95 px-1 py-2 lg:top-0 lg:m-0 lg:bg-transparent lg:p-0"
         >
           <ul className="flex flex-wrap gap-1.5 lg:flex-col lg:gap-0.5">
             {nav.map(({ id, title }) => (
