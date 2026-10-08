@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   Bot,
+  CircleHelp,
   LayoutDashboard,
   LayoutGrid,
   List,
@@ -22,7 +23,8 @@ export type ViewKey =
   | "leads"
   | "agents"
   | "analytics"
-  | "settings";
+  | "settings"
+  | "help";
 
 export interface ViewDef {
   key: ViewKey;
@@ -39,6 +41,7 @@ export const VIEWS: ViewDef[] = [
   { key: "agents", label: "Agents", icon: Bot },
   { key: "analytics", label: "Analytics", icon: BarChart3 },
   { key: "settings", label: "Settings", icon: Settings },
+  { key: "help", label: "Help", icon: CircleHelp },
 ];
 
 const viewByKey = new Map(VIEWS.map((v) => [v.key, v]));
@@ -59,5 +62,5 @@ export const RAIL_GROUPS: ViewGroup[] = [
   { header: "Prospecting", keys: ["dashboard", "workspace", "new-search"] },
   { header: "Pipeline", keys: ["pipeline", "leads"] },
   { header: "Intelligence", keys: ["agents", "analytics"] },
-  { header: "Account", keys: ["settings"] },
+  { header: "Account", keys: ["settings", "help"] },
 ];

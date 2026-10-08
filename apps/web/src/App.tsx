@@ -14,6 +14,7 @@ import {
 import { AgentsView } from "@/views/AgentsView";
 import { AnalyticsView } from "@/views/AnalyticsView";
 import { DashboardView } from "@/views/DashboardView";
+import { HelpView } from "@/views/HelpView";
 import { LeadsView } from "@/views/LeadsView";
 import { NewSearchView } from "@/views/NewSearchView";
 import { PipelineView } from "@/views/PipelineView";
@@ -73,6 +74,8 @@ export function App() {
         return <AnalyticsView />;
       case "settings":
         return <SettingsView />;
+      case "help":
+        return <HelpView onGoTo={setView} />;
     }
   }
 
@@ -113,6 +116,7 @@ export function App() {
           onSignOut={() => void signOut()}
           onOpenPalette={() => setPaletteOpen(true)}
           onOpenAnalytics={() => setView("analytics")}
+          onOpenHelp={() => setView("help")}
         />
 
         <div className="flex flex-1 overflow-hidden">

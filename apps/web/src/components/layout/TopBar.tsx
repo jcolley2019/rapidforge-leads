@@ -1,4 +1,4 @@
-import { LogOut, Moon, Sun } from "lucide-react";
+import { CircleHelp, LogOut, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
@@ -18,17 +18,20 @@ interface TopBarProps {
   onOpenPalette: () => void;
   /** Usage meter deep-links to Analytics (PRD 7.2). */
   onOpenAnalytics: () => void;
+  /** The ? button opens the Help view (RFL.HELP.4). */
+  onOpenHelp: () => void;
 }
 
 /**
  * Top bar (PRD 7.2, Glass v2): brand, workspace chip, connection state,
- * cmd-K trigger, live usage meter, theme toggle, account.
+ * cmd-K trigger, live usage meter, Help, theme toggle, account.
  */
 export function TopBar({
   userEmail,
   onSignOut,
   onOpenPalette,
   onOpenAnalytics,
+  onOpenHelp,
 }: TopBarProps) {
   const [theme, setTheme] = useState<Theme>(getTheme);
   const { connection } = useLive();
@@ -67,6 +70,15 @@ export function TopBar({
 
       <UsageMeter onClick={onOpenAnalytics} />
 
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onOpenHelp}
+        title="Help"
+        aria-label="Help"
+      >
+        <CircleHelp />
+      </Button>
 
       <Button
         variant="ghost"
