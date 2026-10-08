@@ -12,6 +12,7 @@ import {
   centsFromMicrocents,
   costMicrocentsFor,
   DEFAULT_MAX_TOKENS,
+  describeNarrationMode,
   generateJsonSummary,
   generateMarkdown,
   MODEL_HAIKU,
@@ -244,6 +245,16 @@ describe("narration summaries (AI_SUMMARIES)", () => {
     expect(p.requests[0]!.outputConfig?.effort).toBeUndefined();
     expect(p.requests[0]!.outputConfig?.format?.type).toBe("json_schema");
     expect(out.modelUsed).toBe(MODEL_HAIKU);
+  });
+
+  it("describeNarrationMode (RFL.VERIFY.3 V9): the boot log names a list instead of saying template", () => {
+    expect(describeNarrationMode("reputation")).toBe("narration: reputation (Haiku 4.5; the others template)");
+    expect(describeNarrationMode(" SEO , reputation,bogus")).toBe(
+      "narration: reputation, seo (Haiku 4.5; the others template)",
+    );
+    expect(describeNarrationMode("haiku")).toBe("narration: haiku (all five on Haiku 4.5)");
+    expect(describeNarrationMode(undefined)).toMatch(/^narration: template \(/);
+    expect(describeNarrationMode("bogus")).toMatch(/^narration: template \(/);
   });
 
   it("parseAiSummaries: unset/blank/unknown → template; haiku/all → all; a list → the named agents", () => {

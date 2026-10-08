@@ -11,7 +11,7 @@
  */
 import "dotenv/config";
 import { createApp } from "./http";
-import { aiSummaryMode, narrationSummaryMode } from "./lib/ai";
+import { aiSummaryMode, describeNarrationMode } from "./lib/ai";
 import { preloadBrowserModule } from "./lib/browser";
 import { getReportRenderer } from "./lib/pdf-report";
 import { createPlacesClient } from "./lib/places";
@@ -39,7 +39,7 @@ const deps: OrchestratorDeps = {
   screenshotStorage: createScreenshotStorage(),
 };
 console.log(
-  `[ai] summary mode: ${aiSummaryMode()}${aiSummaryMode() === "template" ? " — ANTHROPIC_API_KEY absent; summaries are deterministic templates" : ""}; narration summaries (health/conversion/presence/reputation/seo): ${narrationSummaryMode()}${narrationSummaryMode() === "template" ? " (set AI_SUMMARIES=haiku for Haiku 4.5)" : ""}`,
+  `[ai] summary mode: ${aiSummaryMode()}${aiSummaryMode() === "template" ? " — ANTHROPIC_API_KEY absent; summaries are deterministic templates" : ""}; ${describeNarrationMode()}`,
 );
 // RFL.QUEUE.8a: Chrome work is opt-in (SCREENSHOTS_ENABLED=true). When on,
 // puppeteer-core loads here, before the poller claims a job — on Node 24 +

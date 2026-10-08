@@ -334,6 +334,21 @@ export function narrationSummaryMode(agent?: NarrationAgent): "template" | "haik
   return agent !== undefined && parsed.has(agent) ? "haiku" : "template";
 }
 
+/**
+ * The boot log's narration clause (RFL.VERIFY.3 V9). narrationSummaryMode()
+ * without an agent reads "template" under a list, so the log used to say
+ * "template" while AI_SUMMARIES=reputation narrated Reputation on Haiku.
+ */
+export function describeNarrationMode(raw: string | undefined = process.env.AI_SUMMARIES): string {
+  const parsed = parseAiSummaries(raw);
+  if (parsed === "template") {
+    return "narration: template (set AI_SUMMARIES=haiku, or a list such as reputation,seo, for Haiku 4.5)";
+  }
+  if (parsed === "all") return "narration: haiku (all five on Haiku 4.5)";
+  const named = NARRATION_AGENTS.filter((agent) => parsed.has(agent));
+  return `narration: ${named.join(", ")} (Haiku 4.5; the others template)`;
+}
+
 // ---------------------------------------------------------------------------
 // Structured output
 // ---------------------------------------------------------------------------
