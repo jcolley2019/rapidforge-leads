@@ -16,6 +16,7 @@ import type {
   Audit,
   Business,
   ChainReason,
+  DemoStatus,
   Issue,
   Job,
   JobStatus,
@@ -231,6 +232,19 @@ export interface UpdateSearchResultPatch {
   next_followup_at?: string | null;
 }
 
+/**
+ * Build-demo lifecycle patch (RFL.DEMO.1; migration 0010). Written only by
+ * the demo runner — the web never posts these fields.
+ */
+export interface UpdateBusinessPatch {
+  demo_status?: DemoStatus | null;
+  demo_url?: string | null;
+  demo_preview_url?: string | null;
+  demo_sub?: string | null;
+  demo_built_at?: string | null;
+  demo_error?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Read models (GET /api/searches/:id)
 // ---------------------------------------------------------------------------
@@ -327,6 +341,11 @@ export interface DataStore {
     details: Record<string, unknown>,
   ): Promise<void>;
   getBusiness(id: string): Promise<Business | null>;
+  /** Applies the patch; returns the updated row or null when absent (RFL.DEMO.1). */
+  updateBusiness(
+    id: string,
+    patch: UpdateBusinessPatch,
+  ): Promise<Business | null>;
   ensureSearchResult(
     workspaceId: string,
     searchId: string,

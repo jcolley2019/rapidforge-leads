@@ -37,6 +37,7 @@ import {
 } from "@rapidforge/shared";
 import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
+import { DemoTab } from "./DemoTab";
 import { ReauditButton } from "./ReauditButton";
 import {
   downloadReport,
@@ -78,6 +79,7 @@ type TabKey =
   | "audit"
   | "brief"
   | "design"
+  | "demo"
   | "sales"
   | "history"
   | "notes"
@@ -88,6 +90,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "audit", label: "Audit" },
   { key: "brief", label: "Builder Brief" },
   { key: "design", label: "Design Brief" },
+  { key: "demo", label: "Demo" },
   { key: "sales", label: "Sales Script" },
   { key: "history", label: "History" },
   { key: "notes", label: "Notes" },
@@ -215,6 +218,7 @@ function DrawerBody({ lead, onClose }: { lead: LeadView; onClose: () => void }) 
         )}
         {tab === "brief" && <BuilderBriefTab lead={lead} />}
         {tab === "design" && <DesignBriefTab lead={lead} />}
+        {tab === "demo" && <DemoTab lead={lead} />}
         {tab === "sales" && <SalesScriptTab lead={lead} />}
         {tab === "history" && <HistoryTab businessId={lead.business.id} />}
         {tab === "notes" && <NotesTab lead={lead} />}

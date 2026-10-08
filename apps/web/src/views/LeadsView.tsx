@@ -520,7 +520,22 @@ function LeadRow({
         </div>
       </td>
       <td className="truncate px-3 py-[7px] font-mono text-xs text-muted-foreground">
-        {websiteHost(lead)}
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{websiteHost(lead)}</span>
+          {business.demo_url && (
+            // RFL.DEMO.1: the built demo site, opened without opening the row.
+            <a
+              href={business.demo_url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0 rounded-full border border-primary/50 bg-primary/10 px-1.5 text-[10px] text-primary hover:bg-primary/20"
+              title={business.demo_url}
+            >
+              Demo
+            </a>
+          )}
+        </span>
       </td>
       <td className="whitespace-nowrap px-3 py-[7px] text-right font-mono text-xs">
         {business.google_rating !== null ? (

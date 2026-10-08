@@ -22,7 +22,9 @@ export type AgentEvent =
       businessId: string;
       healthScore: number;
       sellabilityScore: number;
-    };
+    }
+  /** One stderr line from a running `npm run demo` build (RFL.DEMO.1). */
+  | { type: "demo.log"; businessId: string; line: string };
 
 export const AgentEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -53,6 +55,11 @@ export const AgentEventSchema = z.discriminatedUnion("type", [
     businessId: z.string(),
     healthScore: z.number(),
     sellabilityScore: z.number(),
+  }),
+  z.object({
+    type: z.literal("demo.log"),
+    businessId: z.string(),
+    line: z.string(),
   }),
 ]);
 

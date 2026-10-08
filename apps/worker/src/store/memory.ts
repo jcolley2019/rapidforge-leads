@@ -36,6 +36,7 @@ import {
   type SearchDetail,
   type UpdateAgentRunPatch,
   type UpdateAuditPatch,
+  type UpdateBusinessPatch,
   type UpdateSearchResultPatch,
   type UpsertBusinessInput,
 } from "./types";
@@ -323,6 +324,16 @@ export class MemoryStore implements DataStore {
 
   async getBusiness(id: string): Promise<Business | null> {
     return this.businesses.get(id) ?? null;
+  }
+
+  async updateBusiness(
+    id: string,
+    patch: UpdateBusinessPatch,
+  ): Promise<Business | null> {
+    const business = this.businesses.get(id);
+    if (!business) return null;
+    Object.assign(business, patch);
+    return { ...business };
   }
 
   async ensureSearchResult(

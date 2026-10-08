@@ -38,6 +38,7 @@ import {
   type SearchDetail,
   type UpdateAgentRunPatch,
   type UpdateAuditPatch,
+  type UpdateBusinessPatch,
   type UpdateSearchResultPatch,
   type UpsertBusinessInput,
 } from "./types";
@@ -455,6 +456,20 @@ export class SupabaseStore implements DataStore {
       .eq("id", id)
       .maybeSingle();
     if (error) throw new Error(`[store] getBusiness: ${error.message}`);
+    return (data as Business | null) ?? null;
+  }
+
+  async updateBusiness(
+    id: string,
+    patch: UpdateBusinessPatch,
+  ): Promise<Business | null> {
+    const { data, error } = await this.db
+      .from("businesses")
+      .update(patch)
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    if (error) throw new Error(`[store] updateBusiness: ${error.message}`);
     return (data as Business | null) ?? null;
   }
 

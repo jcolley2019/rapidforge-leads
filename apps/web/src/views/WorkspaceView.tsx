@@ -414,6 +414,9 @@ const FEED_ICONS = {
   "agent.completed": CheckCircle2,
   "agent.failed": XCircle,
   "lead.scored": CheckCircle2,
+  // demo.log lines never reach the feed (they live in demoLogs) — typed for
+  // the AgentEvent union's sake (RFL.DEMO.1).
+  "demo.log": MessageSquareText,
 } as const;
 
 function relativeTime(at: number): string {

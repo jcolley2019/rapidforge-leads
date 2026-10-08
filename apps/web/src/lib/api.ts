@@ -12,6 +12,7 @@ import type {
   Audit,
   Business,
   CreateSearchRequest,
+  DemoStatus,
   DesignBrief,
   Search,
   SearchResult,
@@ -347,4 +348,40 @@ export async function downloadReport(businessId: string): Promise<void> {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// RFL.DEMO.1: the Build demo button. The worker runs rapidforge-demos for the
+// lead in the background; progress streams as demo.log events and GET polls.
+// ---------------------------------------------------------------------------
+
+export interface DemoStatusResponse {
+  demo_status: DemoStatus | null;
+  demo_url: string | null;
+  demo_preview_url: string | null;
+  demo_sub: string | null;
+  demo_built_at: string | null;
+  demo_error: string | null;
+  /** Last 50 stderr lines of the running / most recent build (worker memory). */
+  log: string[];
+  /** false while DNS for the public link is pending; null when unknown. */
+  alias_ok: boolean | null;
+}
+
+/** Start a demo build → 202 {status:"building"}. 409 while one is running. */
+export async function buildDemo(
+  businessId: string,
+  sub?: string,
+): Promise<{ status: string }> {
+  return apiFetch(`/api/businesses/${encodeURIComponent(businessId)}/demo`, {
+    method: "POST",
+    body: JSON.stringify(sub ? { sub } : {}),
+  });
+}
+
+/** The business's demo_* fields plus the in-memory log tail. */
+export async function fetchDemoStatus(
+  businessId: string,
+): Promise<DemoStatusResponse> {
+  return apiFetch(`/api/businesses/${encodeURIComponent(businessId)}/demo`);
 }

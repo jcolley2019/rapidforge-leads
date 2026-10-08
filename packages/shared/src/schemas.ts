@@ -227,6 +227,10 @@ export const ChainReasonSchema = z.enum([
 ]);
 export type ChainReason = z.infer<typeof ChainReasonSchema>;
 
+/** businesses.demo_status — the Build demo button's lifecycle (RFL.DEMO.1). */
+export const DemoStatusSchema = z.enum(["building", "ready", "failed"]);
+export type DemoStatus = z.infer<typeof DemoStatusSchema>;
+
 export const BusinessSchema = z.object({
   id: uuid,
   workspace_id: uuid,
@@ -250,6 +254,16 @@ export const BusinessSchema = z.object({
   website_kind: WebsiteKindSchema.nullable(),
   first_seen_at: timestamp.nullable(),
   last_refreshed_at: timestamp.nullable(),
+  /**
+   * Demo site built by rapidforge-demos (RFL.DEMO.1; migration 0010).
+   * Optional: rows read before the columns exist still parse.
+   */
+  demo_status: DemoStatusSchema.nullable().optional(),
+  demo_url: z.string().nullable().optional(),
+  demo_preview_url: z.string().nullable().optional(),
+  demo_sub: z.string().nullable().optional(),
+  demo_built_at: timestamp.nullable().optional(),
+  demo_error: z.string().nullable().optional(),
 });
 export type Business = z.infer<typeof BusinessSchema>;
 

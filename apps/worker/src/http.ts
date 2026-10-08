@@ -11,6 +11,10 @@ import {
   CreateSearchRequestSchema,
   UpdateLeadStatusRequestSchema,
   UpdateWorkspaceConfigRequestSchema,
+  type AgentResult,
+  type Audit,
+  type Business,
+  type DesignBrief,
   type WorkspaceConfig,
 } from "@rapidforge/shared";
 import { runAnalyst } from "./agents/analyst";
@@ -22,6 +26,7 @@ import { countWords } from "./agents/guardrails/analyst";
 import { h2Headings } from "./agents/guardrails/builder-brief";
 import { AnalystOutputSchema } from "./agents/prompts/analyst";
 import { BRIEF_SECTIONS, type CompetitorSummary } from "./agents/prompts/builder-brief";
+import { DEMO_SUB_RE, DemoRunner, type DemoRunnerOptions } from "./demo";
 import { aiSummaryMode } from "./lib/ai";
 import {
   PLACE_PHOTO_MAX_WIDTH_PX,
@@ -94,6 +99,70 @@ const ReauditRequestSchema = z.object({
   force: z.boolean().optional().default(false),
 });
 
+/** POST /api/businesses/:id/demo body (RFL.DEMO.1). sub = demos.rapidforge.ai label. */
+const BuildDemoRequestSchema = z.object({
+  sub: z
+    .string()
+    .trim()
+    .regex(
+      DEMO_SUB_RE,
+      "sub must be a DNS label: lowercase a-z, 0-9, hyphens, 1-40 characters",
+    )
+    .optional(),
+});
+
+export type EnsureDesignBriefOutcome =
+  | { status: "no_audit" }
+  | { status: "stored"; audit: Audit; design_brief: Record<string, unknown> }
+  | { status: "generated"; audit: Audit; result: AgentResult<DesignBrief> };
+
+/**
+ * The stored Design Brief for a business, or one freshly generated
+ * (RFL.BRIEF.7 / RFL.DEMO.1). `force` re-runs the agent even when a brief
+ * is stored. "no_audit" when the business has no completed audit to work
+ * from. The design-brief route and the demo build both go through here, so
+ * a lead with no brief gets one before its demo is built.
+ */
+export async function ensureDesignBrief(input: {
+  deps: OrchestratorDeps;
+  business: Business;
+  workspaceId: string;
+  force?: boolean;
+}): Promise<EnsureDesignBriefOutcome> {
+  const { deps, business, workspaceId } = input;
+  const audit = await deps.store.getLatestCompletedAuditForBusiness(business.id);
+  if (!audit) return { status: "no_audit" };
+  if (!input.force && audit.design_brief) {
+    return { status: "stored", audit, design_brief: audit.design_brief };
+  }
+  let siteHtmlExcerpt: string | null = null;
+  if (business.website_url) {
+    try {
+      const site = await deps.site.fetchHomepage(business.website_url);
+      if (site) siteHtmlExcerpt = htmlToExcerpt(site.html);
+    } catch {
+      siteHtmlExcerpt = null;
+    }
+  }
+  const result = await runOnDemandAgent({
+    store: deps.store,
+    workspaceId,
+    agentName: "design-brief",
+    businessId: business.id,
+    auditId: audit.id,
+    run: (signal) =>
+      runDesignBrief({ business, audit, siteHtmlExcerpt, signal }),
+    persist: (auditId, output) =>
+      deps.store.updateAudit(auditId, { design_brief: output }),
+  });
+  return { status: "generated", audit, result };
+}
+
+/** Test seams for createApp (RFL.DEMO.1: a fake child process for the demo build). */
+export interface AppOptions {
+  demo?: Partial<Omit<DemoRunnerOptions, "store">>;
+}
+
 function defaultConfig(workspaceId: string): WorkspaceConfig {
   return {
     workspace_id: workspaceId,
@@ -112,9 +181,19 @@ export function createApp(
   deps: OrchestratorDeps,
   poller: QueuePoller,
   startedAt: number,
+  options: AppOptions = {},
 ): Express {
   const app = express();
   app.use(express.json());
+
+  // Build-demo runner (RFL.DEMO.1): one per app, holds the per-business lock
+  // and the in-memory log tail. DEMOS_DIR is read per call so a .env edit
+  // plus worker restart is all it takes.
+  const demoRunner = new DemoRunner({
+    store: deps.store,
+    demosDir: () => process.env.DEMOS_DIR,
+    ...options.demo,
+  });
 
   // Fixture screenshots (Sprint 6) — fixture-mode audits store relative URLs
   // under this route; the web client resolves them against its API base.
@@ -592,38 +671,21 @@ export function createApp(
         res.status(404).json({ error: "Business not found" });
         return;
       }
-      const audit = await deps.store.getLatestCompletedAuditForBusiness(
-        business.id,
-      );
-      if (!audit) {
+      const outcome = await ensureDesignBrief({
+        deps,
+        business,
+        workspaceId: auth.workspaceId,
+        force: req.query.force === "true",
+      });
+      if (outcome.status === "no_audit") {
         res.status(409).json({ error: "No completed audit for a design brief" });
         return;
       }
-      const force = req.query.force === "true";
-      if (!force && audit.design_brief) {
-        res.json({ design_brief: audit.design_brief, stored: true });
+      if (outcome.status === "stored") {
+        res.json({ design_brief: outcome.design_brief, stored: true });
         return;
       }
-      let siteHtmlExcerpt: string | null = null;
-      if (business.website_url) {
-        try {
-          const site = await deps.site.fetchHomepage(business.website_url);
-          if (site) siteHtmlExcerpt = htmlToExcerpt(site.html);
-        } catch {
-          siteHtmlExcerpt = null;
-        }
-      }
-      const result = await runOnDemandAgent({
-        store: deps.store,
-        workspaceId: auth.workspaceId,
-        agentName: "design-brief",
-        businessId: business.id,
-        auditId: audit.id,
-        run: (signal) =>
-          runDesignBrief({ business, audit, siteHtmlExcerpt, signal }),
-        persist: (auditId, output) =>
-          deps.store.updateAudit(auditId, { design_brief: output }),
-      });
+      const { result } = outcome;
       if (result.status !== "completed" || !result.output) {
         res.status(502).json({ error: result.error ?? "Design brief failed" });
         return;
@@ -638,6 +700,99 @@ export function createApp(
     } catch (err) {
       console.error("[api] POST /api/businesses/:id/design-brief failed:", err);
       res.status(500).json({ error: "Failed to run design brief" });
+    }
+  });
+
+  /**
+   * POST /api/businesses/:id/demo -> 202 {status:"building"} (RFL.DEMO.1).
+   * Builds and deploys the prospect's demo site with rapidforge-demos in the
+   * background; progress streams as demo.log events and GET .../demo polls
+   * the outcome. 503 without DEMOS_DIR, 409 while a build is running or
+   * when there is no completed audit to brief from.
+   */
+  app.post("/api/businesses/:id/demo", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    if (!demoRunner.demosDir()) {
+      res.status(503).json({ error: "DEMOS_DIR not configured" });
+      return;
+    }
+    const parsed = BuildDemoRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "Invalid demo request",
+        details: parsed.error.issues.map(
+          (i) => `${i.path.join(".")}: ${i.message}`,
+        ),
+      });
+      return;
+    }
+    try {
+      const business = await deps.store.getBusiness(req.params.id);
+      if (!business || business.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Business not found" });
+        return;
+      }
+      // Only the in-memory lock blocks: a row left 'building' by a dead
+      // worker is not a running build and may be rebuilt.
+      if (demoRunner.isBuilding(business.id)) {
+        res.status(409).json({ error: "A demo build is already running for this business" });
+        return;
+      }
+      const audit = await deps.store.getLatestCompletedAuditForBusiness(
+        business.id,
+      );
+      if (!audit) {
+        res.status(409).json({ error: "No completed audit" });
+        return;
+      }
+      const started = demoRunner.start({
+        business,
+        workspaceId: auth.workspaceId,
+        sub: parsed.data.sub || undefined,
+        ensureBrief: async () => {
+          const outcome = await ensureDesignBrief({
+            deps,
+            business,
+            workspaceId: auth.workspaceId,
+          });
+          if (outcome.status === "no_audit") throw new Error("No completed audit");
+          if (outcome.status === "generated" && !outcome.result.output) {
+            throw new Error(outcome.result.error ?? "Design brief failed");
+          }
+        },
+      });
+      if (!started) {
+        res.status(409).json({ error: "A demo build is already running for this business" });
+        return;
+      }
+      res.status(202).json({ status: "building" });
+    } catch (err) {
+      console.error("[api] POST /api/businesses/:id/demo failed:", err);
+      res.status(500).json({ error: "Failed to start demo build" });
+    }
+  });
+
+  /** GET /api/businesses/:id/demo -> demo_* fields + the last 50 log lines. */
+  app.get("/api/businesses/:id/demo", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const business = await deps.store.getBusiness(req.params.id);
+      if (!business || business.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Business not found" });
+        return;
+      }
+      res.json(demoRunner.snapshot(business));
+    } catch (err) {
+      console.error("[api] GET /api/businesses/:id/demo failed:", err);
+      res.status(500).json({ error: "Failed to load demo status" });
     }
   });
 
