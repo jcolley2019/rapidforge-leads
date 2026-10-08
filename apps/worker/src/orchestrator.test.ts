@@ -247,6 +247,39 @@ describe("audit pipeline on fixture data", () => {
     }
   });
 
+  it("audits.completed_at is stamped when the pipeline finishes, at or after the last agent_runs.ended_at (RFL.VERIFY.3 V5)", async () => {
+    const great = await seedBusiness(harness, {
+      google_place_id: "fx-001",
+      name: "Snake River Plumbing Co",
+      website_url: "https://snakeriverplumbing.com",
+      address: "1120 N Main St, Meridian, ID 83642",
+    });
+    const wix = await seedBusiness(harness, {
+      google_place_id: "fx-002",
+      name: "Boise Drain Pros",
+      website_url: "https://boisedrainpros.wixsite.com/home",
+      address: "7800 W Fairview Ave, Boise, ID 83704",
+    });
+    // Snake River: Scorer last (no Analyst). Drain Pros: the Analyst runs last.
+    for (const [business, lastAgent] of [
+      [great, "scorer"],
+      [wix, "analyst"],
+    ] as const) {
+      await runAuditJob(harness, business.id);
+      const audit = (await leadFor(harness, business.id)).audit!;
+      const runs = harness.store.listAgentRuns().filter((r) => r.target_id === business.id);
+      expect(runs.map((r) => r.agent_name)).toContain(lastAgent);
+      const lastEnded = runs
+        .map((r) => r.ended_at)
+        .filter((t): t is string => t !== null)
+        .sort()
+        .at(-1)!;
+      expect(audit.completed_at).not.toBeNull();
+      expect(Date.parse(audit.completed_at!)).toBeGreaterThanOrEqual(Date.parse(lastEnded));
+      expect(Date.parse(audit.completed_at!)).toBeGreaterThanOrEqual(Date.parse(audit.created_at!));
+    }
+  });
+
   it("keeps special routing intact: no-website stays a 95 hot lead, dead site stays health 10", async () => {
     const noSite = await seedBusiness(harness, {
       google_place_id: "fx-003",

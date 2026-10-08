@@ -362,7 +362,9 @@ export async function runScorer(
       issues: scores.issues,
       status: "completed",
       error_message: null,
-      completed_at: now.toISOString(),
+      // RFL.VERIFY.3 V5: when the row is finalized, not the pipeline start
+      // (`now`). The orchestrator re-stamps it once the last agent stored.
+      completed_at: new Date().toISOString(),
     };
     await ctx.store.updateAudit(ctx.auditId, patch);
 

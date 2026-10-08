@@ -422,7 +422,7 @@ async function runAuditPipeline(
       score_breakdown: plan.breakdown,
       issues: plan.issues,
       status: plan.auditStatus,
-      completed_at: now.toISOString(),
+      completed_at: new Date().toISOString(), // V5: finished now, not at start
       provisional: true,
     });
     // RFL.WEB.10: the pointer follows the audit that just finalized.
@@ -607,6 +607,11 @@ async function runAuditPipeline(
       }
     }
   }
+
+  // RFL.VERIFY.3 V5: completed_at is when the pipeline finished, after the
+  // last agent stored (the Health re-render, or the Analyst when it ran),
+  // not the pipeline start it used to carry.
+  await store.updateAudit(auditId, { completed_at: new Date().toISOString() });
 }
 
 /**

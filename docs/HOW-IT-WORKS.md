@@ -460,9 +460,9 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 - **Model and settings:** none.
 - **Guardrails:** none (pure functions; a failure throws and fails the job).
 - **Inputs → outputs:**
-  - Updates the pending `audits` row with every measured column, `website_health_score`, `star_grade`, `sellability_score`, `issues`, and `status = 'completed'`.
+  - Updates the pending `audits` row with every measured column, `website_health_score`, `star_grade`, `sellability_score`, `issues`, `status = 'completed'` and `completed_at` (the time of this write, not the pipeline start).
   - `score_breakdown` holds `health`, `sellability`, `badge` ("Builder site" for wix/godaddy/squarespace, never for `legacy_static`), `chain`, `capped`, `stage_timeouts`, `agents` (which ran) and `v15_agents`.
-  - The orchestrator then logs `audit_run` and emits `lead.scored`.
+  - The orchestrator then logs `audit_run` and emits `lead.scored`. When the last agent has stored (the Analyst, when it auto-runs), it stamps `completed_at` again, so the column marks when the pipeline finished.
 - **Who reads it downstream:** the Analyst gate; every screen; PDF report; money-facts.ts.
 - **Typical cost per lead:** $0 (no AI).
 - **Known gaps:** broken images are never checked, and `gbp_review_velocity` is never written (see Health and Reputation).
