@@ -565,7 +565,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 
 ## What the web app shows
 
-The left rail has eight views (apps/web/src/views/views.ts). The web app holds no secrets. It reads the worker's HTTP API with your Supabase login token and listens to the Realtime channel (apps/web/src/lib/api.ts, apps/web/src/features/live/useWorkspaceLive.ts).
+The left rail has nine views (apps/web/src/views/views.ts). The web app holds no secrets. It reads the worker's HTTP API with your Supabase login token and listens to the Realtime channel (apps/web/src/lib/api.ts, apps/web/src/features/live/useWorkspaceLive.ts).
 
 | Screen | What it shows | Data it reads |
 |---|---|---|
@@ -577,7 +577,8 @@ The left rail has eight views (apps/web/src/views/views.ts). The web app holds n
 | Leads | Every lead across all searches; CSV export (built in the browser); bulk status change and bulk re-audit | `GET /api/leads`, `POST /api/leads/:id/status`, `POST /api/businesses/:id/reaudit` |
 | Agents | "Coming soon" placeholder (`StubView`) | — |
 | Analytics | "Coming soon" placeholder | — |
-| Settings | The six cascading variables | `GET /api/config`, `PUT /api/config` |
+| Settings | The six cascading variables; Help & coaching (Open Help, Reset coaching tips) | `GET /api/config`, `PUT /api/config` |
+| Help | Six walkthroughs (run a search, read a score, the lead drawer, export, build a demo, settings) and a glossary; each section ends with a "Go to" button into the view it describes. Also opened from the top bar's ? button, a tip's "Learn more" and Settings (apps/web/src/views/HelpView.tsx) | — (static) |
 
 **Lead drawer tabs** (apps/web/src/components/leads/LeadDrawer.tsx). Builder Brief, Design Brief and Sales Script stay locked ("Audit this lead first") until the lead's audit is `completed`. Hot leads have completed audits, so they unlock too.
 
@@ -587,6 +588,7 @@ The left rail has eight views (apps/web/src/views/views.ts). The web app holds n
 | Audit | Per-agent measured data and the per-agent AI cost readout | `audits` columns + `score_breakdown`, `GET /api/businesses/:id/costs` |
 | Builder Brief | The markdown brief; generate / regenerate | `audits.builder_brief_md`; `POST /api/businesses/:id/builder-brief` |
 | Design Brief | The JSON brief with photos; generate / regenerate | `audits.design_brief`; `POST /api/businesses/:id/design-brief`; `GET /api/places/photo/:ref` |
+| Demo | "Build demo" hands the Design Brief to the rapidforge-demos generator on the worker's machine (needs `DEMOS_DIR`); a live build log while building; when ready, the public link (Open / Copy), the Vercel preview link and the build time, plus Rebuild; on failure the error and "Try again" (apps/web/src/components/leads/DemoTab.tsx) | `businesses.demo_status` / `demo_url` / `demo_preview_url` / `demo_built_at`; `POST /api/businesses/:id/demo`; `GET /api/businesses/:id/demo` (3 s poll) + Realtime `demo.log` |
 | Sales Script | Talk track + objections | `audits.sales_summary`; `POST /api/businesses/:id/sales-summary` |
 | History | Every audit of this business, newest first | `GET /api/businesses/:id/audits` |
 | Notes | Auto-saved notes | `POST /api/leads/:id/status` |
@@ -605,6 +607,8 @@ The left rail has eight views (apps/web/src/views/views.ts). The web app holds n
 | Cancel search | `POST /api/searches/:id/cancel` | Fails queued jobs, aborts running ones, search → `failed`; 409 if already finished | $0 |
 
 Other routes: `GET /health` (no login; queue and mode readout) and the static `/fixtures/screenshots` route for fixture images.
+
+**Coaching tips** (apps/web/src/components/CoachingTip.tsx, apps/web/src/lib/coaching.ts). Dashboard, New Search, Workspace, Leads, Pipeline and the drawer's Overview tab each open with one dismissible tip (a sentence or two and a "Learn more" link into Help). Dismissals are kept in the browser's localStorage under `rapidforge-coaching:<user id>` (the offline preview uses `rapidforge-coaching:preview`) as a JSON list of tip ids, so they are per user and per browser; nothing reaches the database. Settings → Help & coaching → "Reset coaching tips" clears the list and every tip shows again.
 
 ---
 
