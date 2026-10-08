@@ -95,6 +95,13 @@ export const STAR_BANDS = [
   { min: 0, stars: 1 },
 ] as const;
 
+/**
+ * RFL.FIX.3i.1: a site that fails the healthy-site rule (isHealthySite —
+ * mobile PSI under HEALTHY_SITE_MOBILE_MIN) grades at most this many stars
+ * whatever its health, so the Analyst auto-run (≤ 3★) still reaches it.
+ */
+export const UNHEALTHY_SITE_STAR_CAP = 3;
+
 // ---------------------------------------------------------------------------
 // Sellability Score (PRD 4.3) — 0–100, higher = better LEAD
 // ---------------------------------------------------------------------------
@@ -153,8 +160,11 @@ export const HEALTHY_SITE_HEALTH_MIN = 70;
  * of the healthy cap however good its blended health, because a page that
  * fails on a phone is still a rebuild prospect. Unmeasured mobile (null)
  * leaves the rule on health alone, as before.
+ * RFL.FIX.3i.1: 60, not 50 — Google's PSI bands call 0–49 poor and 50–89
+ * needs-improvement, and 60 clears the run-to-run noise that flipped a
+ * mobile-50 site in and out of the cap between audits.
  */
-export const HEALTHY_SITE_MOBILE_MIN = 50;
+export const HEALTHY_SITE_MOBILE_MIN = 60;
 export const HEALTHY_SITE_SELLABILITY_CAP = 55;
 export const PROVISIONAL_SELLABILITY_CAP = 55;
 
@@ -361,11 +371,22 @@ export function computeHealthScore(input: HealthScoreInput): HealthScoreResult {
 /**
  * Star grade from Health Score (PRD 4.2). Whole stars only in v1
  * (half-stars at band edges are optional per PRD — deferred).
+ * RFL.FIX.3i.1: 4–5★ requires the healthy-site rule — a site failing
+ * isHealthySite is capped at UNHEALTHY_SITE_STAR_CAP whatever its health.
+ * Null mobile = unmeasured → health alone, as before.
  */
-export function deriveStarGrade(healthScore: number): 1 | 2 | 3 | 4 | 5 {
+export function deriveStarGrade(
+  healthScore: number,
+  mobilePerformance: number | null = null,
+): 1 | 2 | 3 | 4 | 5 {
   const clamped = clamp100(healthScore);
+  const healthy = isHealthySite(clamped, mobilePerformance);
   for (const band of STAR_BANDS) {
-    if (clamped >= band.min) return band.stars;
+    if (clamped >= band.min) {
+      return healthy || band.stars <= UNHEALTHY_SITE_STAR_CAP
+        ? band.stars
+        : UNHEALTHY_SITE_STAR_CAP;
+    }
   }
   return 1;
 }
@@ -440,8 +461,9 @@ export function reviewCountScore(reviewCount: number | null): number {
 /**
  * The healthy-site rule (RFL.FIX.3i): health ≥ HEALTHY_SITE_HEALTH_MIN and
  * mobile performance ≥ HEALTHY_SITE_MOBILE_MIN (null mobile = unmeasured →
- * health alone). Drives the healthy_site cap and the Health narration's
- * "healthy" band, so the two never disagree.
+ * health alone). Drives the healthy_site cap, the star grade's 4★ floor
+ * (UNHEALTHY_SITE_STAR_CAP) and the Health narration's "healthy" band, so
+ * the three never disagree.
  */
 export function isHealthySite(
   healthScore: number,

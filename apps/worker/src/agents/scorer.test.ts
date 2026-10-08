@@ -16,6 +16,7 @@ import {
 import type { ConversionOutput } from "./conversion";
 import type { DesignOutput } from "./design";
 import type { HealthOutput } from "./health";
+import { analystEligible } from "../orchestrator";
 import { assembleScores, classifyPlatform, type ScoreInputs } from "./scorer";
 import type { SeoOutput } from "./seo";
 
@@ -314,7 +315,7 @@ describe("assembleScores — mobile-first weights and healthy cap (RFL.FIX.3i V3
   }
 
   /** Landers' VERIFY.3 measurements: tech 100, wordpress 65, conversion 3/5, freshness 2/3, design 68. */
-  function landersInputs(psi: { desktop: number; mobile: number; platform?: HealthOutput["platform"] }): ScoreInputs {
+  function landersInputs(psi: { desktop: number; mobile: number | null; platform?: HealthOutput["platform"] }): ScoreInputs {
     return inputs({
       business: landers,
       health: health({
@@ -371,8 +372,8 @@ describe("assembleScores — mobile-first weights and healthy cap (RFL.FIX.3i V3
     // Mobile 48 < 50: no healthy_site cap. 30×0.5 + 80×0.15 + 10 + 10 + 10 + 5 = 62.
     expect(scores.scoreBreakdown.capped).toBeUndefined();
     expect(scores.sellabilityScore).toBe(62);
-    // The star grade still follows STAR_BANDS alone (70 → 4★).
-    expect(scores.starGrade).toBe(4);
+    // RFL.FIX.3i.1: failing the healthy_site rule caps the grade at 3★.
+    expect(scores.starGrade).toBe(3);
   });
 
   it("a site with mobile 85 / desktop 90 keeps its band and its healthy_site cap", () => {
@@ -396,5 +397,42 @@ describe("assembleScores — mobile-first weights and healthy cap (RFL.FIX.3i V3
     expect(h.mobile).toBe(99);
     expect(scores.healthScore).toBe(blend(h, HEALTH_WEIGHTS));
     expect(scores.scoreBreakdown.capped).toBe("healthy_site");
+  });
+
+  const analystRuns = (s: ReturnType<typeof assembleScores>) =>
+    analystEligible({
+      starGrade: s.starGrade,
+      sellabilityScore: s.sellabilityScore,
+      isChain: false,
+      provisional: false,
+    });
+
+  it("RFL.FIX.3i.1: Landers live (health 70, mobile 50) → 3★, not capped, Analyst-eligible", () => {
+    const scores = assembleScores(landersInputs({ desktop: 94, mobile: 50 }));
+    expect(scores.healthScore).toBe(70);
+    expect(scores.starGrade).toBe(3);
+    expect(scores.scoreBreakdown.capped).toBeUndefined();
+    // 30×0.5 + 80×0.15 + 10 + 10 + 10 + 5 = 62 ≥ 60.
+    expect(scores.sellabilityScore).toBe(62);
+    expect(analystRuns(scores)).toBe(true);
+  });
+
+  it("RFL.FIX.3i.1: mobile 60 / health 70 → 4★ healthy, capped at 55", () => {
+    // 81×0.20 + 60×0.25 + 100×0.10 + 65×0.15 + 60×0.15 + 66.7×0.10 + 68×0.05 = 70.02 → 70
+    const scores = assembleScores(landersInputs({ desktop: 81, mobile: 60 }));
+    expect(scores.healthScore).toBe(70);
+    expect(scores.starGrade).toBe(4);
+    expect(scores.scoreBreakdown.capped).toBe("healthy_site");
+    expect(scores.sellabilityScore).toBe(55);
+    expect(analystRuns(scores)).toBe(false);
+  });
+
+  it("RFL.FIX.3i.1: mobile null / health 70 → 4★ on health alone (unchanged)", () => {
+    // Unmeasured mobile scores the neutral 50 in health, as the mobile-50 case.
+    const scores = assembleScores(landersInputs({ desktop: 94, mobile: null }));
+    expect(scores.healthScore).toBe(70);
+    expect(scores.starGrade).toBe(4);
+    expect(scores.scoreBreakdown.capped).toBe("healthy_site");
+    expect(scores.sellabilityScore).toBe(55);
   });
 });

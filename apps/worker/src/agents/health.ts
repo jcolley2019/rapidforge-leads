@@ -11,7 +11,6 @@
  */
 import {
   deriveStarGrade,
-  isHealthySite,
   type AgentResult,
   type Business,
 } from "@rapidforge/shared";
@@ -97,18 +96,16 @@ export interface HealthVerdict {
 export type HealthBand = "healthy" | "middling" | "poor";
 
 /**
- * The star grade's band: 4–5★ healthy only when the healthy_site rule holds
- * (mobile ≥ 50, RFL.FIX.3i; a 4★ page with failing mobile is middling),
- * 3★ middling, 1–2★ poor.
+ * The star grade's band: 4–5★ healthy, 3★ middling, 1–2★ poor. The grade
+ * already applies the healthy_site rule (RFL.FIX.3i.1: mobile under 60 tops
+ * out at 3★), so a page with failing mobile reads middling.
  */
 export function healthBand(
   healthScore: number,
   mobilePerformance: number | null = null,
 ): HealthBand {
-  const stars = deriveStarGrade(healthScore);
-  if (stars >= 4) {
-    return isHealthySite(healthScore, mobilePerformance) ? "healthy" : "middling";
-  }
+  const stars = deriveStarGrade(healthScore, mobilePerformance);
+  if (stars >= 4) return "healthy";
   return stars === 3 ? "middling" : "poor";
 }
 
@@ -245,7 +242,7 @@ export function buildTemplateHealthSummary(
     return {
       reasoning: sentences.join(" "),
       critical_issues: critical,
-      summary_one_liner: `Site is ${healthBand(verdict.healthScore, m.ps_mobile_performance)}: health ${verdict.healthScore}/100 (${deriveStarGrade(verdict.healthScore)}★)${where}; mobile performance ${m.ps_mobile_performance ?? "n/a"}/100 with ${critical.length} critical issue(s).`,
+      summary_one_liner: `Site is ${healthBand(verdict.healthScore, m.ps_mobile_performance)}: health ${verdict.healthScore}/100 (${deriveStarGrade(verdict.healthScore, m.ps_mobile_performance)}★)${where}; mobile performance ${m.ps_mobile_performance ?? "n/a"}/100 with ${critical.length} critical issue(s).`,
     };
   }
 

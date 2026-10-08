@@ -151,7 +151,7 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     hasPhone: business.phone !== null,
     isChain: business.is_chain === true,
     businessStatus: business.business_status,
-    // RFL.FIX.3i: the healthy_site cap also needs mobile ≥ 50.
+    // RFL.FIX.3i: the healthy_site cap also needs mobile ≥ 60 (3i.1).
     mobilePerformance: health?.ps_mobile_performance ?? null,
   });
 
@@ -230,7 +230,8 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
 
   return {
     healthScore: healthResult.score,
-    starGrade: deriveStarGrade(healthResult.score),
+    // RFL.FIX.3i.1: failing the healthy_site rule caps the grade at 3★.
+    starGrade: deriveStarGrade(healthResult.score, health?.ps_mobile_performance ?? null),
     sellabilityScore: sellabilityResult.score,
     issues,
     badge,

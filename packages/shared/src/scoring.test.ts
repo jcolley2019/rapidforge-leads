@@ -14,6 +14,7 @@ import {
   RATING_QUALITY_THRESHOLD,
   SELLABILITY_WEIGHTS,
   SPECIAL_CASE_BADGES,
+  UNHEALTHY_SITE_STAR_CAP,
   computeHealthScore,
   computeSellabilityScore,
   deriveStarGrade,
@@ -235,6 +236,20 @@ describe("deriveStarGrade (PRD 4.2)", () => {
     expect(deriveStarGrade(-5)).toBe(1);
     expect(deriveStarGrade(150)).toBe(5);
   });
+
+  it("RFL.FIX.3i.1: failing the healthy-site rule caps the grade at 3★; null mobile keeps the bands", () => {
+    expect(UNHEALTHY_SITE_STAR_CAP).toBe(3);
+    expect(deriveStarGrade(70, 50)).toBe(3);
+    expect(deriveStarGrade(95, 59)).toBe(3);
+    expect(deriveStarGrade(70, 60)).toBe(4);
+    expect(deriveStarGrade(85, 60)).toBe(5);
+    expect(deriveStarGrade(70, null)).toBe(4);
+    expect(deriveStarGrade(85)).toBe(5);
+    // Under 70 the bands already sit at ≤ 3★ — the rule never moves them.
+    expect(deriveStarGrade(69, 10)).toBe(3);
+    expect(deriveStarGrade(49, 10)).toBe(2);
+    expect(deriveStarGrade(10, 99)).toBe(1);
+  });
 });
 
 describe("computeSellabilityScore (PRD 4.3)", () => {
@@ -334,16 +349,18 @@ describe("computeSellabilityScore (PRD 4.3)", () => {
     expect(weak.breakdown.capped).toBe("healthy_site");
   });
 
-  it("RFL.FIX.3i: the healthy_site cap also needs mobile ≥ 50; unmeasured mobile keeps the health-only rule", () => {
-    expect(HEALTHY_SITE_MOBILE_MIN).toBe(50);
+  it("RFL.FIX.3i.1: the healthy_site cap also needs mobile ≥ 60; unmeasured mobile keeps the health-only rule", () => {
+    expect(HEALTHY_SITE_MOBILE_MIN).toBe(60);
     // Same blend as the health-70 case above (65), mobile failing → uncapped.
-    const failingMobile = computeSellabilityScore(
-      sellableInput({ healthScore: 70, mobilePerformance: 48 }),
-    );
-    expect(failingMobile.score).toBe(65);
-    expect(failingMobile.breakdown.capped).toBeUndefined();
+    for (const mobilePerformance of [48, 50, 59]) {
+      const failingMobile = computeSellabilityScore(
+        sellableInput({ healthScore: 70, mobilePerformance }),
+      );
+      expect(failingMobile.score).toBe(65);
+      expect(failingMobile.breakdown.capped).toBeUndefined();
+    }
     const atMin = computeSellabilityScore(
-      sellableInput({ healthScore: 70, mobilePerformance: 50 }),
+      sellableInput({ healthScore: 70, mobilePerformance: 60 }),
     );
     expect(atMin.score).toBe(55);
     expect(atMin.breakdown.capped).toBe("healthy_site");
@@ -359,8 +376,9 @@ describe("computeSellabilityScore (PRD 4.3)", () => {
     );
     expect(chain.breakdown.capped).toBe("chain");
     expect(isHealthySite(69, 99)).toBe(false);
-    expect(isHealthySite(70, 49)).toBe(false);
-    expect(isHealthySite(70, 50)).toBe(true);
+    expect(isHealthySite(70, 50)).toBe(false);
+    expect(isHealthySite(70, 59)).toBe(false);
+    expect(isHealthySite(70, 60)).toBe(true);
     expect(isHealthySite(70, null)).toBe(true);
   });
 
