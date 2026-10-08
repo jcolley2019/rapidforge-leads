@@ -211,6 +211,13 @@ describe("classifyPlatform — legacy_static (RFL.FIX.3d)", () => {
     expect((scores.scoreBreakdown.health as Record<string, number>).platform).toBe(30);
     expect(scores.badge).toBeNull(); // not a "Builder site"
     expect(scores.issues).toContainEqual(expect.objectContaining({ severity: "high", label: "Legacy hand-coded page" }));
+    // RFL.FIX.3i: the legacy detail no longer restates the viewport fact; the
+    // Scorer's viewport issue is its only carrier (RFL.FIX.3h V7).
+    const legacyIssue = scores.issues.find((i) => i.label === "Legacy hand-coded page")!;
+    expect(legacyIssue.detail).toBe("Pre-CSS markup and not updated in over two years — a full rebuild, not a tweak");
+    expect(
+      scores.issues.filter((i) => /viewport|responsive|mobile-friendly/i.test(`${i.label} ${i.detail ?? ""}`)),
+    ).toEqual([expect.objectContaining({ label: "Not mobile-friendly (missing viewport meta tag)" })]);
     expect(scores.issues.some((i) => i.label.startsWith("Built on"))).toBe(false);
     const asCustom = assembleScores(
       inputs({ health: health({ legacy_markup: false }), conversion: conversion({ has_viewport_meta: false }), seo: seo("Untitled Document") }),
