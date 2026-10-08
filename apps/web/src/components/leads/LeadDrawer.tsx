@@ -988,7 +988,7 @@ function ScreenshotFigure({
 }
 
 // ---------------------------------------------------------------------------
-// Builder Brief (PRD 6.12) — on-demand Fable 5 markdown, generate/copy/regen
+// Builder Brief (PRD 6.12) — on-demand Opus 4.8 markdown, generate/copy/regen
 // ---------------------------------------------------------------------------
 
 /** A completed audit is required before either money deliverable can run. */
@@ -1092,7 +1092,7 @@ function BuilderBriefTab({ lead }: { lead: LeadView }) {
       ) : (
         !busy && (
           <p className="text-sm text-muted-foreground">
-            Generate a paste-ready rebuild brief (Fable 5) from this audit —
+            Generate a paste-ready rebuild brief (Opus 4.8) from this audit —
             competitors, keywords, pages, SEO, conversion, and deploy steps a
             developer can scaffold from directly.
           </p>

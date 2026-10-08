@@ -204,7 +204,7 @@ export async function saveConfig(
 
 // ---------------------------------------------------------------------------
 // Sprint 7: on-demand money agents (PRD 6.11–6.13). These mint the deliverable
-// on the worker (Fable 5 / Sonnet) and persist it on the latest audit.
+// on the worker (Opus 4.8 / Sonnet 5.5) and persist it on the latest audit.
 // ---------------------------------------------------------------------------
 
 export interface AnalystResult {
