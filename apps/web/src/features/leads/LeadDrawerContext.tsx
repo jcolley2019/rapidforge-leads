@@ -1,18 +1,25 @@
 /**
  * Lead drawer state (PRD 7.4) — one drawer instance lives at the App shell
  * level so Workspace, Pipeline, and Leads can all open it. leadsVersion
- * bumps on every persisted lead mutation (status/notes) so list views know
- * to refetch without prop-drilling callbacks.
+ * bumps on every persisted lead mutation (status/notes) and on every
+ * finished audit (lead.scored) so list views know to refetch without
+ * prop-drilling callbacks.
  */
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
+import { useLive } from "@/features/live/useWorkspaceLive";
+import { scoredRefreshKey } from "@/lib/agent-state";
 import type { LeadView } from "@/lib/api";
+
+/** lead.scored bursts (a search scoring many leads) refetch once per lull. */
+export const SCORED_REFRESH_DEBOUNCE_MS = 500;
 
 interface LeadDrawerValue {
   lead: LeadView | null;
@@ -41,6 +48,18 @@ export function LeadDrawerProvider({ children }: { children: ReactNode }) {
     () => setLeadsVersion((v) => v + 1),
     [],
   );
+
+  // RFL.VERIFY.3 V6: a finished audit refreshes the Leads list, the palette
+  // and (through the views' fresh-row sync) the drawer. Before, only the
+  // drawer's Re-audit button bumped leadsVersion, and only if it stayed
+  // mounted on that lead until the job's events stopped.
+  const { live } = useLive();
+  const scoredKey = scoredRefreshKey(live);
+  useEffect(() => {
+    if (scoredKey === null) return;
+    const timer = setTimeout(notifyLeadsChanged, SCORED_REFRESH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [scoredKey, notifyLeadsChanged]);
 
   const value = useMemo(
     () => ({

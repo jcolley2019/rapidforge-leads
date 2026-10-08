@@ -35,7 +35,7 @@ export function CommandPalette({
   onOpenChange,
   onNavigate,
 }: CommandPaletteProps) {
-  const { openLead, selectedLeadIds, notifyLeadsChanged } = useLeadDrawer();
+  const { openLead, selectedLeadIds, notifyLeadsChanged, leadsVersion } = useLeadDrawer();
   const [leads, setLeads] = useState<LeadView[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -52,10 +52,14 @@ export function CommandPalette({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onOpenChange]);
 
-  // Lazy lead list for "jump to lead" — refreshed each open.
+  useEffect(() => {
+    if (open) setNotice(null);
+  }, [open]);
+
+  // Lazy lead list for "jump to lead" — refreshed each open, and while open
+  // whenever leads change (a finished re-audit, RFL.VERIFY.3 V6).
   useEffect(() => {
     if (!open) return;
-    setNotice(null);
     let cancelled = false;
     fetchWorkspaceLeads()
       .then((rows) => {
@@ -67,7 +71,7 @@ export function CommandPalette({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, leadsVersion]);
 
   function run(action: () => void) {
     action();

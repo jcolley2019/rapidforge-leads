@@ -10,6 +10,7 @@ import {
   latestActivityFor,
   reauditDisabled,
   reauditPhase,
+  scoredRefreshKey,
 } from "./agent-state";
 
 const started = (agent: string, target?: string): AgentEvent => ({
@@ -114,6 +115,45 @@ describe("applyAgentEvent", () => {
       state = applyAgentEvent(state, started("scout"), i);
     }
     expect(state.feed).toHaveLength(FEED_CAP);
+  });
+});
+
+describe("scoredRefreshKey (RFL.VERIFY.3 V6: the lists refetch on every finished audit)", () => {
+  const scored = (businessId: string): AgentEvent => ({
+    type: "lead.scored",
+    businessId,
+    healthScore: 70,
+    sellabilityScore: 62,
+  });
+
+  it("is null before any lead.scored, and agent events never change it", () => {
+    let state = emptyLiveState();
+    expect(scoredRefreshKey(state)).toBeNull();
+    state = applyAgentEvent(state, started("health", "biz-1"), 1);
+    state = applyAgentEvent(state, completed("health", "biz-1"), 2);
+    expect(scoredRefreshKey(state)).toBeNull();
+    state = applyAgentEvent(state, scored("biz-1"), 3);
+    const key = scoredRefreshKey(state);
+    expect(key).not.toBeNull();
+    state = applyAgentEvent(state, started("analyst", "biz-1"), 4);
+    state = applyAgentEvent(state, completed("analyst", "biz-1"), 5);
+    expect(scoredRefreshKey(state)).toBe(key);
+  });
+
+  it("changes on every lead.scored: a re-audit of the same business, and past FEED_CAP", () => {
+    let state = applyAgentEvent(emptyLiveState(), scored("biz-landers"), 10);
+    const first = scoredRefreshKey(state);
+    state = applyAgentEvent(state, scored("biz-landers"), 11); // the re-audit finished
+    expect(scoredRefreshKey(state)).not.toBe(first);
+
+    const keys = new Set<string | null>();
+    for (let i = 0; i < FEED_CAP + 5; i++) {
+      state = applyAgentEvent(state, scored(`biz-${i % 3}`), 1000 + i);
+      keys.add(scoredRefreshKey(state));
+    }
+    // scored.length is pinned at the cap, the key still moved every time.
+    expect(state.scored).toHaveLength(FEED_CAP);
+    expect(keys.size).toBe(FEED_CAP + 5);
   });
 });
 
