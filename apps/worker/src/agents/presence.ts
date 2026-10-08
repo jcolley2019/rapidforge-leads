@@ -140,7 +140,9 @@ const SOCIAL_RE =
 export function findSocialLinks(html: string): string[] {
   const found = new Map<string, string>();
   for (const match of html.matchAll(SOCIAL_RE)) {
-    const url = match[0]!;
+    // RFL.FIX.3i (VERIFY.3 V11): an href ending in "%20" (Landers'
+    // facebook.com/landershomeservices%20) is a stray space — decode, trim.
+    const url = match[0]!.replace(/%20/gi, " ").trim();
     const platform = match[1] ?? "linktree";
     if (!found.has(platform)) found.set(platform, url);
   }

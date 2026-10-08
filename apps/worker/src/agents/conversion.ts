@@ -119,8 +119,10 @@ export interface ConversionSignals extends Record<string, unknown> {
 
 /** Pure deterministic homepage parse — exported for unit tests. */
 export function parseConversionSignals(html: string): ConversionSignals {
+  // RFL.FIX.3i (VERIFY.3 V11): a malformed attribute (`tel:=+1208…`) left a
+  // stray "=" in the number; no phone number contains one.
   const telNumbers = [...html.matchAll(/href\s*=\s*["']tel:([^"']+)["']/gi)].map(
-    (m) => m[1]!.trim(),
+    (m) => m[1]!.replace(/=/g, "").trim(),
   );
 
   const text = stripTags(html);

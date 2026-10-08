@@ -109,6 +109,15 @@ describe("parseConversionSignals", () => {
     expect(s.has_tel_link).toBe(false);
     expect(s.has_visible_phone).toBe(true);
   });
+
+  it("strips a stray '=' from a tel: number (All Plumbing's \"=+12084394968\", RFL.VERIFY.3 V11)", () => {
+    const s = parseConversionSignals(
+      '<a href="tel:=+12084394968">Call Now</a> <a href="tel:+12084394968">208-439-4968</a>',
+    );
+    expect(s.tel_numbers).toEqual(["+12084394968", "+12084394968"]);
+    expect(s.tel_numbers.some((n) => n.includes("="))).toBe(false);
+    expect(s.has_tel_link).toBe(true);
+  });
 });
 
 describe("buildTemplateConversionSummary", () => {

@@ -143,6 +143,13 @@ describe("findSocialLinks", () => {
     expect(links).toHaveLength(1);
     expect(links[0]).toContain("facebook.com");
   });
+
+  it("decodes a stray %20 and trims it (Landers, RFL.VERIFY.3 V11)", () => {
+    const links = findSocialLinks(
+      '<footer><a href="http://facebook.com/landershomeservices%20" target="_blank">Facebook</a></footer>',
+    );
+    expect(links).toEqual(["http://facebook.com/landershomeservices"]);
+  });
 });
 
 describe("template presence summary + guardrail", () => {
