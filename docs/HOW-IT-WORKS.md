@@ -60,7 +60,7 @@ Events go to the Realtime channel `workspace:{id}` under the event name `agent_e
 
 | Mechanism | What it does |
 |---|---|
-| Stage budgets | probe 15 s · homepage 15 s · PSI 45 s · screenshot 30 s · each agent 60 s · Analyst 120 s. An overrun is skipped and recorded as a low "`<stage>` timed out" issue. Only a probe or homepage overrun fails the audit. On-demand Analyst, Builder Brief, Design Brief and Sales Summary runs use the same 120 s budget; an overrun fails the run and the route answers 502. |
+| Stage budgets | probe 15 s · homepage 15 s · PSI 45 s · screenshot 30 s · each agent 60 s · Analyst 120 s. An overrun is skipped and recorded as a low "`<stage>` timed out" issue (a screenshot overrun only in `score_breakdown.stage_timeouts`). Only a probe or homepage overrun fails the audit. On-demand Analyst, Builder Brief, Design Brief and Sales Summary runs use the same 120 s budget; an overrun fails the run and the route answers 502. |
 | Retries | Places and PSI retry once after 2 s on HTTP 429/5xx (apps/worker/src/lib/places/google-client.ts, apps/worker/src/lib/psi.ts). AI transport retries live only in AI Core (`maxRetries: 2`). |
 | Audit ceiling | 4 min per audit. The queue abandons a job still held at 4 min 30 s (`worker: audit exceeded ceiling`). |
 | Stale reclaim | At startup and every 40 s, jobs/agent_runs left `running` for over 10 min by a dead worker are requeued or failed (`stale: reclaimed after worker restart`). |
@@ -373,7 +373,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - The result is clamped to 5–95. "Feels like year" is derived from that score.
   - Every template dimension note starts with `inference:` and says it was estimated from markup, and the drawer's "Vision critique" row reads "estimated (no screenshot)" in template mode.
 - **What the AI judges:** looking at the desktop (1440×900) and mobile (390×844) screenshots, it scores modernity, five dimensions (typography, color, imagery, layout, mobile) with notes, a "feels like" year, and critical issues with visual evidence. Prompt: apps/worker/src/agents/prompts/design.ts.
-- **Model and settings:** `claude-sonnet-5-5`, effort `low`, maxTokens 1,600. Used only when screenshots exist. Live screenshots need `SCREENSHOTS_ENABLED=true` (Chrome via Puppeteer); fixture mode uses pre-rendered images. Otherwise the deterministic template is used.
+- **Model and settings:** `claude-sonnet-5-5`, effort `low`, maxTokens 1,600. Used only when screenshots exist. Live screenshots need `SCREENSHOTS_ENABLED=true` (Chrome via Puppeteer); fixture mode uses pre-rendered images. Chrome launches with its HTTPS Upgrades / HTTPS-First features disabled (`LAUNCH_ARGS`, apps/worker/src/lib/browser.ts) so `http://` sites load instead of failing with `net::ERR_BLOCKED_BY_CLIENT`. Otherwise the deterministic template is used.
 - **Guardrails** (guardrails/design-critique.ts):
   - every dimension note must be ≥ 15 words;
   - no feels-like year after 2024 with modernity < 70;
@@ -451,7 +451,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
     - medium "No Google reviews yet" at zero reviews (zero is a measurement; a null count gives "Unverified reputation" instead);
     - high "Legacy hand-coded page" for `legacy_static`, in place of "Built on …";
     - low "Address not shown on the homepage" (see Presence).
-  - Plus low issues for "Performance could not be measured", each "`<stage>` timed out", and "Screenshot unavailable (…)".
+  - Plus low issues for "Performance could not be measured" and each "`<stage>` timed out". Screenshots never produce an issue: a failed or overrun capture leaves the URLs null, is logged on the stage's end line, and keeps its reason in `score_breakdown.screenshot_unavailable` / `stage_timeouts` only, so no "net::ERR_…" text reaches the rep or a money-agent prompt.
 - **What the AI judges:** none.
 - **Model and settings:** none.
 - **Guardrails:** none (pure functions; a failure throws and fails the job).

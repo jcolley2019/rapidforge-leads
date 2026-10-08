@@ -54,7 +54,10 @@ export interface ScorerContext {
   stageTimeouts?: string[];
   /** PSI returned nothing for a live site (finding 12): flagged, not hidden. */
   psiUnmeasured?: boolean;
-  /** RFL.QUEUE.8a: why an enabled screenshot capture produced nothing. */
+  /**
+   * RFL.QUEUE.8a: why an enabled screenshot capture produced nothing —
+   * score_breakdown only, never an issue (RFL.VERIFY.3 V2).
+   */
   screenshotUnavailable?: string | null;
 }
 
@@ -210,18 +213,16 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
       detail: "PageSpeed Insights returned nothing — performance scored neutral",
     });
   }
+  // RFL.VERIFY.3 V2: screenshots are internal enrichment. A capture that
+  // failed or overran is not a sales issue — it would reach the Analyst and
+  // the rep as "Screenshot unavailable (net::ERR_…)". Its reason stays in
+  // score_breakdown (stage_timeouts / screenshot_unavailable) and the log.
   for (const stage of stageTimeouts) {
+    if (stage === "screenshot") continue;
     issues.push({
       severity: "low",
       label: `${stage} timed out`,
       detail: "Stage exceeded its budget and was skipped for this audit",
-    });
-  }
-  if (inputs.screenshotUnavailable) {
-    issues.push({
-      severity: "low",
-      label: `Screenshot unavailable (${inputs.screenshotUnavailable})`,
-      detail: "No homepage screenshots this audit — scores do not depend on them",
     });
   }
 

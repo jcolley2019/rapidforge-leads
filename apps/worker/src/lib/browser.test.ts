@@ -15,6 +15,7 @@ vi.mock("puppeteer-core", () => {
 import {
   BROWSER_LAUNCH_TIMEOUT_MS,
   BrowserUnavailableError,
+  LAUNCH_ARGS,
   LAUNCH_RETRY_AFTER_MS,
   browserPagesInUse,
   findBrowserExecutables,
@@ -207,6 +208,30 @@ describe("launch budget (real timer)", () => {
     expect(opts).not.toHaveProperty("channel");
     expect(opts.headless).toBe(true);
     expect(opts.timeout).toBe(BROWSER_LAUNCH_TIMEOUT_MS);
+  });
+
+  it("every launch disables Chrome's HTTPS upgrades, even after puppeteer splices the flag out (RFL.VERIFY.3 V2)", async () => {
+    const HTTPS_FLAG =
+      "--disable-features=HttpsUpgrades,HttpsFirstBalancedMode,HttpsFirstBalancedModeAutoEnable,HttpsFirstModeV2ForEngagedSites";
+    expect(LAUNCH_ARGS).toContain(HTTPS_FLAG);
+    const seen: string[][] = [];
+    pptr.launch.mockImplementation(async (opts: { args: string[] }) => {
+      seen.push([...opts.args]);
+      // What puppeteer 25 does: merge the caller's --disable-features into
+      // its own list and remove it from the caller's array in place.
+      const i = opts.args.findIndex((a) => a.startsWith("--disable-features="));
+      if (i >= 0) opts.args.splice(i, 1);
+      return fakeBrowser();
+    });
+    for (let n = 0; n < 2; n += 1) {
+      const state = track(withPage("screenshot-desktop", 30_000, async () => "shot"));
+      await until(() => state.settled);
+      expect(state.value).toBe("shot");
+      await resetSharedBrowser(); // the next call relaunches
+    }
+    expect(seen).toHaveLength(2);
+    for (const args of seen) expect(args).toContain(HTTPS_FLAG);
+    expect(LAUNCH_ARGS).toContain(HTTPS_FLAG);
   });
 });
 

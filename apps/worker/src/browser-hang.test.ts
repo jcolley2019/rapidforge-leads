@@ -4,7 +4,8 @@
  * puppeteer-core mocked:
  *   - a launch that never resolves: the "[queue] tick" watchdog keeps
  *     printing, the 20s launch budget frees the screenshot stage, audits
- *     complete with "Screenshot unavailable (…)" long before the ceiling;
+ *     complete without screenshots (reason kept in score_breakdown, never an
+ *     issue — RFL.VERIFY.3 V2) long before the ceiling;
  *   - a job wedged on a never-resolving launch with NO budget at all: ticks
  *     keep printing and the queue abandons it at ceiling + 30s;
  *   - a launch that throws synchronously: same clean degrade.
@@ -150,6 +151,14 @@ describe("a browser launch never blocks the worker (RFL.QUEUE.8a)", () => {
     });
   }
 
+  /** score_breakdown.screenshot_unavailable per audit (the internal reason). */
+  async function screenshotReasons(): Promise<Array<string | undefined>> {
+    const detail = (await store.getSearchDetail(search.id))!;
+    return detail.leads.map(
+      (l) => (l.audit?.score_breakdown as { screenshot_unavailable?: string } | null)?.screenshot_unavailable,
+    );
+  }
+
   it("never-resolving launch: ticks keep printing, the 20s launch budget frees the stage, audits complete well before the ceiling", async () => {
     let launchSignal: AbortSignal | undefined;
     pptr.launch.mockImplementation((opts: { signal?: AbortSignal }) => {
@@ -174,9 +183,9 @@ describe("a browser launch never blocks the worker (RFL.QUEUE.8a)", () => {
     expect(launchSignal?.aborted).toBe(true); // puppeteer kills the spawn on abort
     expect(pptr.launch).toHaveBeenCalledTimes(1);
     for (const labels of await auditIssueLabels()) {
-      expect(labels).toContain("Screenshot unavailable (launch timed out after 20s)");
-      expect(labels).not.toContain("screenshot timed out");
+      expect(labels).not.toContainEqual(expect.stringMatching(/[Ss]creenshot/));
     }
+    expect(await screenshotReasons()).toEqual(["launch timed out after 20s", "launch timed out after 20s"]);
     const counts = (await store.getSearchDetail(search.id))!.job_counts;
     expect(counts).toMatchObject({ done: 2, running: 0, failed: 0 });
     expect(lines(console.warn).filter((l) => l.startsWith("[browser] launch timed out"))).toHaveLength(1);
@@ -236,8 +245,9 @@ describe("a browser launch never blocks the worker (RFL.QUEUE.8a)", () => {
     await until(() => pptr.launch.mock.calls.length === 1);
     await until(() => poller!.inFlight() === 0);
     for (const labels of await auditIssueLabels()) {
-      expect(labels).toContain("Screenshot unavailable (launch failed: spawn UNKNOWN)");
+      expect(labels).not.toContainEqual(expect.stringMatching(/[Ss]creenshot/));
     }
+    expect(await screenshotReasons()).toEqual(["launch failed: spawn UNKNOWN", "launch failed: spawn UNKNOWN"]);
     expect(pptr.launch).toHaveBeenCalledTimes(1);
     expect(lines(console.warn).filter((l) => l.startsWith("[browser] launch failed"))).toHaveLength(1);
     const before = tickLines().length;

@@ -59,9 +59,10 @@ export const AUDIT_CONCURRENCY_CAP = 5;
  * Per-stage budgets (RFL.QUEUE.8). A stage that overruns is abandoned: the
  * audit continues with that stage's neutral value (PSI → unmeasured,
  * screenshot → none, agent → failed run) and records a low
- * "<stage> timed out" issue. Only probe / homepage fetch overruns fail the
- * audit. The whole audit has a hard ceiling; the queue abandons the job at
- * ceiling + 30s if even that does not return.
+ * "<stage> timed out" issue — except screenshots, which stay in
+ * score_breakdown.stage_timeouts (RFL.VERIFY.3 V2). Only probe / homepage
+ * fetch overruns fail the audit. The whole audit has a hard ceiling; the
+ * queue abandons the job at ceiling + 30s if even that does not return.
  */
 export const STAGE_BUDGET_MS = {
   probe: 15_000,
@@ -202,7 +203,7 @@ async function handleScoutJob(job: Job, deps: OrchestratorDeps): Promise<void> {
   }
 }
 
-/** Short "Screenshot unavailable (<reason>)" text from a capture failure. */
+/** Short reason from a capture failure (score_breakdown.screenshot_unavailable only). */
 function unavailableReason(err: unknown): string {
   if (err instanceof BrowserUnavailableError) return err.reason;
   const line = (err instanceof Error ? err.message : String(err)).split("\n")[0]!.trim();
@@ -357,7 +358,8 @@ async function runAuditPipeline(
     });
   // RFL.QUEUE.8a: screenshots are opt-in (SCREENSHOTS_ENABLED) — disabled
   // means no stage at all, so no browser work. A capture that fails (not a
-  // stage overrun) records its reason as one low issue.
+  // stage overrun) is logged by the stage's ERROR line and its reason kept
+  // in score_breakdown — never an issue (RFL.VERIFY.3 V2).
   let screenshotUnavailable: string | null = null;
   const screenshotStage = async (): Promise<ScreenshotSet | null> => {
     if (deps.screenshotCapturer.mode === "disabled") {

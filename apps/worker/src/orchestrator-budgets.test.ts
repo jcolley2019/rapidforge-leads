@@ -17,6 +17,9 @@ import {
   type ScreenshotSet,
 } from "./lib/screenshots";
 import { FixtureSiteFetcher } from "./lib/site";
+import { buildAuditFacts } from "./agents/money-facts";
+import { buildAnalystPrompt } from "./agents/prompts/analyst";
+import { resolveConfigVars } from "./agents/prompts/config-vars";
 import {
   AUDIT_CEILING_MS,
   STAGE_BUDGET_MS,
@@ -41,8 +44,16 @@ class HangingPsi implements PsiClient {
 }
 class ThrowingCapturer implements ScreenshotCapturer {
   readonly mode = "real" as const;
+  constructor(private readonly message = "Failed to launch the browser process") {}
   async capture(): Promise<ScreenshotSet | null> {
-    throw new Error("Failed to launch the browser process");
+    throw new Error(this.message);
+  }
+}
+/** A capture that simply produced nothing — the no-screenshot baseline. */
+class NullCapturer implements ScreenshotCapturer {
+  readonly mode = "real" as const;
+  async capture(): Promise<ScreenshotSet | null> {
+    return null;
   }
 }
 class HangingProbe implements WebProbe {
@@ -170,8 +181,14 @@ describe("stage budgets (RFL.QUEUE.8)", () => {
     expect(psiEvents[0]?.metadata?.ok).toBe(false);
   });
 
-  it("a screenshot launch failure: audit completes without screenshots, no timeout issue", async () => {
-    const h = await harness({ screenshotCapturer: new ThrowingCapturer() });
+  it("a screenshot failure (RFL.VERIFY.3 V2): URLs null, error logged, issues unchanged, no ERR_ text in the Analyst prompt", async () => {
+    // Baseline: the same audit whose capture simply produced nothing.
+    const base = await harness({ screenshotCapturer: new NullCapturer() });
+    expect((await runWithFakeTime(handleJob(base.job, base.deps), 10_000)).settled).toBe(true);
+    const baseAudit = (await base.store.getSearchDetail(base.search.id))!.leads[0]!.audit!;
+
+    const reason = "net::ERR_BLOCKED_BY_CLIENT at http://www.accurbore.com/";
+    const h = await harness({ screenshotCapturer: new ThrowingCapturer(reason) });
     const { settled, error } = await runWithFakeTime(handleJob(h.job, h.deps), 10_000);
     expect(settled).toBe(true);
     expect(error).toBeNull();
@@ -179,15 +196,22 @@ describe("stage budgets (RFL.QUEUE.8)", () => {
     expect(audit.status).toBe("completed");
     expect(audit.screenshot_desktop_url).toBeNull();
     expect(audit.screenshot_mobile_url).toBeNull();
-    const labels = (audit.issues ?? []).map((i) => i.label);
-    expect(labels).not.toContainEqual(expect.stringMatching(/timed out/));
-    // RFL.QUEUE.8a: the failure reason is one low issue.
-    expect(labels).toContain("Screenshot unavailable (Failed to launch the browser process)");
-    const issue = (audit.issues ?? []).find((i) => i.label.startsWith("Screenshot unavailable"));
-    expect(issue?.severity).toBe("low");
-    expect((audit.score_breakdown as { screenshot_unavailable?: string }).screenshot_unavailable).toBe(
-      "Failed to launch the browser process",
-    );
+    // Issues are exactly what the no-screenshot audit has — nothing added.
+    expect(audit.issues).toEqual(baseAudit.issues);
+    expect(JSON.stringify(audit.issues)).not.toMatch(/ERR_|[Ss]creenshot/);
+    // The reason is kept internally and logged on the stage's end line.
+    expect((audit.score_breakdown as { screenshot_unavailable?: string }).screenshot_unavailable).toBe(reason);
+    const logSpy = console.log as unknown as { mock: { calls: unknown[][] } };
+    const prefix = `[job:${h.job.id} biz:${h.business.id}]`;
+    expect(
+      logSpy.mock.calls.map((c) => String(c[0])).some((l) => l.startsWith(`${prefix} stage=screenshot end ms=`) && l.endsWith(`ERROR ${reason}`)),
+    ).toBe(true);
+    // Design saw no screenshots (template), and the Analyst's input carries no ERR_ text.
+    const design = (audit.score_breakdown as { v15_agents: { design: { used_vision: boolean } } }).v15_agents.design;
+    expect(design.used_vision).toBe(false);
+    const prompt = buildAnalystPrompt(buildAuditFacts(h.business, audit), resolveConfigVars(null));
+    expect(prompt).not.toContain("ERR_");
+    expect(prompt).not.toMatch(/[Ss]creenshot unavailable/);
   });
 
   it("screenshots disabled (the live default): stage skipped and logged, audit completes without screenshots or a screenshot issue", async () => {

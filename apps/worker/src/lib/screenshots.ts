@@ -20,8 +20,13 @@
  * RFL.QUEUE.8a: real (browser) capture is opt-in — without
  * SCREENSHOTS_ENABLED=true live mode gets the DisabledScreenshotCapturer and
  * the orchestrator skips the stage. When on, a real capture failure throws
- * (BrowserUnavailableError or the page error) so the orchestrator can record
- * a low "Screenshot unavailable (<reason>)" issue.
+ * (BrowserUnavailableError or the page error).
+ *
+ * RFL.VERIFY.3 V2: a failure leaves the screenshot URLs null and is logged
+ * (the stage's ERROR line); its reason is kept only in
+ * score_breakdown.screenshot_unavailable. It never becomes an audit issue, so
+ * it never reaches the Analyst or any other prompt, and the Design agent just
+ * sees no screenshots (template path).
  */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -63,7 +68,8 @@ export interface ScreenshotCapturer {
   readonly mode: "real" | "fixture" | "disabled";
   /**
    * Null or a throw = no screenshots (audit continues; screenshots stay
-   * null). A throw's message becomes the "Screenshot unavailable" reason.
+   * null). A throw's message is logged and kept as the internal
+   * score_breakdown.screenshot_unavailable reason — never an issue.
    */
   capture(url: string): Promise<ScreenshotSet | null>;
 }
@@ -104,8 +110,8 @@ export class PuppeteerScreenshotCapturer implements ScreenshotCapturer {
    * RFL.QUEUE.8: pages come from the process-wide shared browser (lazy
    * launch, 2 page slots); each shot runs under the 30s screenshot budget.
    * RFL.QUEUE.8a: no browser / timeout / page error → throws (the
-   * orchestrator turns it into a low issue); the browser module already
-   * logged a launch failure once, so nothing is logged here.
+   * orchestrator logs it and records the internal reason); the browser
+   * module already logged a launch failure once, so nothing is logged here.
    */
   async capture(url: string): Promise<ScreenshotSet> {
     const shoot = (viewport: { width: number; height: number }, mobile: boolean) =>

@@ -188,7 +188,8 @@ describe("assembleScores — missing agents", () => {
       inputs({ stageTimeouts: ["psi", "screenshot", "psi", "seo"] }),
     );
     const timeouts = scores.issues.filter((i) => i.label.endsWith(" timed out"));
-    expect(timeouts.map((i) => i.label).sort()).toEqual(["psi timed out", "screenshot timed out", "seo timed out"]);
+    // A screenshot overrun is internal (RFL.VERIFY.3 V2): breakdown only, no issue.
+    expect(timeouts.map((i) => i.label).sort()).toEqual(["psi timed out", "seo timed out"]);
     for (const t of timeouts) expect(t.severity).toBe("low");
     expect(scores.scoreBreakdown.stage_timeouts).toEqual(["psi", "screenshot", "seo"]);
     expect(assembleScores(inputs()).scoreBreakdown.stage_timeouts).toBeUndefined();

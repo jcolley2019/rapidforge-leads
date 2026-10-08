@@ -40,7 +40,19 @@ export const BROWSER_PAGE_SLOTS = 2;
 /** After a failed/timed-out launch, callers degrade at once for this long. */
 export const LAUNCH_RETRY_AFTER_MS = 10 * 60_000;
 
-const LAUNCH_ARGS = ["--hide-scrollbars", "--disable-gpu", "--no-sandbox"];
+/**
+ * RFL.VERIFY.3 V2: Chrome 150's HTTPS Upgrades / HTTPS-First handling turns
+ * an http:// navigation into net::ERR_BLOCKED_BY_CLIENT — and no-SSL legacy
+ * pages are the ones that most need the vision Design pass. Checked against
+ * http://www.accurbore.com/ on the bundled Chrome 150.0.7871.24: blocked
+ * with none of these features disabled, HTTP 200 with them.
+ */
+export const LAUNCH_ARGS: readonly string[] = [
+  "--hide-scrollbars",
+  "--disable-gpu",
+  "--no-sandbox",
+  "--disable-features=HttpsUpgrades,HttpsFirstBalancedMode,HttpsFirstBalancedModeAutoEnable,HttpsFirstModeV2ForEngagedSites",
+];
 
 /** No browser for this request; `reason` is short enough for an issue label. */
 export class BrowserUnavailableError extends Error {
@@ -312,7 +324,10 @@ async function launchShared(signal: AbortSignal, attempt: { label: string }): Pr
       const pending = puppeteer.launch({
         executablePath: exe.path,
         headless: exe.headlessShell ? "shell" : true,
-        args: LAUNCH_ARGS,
+        // A fresh copy per launch: puppeteer splices --disable-features out
+        // of the array it is given (merging it into its own list), which
+        // would silently drop the flag from every later relaunch.
+        args: [...LAUNCH_ARGS],
         timeout: BROWSER_LAUNCH_TIMEOUT_MS,
         // Aborted only when the budget fires: puppeteer kills the spawn.
         signal,
