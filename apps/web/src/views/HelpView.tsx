@@ -176,8 +176,8 @@ const SECTIONS: HelpSection[] = [
             Health alone doesn't earn 4 or 5 stars. A site also has to pass the
             healthy-site rule, health of 70 or more <em>and</em> a mobile
             PageSpeed score of 60 or more. Sites that fail it stop at 3★,
-            whatever their health. Mobile counts for more than desktop
-            throughout, because that's where customers look.
+            whatever their health. Mobile speed counts for more than desktop
+            speed throughout.
           </p>
         </div>
 
