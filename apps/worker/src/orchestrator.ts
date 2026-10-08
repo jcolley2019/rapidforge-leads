@@ -20,10 +20,10 @@ import { runAnalyst } from "./agents/analyst";
 import { runConversion } from "./agents/conversion";
 import { runDesign } from "./agents/design";
 import { planBlockedOutcome, runFilter } from "./agents/filter";
-import { runHealth } from "./agents/health";
+import { buildTemplateHealthSummary, runHealth } from "./agents/health";
 import { runPresence } from "./agents/presence";
 import { runReputation } from "./agents/reputation";
-import { runScorer } from "./agents/scorer";
+import { classifyPlatform, runScorer } from "./agents/scorer";
 import { runScout } from "./agents/scout";
 import { runSeo } from "./agents/seo";
 import { runTraffic } from "./agents/traffic";
@@ -516,6 +516,20 @@ async function runAuditPipeline(
   if (scorer.status === "failed" || !scorer.output) {
     throw new Error(scorer.error ?? "scorer failed");
   }
+  // RFL.VERIFY.3 V4: the Health template narrated before the Scorer existed,
+  // so its one-liner keyed on PSI alone ("Site is healthy" on a 60 · 3★
+  // legacy_static page). Re-render it from the final band and platform. A
+  // Haiku narration (AI_SUMMARIES) is the model's own text and is kept.
+  if (health.status === "completed" && health.output && health.modelUsed === null) {
+    const summary = buildTemplateHealthSummary(health.output, {
+      healthScore: scorer.output.health_score,
+      platform: classifyPlatform(health.output, conversion.output, now),
+    });
+    await store.updateAgentRun(health.runId, {
+      status: "completed",
+      output: { ...health.output, summary },
+    });
+  }
   // RFL.WEB.10: the pointer follows the audit that just completed. Filter
   // pointed at this row when it was 'pending' only if the lead had no
   // completed audit yet; a forced re-audit keeps showing the previous
@@ -615,7 +629,7 @@ async function withAgentRun<T extends Record<string, unknown>>(
   /** Receives the stage budget's signal (RFL.QUEUE.8) to hand to the AI call. */
   run: (signal: AbortSignal) => Promise<AgentResult<T>>,
   legacyOpts?: { budgetMs?: number; signal?: AbortSignal },
-): Promise<AgentResult<T>> {
+): Promise<AgentResult<T> & { runId: string }> {
   const { store } = deps;
   const { job, search, agent, targetId } = ctx;
   const budgetMs = ctx.budgetMs ?? legacyOpts?.budgetMs ?? STAGE_BUDGET_MS.agent;
@@ -699,7 +713,8 @@ async function withAgentRun<T extends Record<string, unknown>>(
         },
   );
 
-  return result;
+  // The agent_runs row id, for a later amendment (the Health re-render).
+  return { ...result, runId: runRow.id };
 }
 
 /**

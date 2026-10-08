@@ -217,6 +217,36 @@ describe("audit pipeline on fixture data", () => {
     );
   });
 
+  it("the stored Health narration follows the final health band, not PSI alone (RFL.VERIFY.3 V4)", async () => {
+    const great = await seedBusiness(harness, {
+      google_place_id: "fx-001",
+      name: "Snake River Plumbing Co",
+      website_url: "https://snakeriverplumbing.com",
+      address: "1120 N Main St, Meridian, ID 83642",
+    });
+    const wix = await seedBusiness(harness, {
+      google_place_id: "fx-002",
+      name: "Boise Drain Pros",
+      website_url: "https://boisedrainpros.wixsite.com/home",
+      address: "7800 W Fairview Ave, Boise, ID 83704",
+    });
+    for (const [business, band] of [
+      [great, "healthy"],
+      [wix, "poor"],
+    ] as const) {
+      await runAuditJob(harness, business.id);
+      const audit = (await leadFor(harness, business.id)).audit!;
+      const run = harness.store
+        .listAgentRuns()
+        .find((r) => r.agent_name === "health" && r.target_id === business.id)!;
+      const oneLiner = (run.output as { summary: { summary_one_liner: string } }).summary.summary_one_liner;
+      expect(oneLiner.startsWith(
+        `Site is ${band}: health ${audit.website_health_score}/100 (${audit.star_grade}★), platform ${audit.platform};`,
+      )).toBe(true);
+      expect(run.status).toBe("completed");
+    }
+  });
+
   it("keeps special routing intact: no-website stays a 95 hot lead, dead site stays health 10", async () => {
     const noSite = await seedBusiness(harness, {
       google_place_id: "fx-003",

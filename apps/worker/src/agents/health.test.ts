@@ -12,7 +12,9 @@ import { FixtureSiteFetcher, type FetchedSite } from "../lib/site";
 import { makeHealthSummaryGuardrail } from "./guardrails/health-summary";
 import {
   buildTemplateHealthSummary,
+  healthBand,
   measureHealth,
+  platformLabel,
   runHealth,
   type HealthMeasurements,
 } from "./health";
@@ -169,6 +171,51 @@ describe("buildTemplateHealthSummary", () => {
     expect(s.critical_issues.map((i) => i.metric)).toContain("ps_mobile_performance");
     expect(makeHealthSummaryGuardrail(40)(s).passed).toBe(true);
     expect(s.summary_one_liner).toContain("poor");
+  });
+
+  describe("with the Scorer's verdict (RFL.VERIFY.3 V4) — the one-liner follows the health band", () => {
+    it("bands follow the star grade: 4–5★ healthy, 3★ middling, 1–2★ poor", () => {
+      expect([85, 70, 69, 50, 49, 0].map(healthBand)).toEqual([
+        "healthy",
+        "healthy",
+        "middling",
+        "middling",
+        "poor",
+        "poor",
+      ]);
+      expect(platformLabel("legacy_static")).toBe("legacy static site");
+      expect(platformLabel("wordpress")).toBe("wordpress");
+    });
+
+    it("healthy: 78 · 4★ custom", () => {
+      const s = buildTemplateHealthSummary(base({ ssl_valid: true }), { healthScore: 78, platform: "custom" });
+      expect(s.summary_one_liner).toBe(
+        "Site is healthy: health 78/100 (4★), platform custom; mobile performance 99/100 with 0 critical issue(s).",
+      );
+      expect(makeHealthSummaryGuardrail(99)(s).passed).toBe(true);
+    });
+
+    it("middling: Accurbore's 60 · 3★ legacy_static page with PSI 99 never reads 'healthy' or 'custom'", () => {
+      // Health itself detected "custom"; the Scorer classified legacy_static.
+      const m = base({ platform: "custom", legacy_markup: true });
+      expect(buildTemplateHealthSummary(m).summary_one_liner).toContain("Site is healthy"); // PSI alone
+      const s = buildTemplateHealthSummary(m, { healthScore: 60, platform: "legacy_static" });
+      expect(s.summary_one_liner).toBe(
+        "Site is middling: health 60/100 (3★), a legacy static site; mobile performance 99/100 with 1 critical issue(s).",
+      );
+      expect(s.reasoning).toContain("Detected platform: legacy static site.");
+      expect(`${s.summary_one_liner} ${s.reasoning}`).not.toMatch(/healthy|custom/);
+      expect(makeHealthSummaryGuardrail(99)(s).passed).toBe(true);
+    });
+
+    it("poor: 40 · 2★ wix with mobile 40", () => {
+      const s = buildTemplateHealthSummary(
+        base({ platform: "wix", ps_performance: 40, ps_mobile_performance: 40 }),
+        { healthScore: 40, platform: "wix" },
+      );
+      expect(s.summary_one_liner).toMatch(/^Site is poor: health 40\/100 \(2★\), platform wix; mobile performance 40\/100/);
+      expect(makeHealthSummaryGuardrail(40)(s).passed).toBe(true);
+    });
   });
 });
 

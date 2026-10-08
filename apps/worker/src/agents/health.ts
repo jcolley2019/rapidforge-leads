@@ -9,7 +9,7 @@
  * when ANTHROPIC_API_KEY is absent) only interprets those facts
  * (CLAUDE.md 4.2: deterministic before AI).
  */
-import type { AgentResult, Business } from "@rapidforge/shared";
+import { deriveStarGrade, type AgentResult, type Business } from "@rapidforge/shared";
 import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import {
   detectPlatform,
@@ -79,6 +79,29 @@ export interface HealthOutput extends HealthMeasurements {
   summary: HealthSummary;
 }
 
+/**
+ * RFL.VERIFY.3 V4: the audit's verdict, known only once the Scorer has run —
+ * the health score and classifyPlatform's answer (legacy_static overrides
+ * Health's own "custom"). The orchestrator re-renders the template with it.
+ */
+export interface HealthVerdict {
+  healthScore: number;
+  platform: string | null;
+}
+
+export type HealthBand = "healthy" | "middling" | "poor";
+
+/** The star grade's band: 4–5★ healthy (the healthy_site cap), 3★ middling, 1–2★ poor. */
+export function healthBand(healthScore: number): HealthBand {
+  const stars = deriveStarGrade(healthScore);
+  return stars >= 4 ? "healthy" : stars === 3 ? "middling" : "poor";
+}
+
+/** How the narration names a platform — a legacy_static page is never "custom". */
+export function platformLabel(platform: string): string {
+  return platform === "legacy_static" ? "legacy static site" : platform;
+}
+
 /** Pure measurement pass — exported for unit tests. */
 export function measureHealth(ctx: HealthContext): HealthMeasurements {
   const { business, site, psiDesktop, psiMobile, now } = ctx;
@@ -126,9 +149,15 @@ export function measureHealth(ctx: HealthContext): HealthMeasurements {
  * Deterministic template summary — used when ANTHROPIC_API_KEY is absent
  * and as the terminal fallback. Always cites at least two numeric values
  * so it satisfies the same guardrail the model must pass.
+ *
+ * Without `verdict` (Health runs before the Scorer) the one-liner's tier
+ * keys on PSI alone. With it (RFL.VERIFY.3 V4) the one-liner states the
+ * health band and the classified platform, so a 60 · 3★ legacy_static page
+ * reads "middling … a legacy static site", never "healthy" or "custom".
  */
 export function buildTemplateHealthSummary(
   m: HealthMeasurements,
+  verdict?: HealthVerdict,
 ): HealthSummary {
   const sentences: string[] = [];
   if (m.ps_mobile_performance !== null && !m.desktop_measured) {
@@ -153,8 +182,9 @@ export function buildTemplateHealthSummary(
   if (m.response_ms !== null) {
     sentences.push(`The server responded in ${m.response_ms}ms.`);
   }
-  if (m.platform !== null) {
-    sentences.push(`Detected platform: ${m.platform}.`);
+  const platform = verdict ? verdict.platform : m.platform;
+  if (platform !== null) {
+    sentences.push(`Detected platform: ${platformLabel(platform)}.`);
   }
   if (m.copyright_year !== null) {
     sentences.push(`Footer copyright year is ${m.copyright_year}.`);
@@ -188,6 +218,20 @@ export function buildTemplateHealthSummary(
       metric: "response_ms",
       value: m.response_ms,
     });
+  }
+
+  if (verdict) {
+    const where =
+      platform === null
+        ? ""
+        : platform === "legacy_static"
+          ? `, a ${platformLabel(platform)}`
+          : `, platform ${platform}`;
+    return {
+      reasoning: sentences.join(" "),
+      critical_issues: critical,
+      summary_one_liner: `Site is ${healthBand(verdict.healthScore)}: health ${verdict.healthScore}/100 (${deriveStarGrade(verdict.healthScore)}★)${where}; mobile performance ${m.ps_mobile_performance ?? "n/a"}/100 with ${critical.length} critical issue(s).`,
+    };
   }
 
   const worst = m.ps_mobile_performance ?? m.ps_performance;
