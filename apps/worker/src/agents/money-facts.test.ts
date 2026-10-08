@@ -161,3 +161,80 @@ describe("buildAuditFacts — design critical issues", () => {
     ).toEqual([]);
   });
 });
+
+describe("factsToPromptJson — one viewport fact (RFL.VERIFY.3 V7)", () => {
+  const SCORER_ISSUE = "Not mobile-friendly (missing viewport meta tag)";
+  const noViewport = () =>
+    ({
+      ...audit({
+        modernity_0_100: 43,
+        feels_like_year: 2015,
+        used_vision: false,
+        critical_issues: [
+          {
+            issue: "Layout is not mobile-responsive",
+            evidence: "No viewport meta tag in the document head (measured, not visual)",
+          },
+          {
+            issue: "Page is built with legacy pre-CSS markup",
+            evidence: "table layout in the page source (measured, not visual)",
+          },
+        ],
+      }),
+      has_viewport_meta: false,
+      issues: [
+        { severity: "high", label: SCORER_ISSUE },
+        { severity: "high", label: "Site is not served over valid HTTPS/SSL" },
+      ],
+    }) as Audit;
+
+  it("the Analyst input carries the viewport fact once: the Scorer's issue, sourced to Conversion", () => {
+    const facts = buildAuditFacts(business(), noViewport());
+    const prompt = buildAnalystPrompt(facts, resolveConfigVars(null));
+    expect(prompt.match(/viewport|responsive/gi)).toEqual(["viewport"]);
+    expect(prompt).toContain(SCORER_ISSUE);
+
+    const json = JSON.parse(factsToPromptJson(facts)) as {
+      conversion: Record<string, unknown>;
+      design: { critical_issues: string[] };
+      issues: Array<{ label: string; source?: string }>;
+    };
+    expect(json.conversion).not.toHaveProperty("has_viewport_meta");
+    expect(json.conversion.has_form).toBe(false); // the rest of the block stays
+    expect(json.design.critical_issues).toEqual(["Page is built with legacy pre-CSS markup"]);
+    expect(json.issues[0]).toEqual({ severity: "high", label: SCORER_ISSUE, source: "conversion" });
+    expect(json.issues[1]).not.toHaveProperty("source");
+    // facts itself is untouched for the guardrails and templates.
+    expect(facts.conversion.has_viewport_meta).toBe(false);
+    expect(facts.design!.critical_issues).toContain("Layout is not mobile-responsive");
+    expect(facts.issues[0]).not.toHaveProperty("source");
+  });
+
+  it("the key order of the prompt block is unchanged", () => {
+    const json = JSON.parse(factsToPromptJson(buildAuditFacts(business(), noViewport())));
+    expect(Object.keys(json)).toEqual([
+      "business",
+      "scores",
+      "health",
+      "conversion",
+      "design",
+      "seo",
+      "issues",
+      "reputation",
+    ]);
+  });
+
+  it("no Scorer issue (the page has a viewport): nothing is collapsed", () => {
+    const withViewport = {
+      ...noViewport(),
+      has_viewport_meta: true,
+      issues: [{ severity: "high", label: "Site is not served over valid HTTPS/SSL" }],
+    } as Audit;
+    const json = JSON.parse(factsToPromptJson(buildAuditFacts(business(), withViewport))) as {
+      conversion: Record<string, unknown>;
+      design: { critical_issues: string[] };
+    };
+    expect(json.conversion.has_viewport_meta).toBe(true);
+    expect(json.design.critical_issues).toContain("Layout is not mobile-responsive");
+  });
+});

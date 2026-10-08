@@ -219,17 +219,95 @@ export function buildAuditFacts(business: Business, audit: Audit): AuditFacts {
   };
 }
 
+/** The prompt's copy of the facts — what the dedup below may trim. */
+interface PromptFacts extends Omit<AuditFacts, "agents_run" | "reputation" | "conversion" | "issues"> {
+  conversion: Partial<AuditFacts["conversion"]>;
+  issues: Array<Issue & { source?: CitableAgent }>;
+  reputation: Omit<NonNullable<AuditFacts["reputation"]>, "google_rating" | "review_count"> | null;
+}
+
+/**
+ * One measured fact that several agents carry under different names. When
+ * the Scorer's issue for it is in `issues`, the prompt keeps that issue only,
+ * credits the first agent (CITABLE_AGENTS order) that also carries it as the
+ * issue's `source`, and drops every other agent's copy.
+ */
+interface SharedFact {
+  key: string;
+  /** Matches the Scorer issue label that is the one copy kept. */
+  issue: RegExp;
+  carriers: ReadonlyArray<{
+    agent: CitableAgent;
+    carries: (facts: AuditFacts) => boolean;
+    drop: (view: PromptFacts) => void;
+  }>;
+}
+
+/** Design's wording for "no viewport" ("Layout is not mobile-responsive", "non-responsive"). */
+const DESIGN_VIEWPORT_ISSUE = /viewport|\bresponsive\b|mobile[- ]friendly/i;
+
+/**
+ * RFL.VERIFY.3 V7: "no viewport" reached the Analyst three times — the
+ * Scorer's "Not mobile-friendly (missing viewport meta tag)", Conversion's
+ * `has_viewport_meta: false` and Design's "Layout is not mobile-responsive" —
+ * and the verdict repeated it under two agents.
+ */
+const SHARED_FACTS: readonly SharedFact[] = [
+  {
+    key: "viewport",
+    issue: /viewport/i,
+    carriers: [
+      {
+        agent: "conversion",
+        carries: (facts) => facts.conversion.has_viewport_meta === false,
+        drop: (view) => {
+          delete view.conversion.has_viewport_meta;
+        },
+      },
+      {
+        agent: "design",
+        carries: (facts) =>
+          facts.design?.critical_issues.some((i) => DESIGN_VIEWPORT_ISSUE.test(i)) ?? false,
+        drop: (view) => {
+          if (view.design) {
+            view.design.critical_issues = view.design.critical_issues.filter(
+              (i) => !DESIGN_VIEWPORT_ISSUE.test(i),
+            );
+          }
+        },
+      },
+    ],
+  },
+];
+
 /**
  * Compact JSON the money-agent prompts embed as the measured-data block.
  * RFL.FIX.3h dedup: `agents_run` is already a header line in every prompt,
  * and Reputation's `google_rating`/`review_count` only echo the business row
- * (Places is the source of truth), so neither is sent twice. `facts` itself
- * is unchanged — guardrails and templates still read the full shape.
+ * (Places is the source of truth), so neither is sent twice. RFL.VERIFY.3 V7
+ * extends it to SHARED_FACTS: a fact several agents carry is sent once.
+ * `facts` itself is unchanged — guardrails and templates still read the
+ * full shape.
  */
 export function factsToPromptJson(facts: AuditFacts): string {
   const { agents_run: _agentsRun, reputation, ...rest } = facts;
   const trimmedReputation = reputation
     ? (({ google_rating: _r, review_count: _c, ...keep }) => keep)(reputation)
     : null;
-  return JSON.stringify({ ...rest, reputation: trimmedReputation }, null, 2);
+  // Copies (same key order) so the dedup below never touches `facts`.
+  const view: PromptFacts = {
+    ...rest,
+    conversion: { ...rest.conversion },
+    design: rest.design ? { ...rest.design, critical_issues: [...rest.design.critical_issues] } : null,
+    issues: rest.issues.map((issue) => ({ ...issue })),
+    reputation: trimmedReputation,
+  };
+  for (const fact of SHARED_FACTS) {
+    const kept = view.issues.find((issue) => fact.issue.test(issue.label));
+    if (!kept) continue;
+    const first = fact.carriers.find((carrier) => carrier.carries(facts));
+    if (first) kept.source = first.agent;
+    for (const carrier of fact.carriers) carrier.drop(view);
+  }
+  return JSON.stringify(view, null, 2);
 }
