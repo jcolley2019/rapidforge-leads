@@ -4,6 +4,7 @@ import {
   BUILDER_PLATFORM_SCORE_MAX,
   CHAIN_SELLABILITY_CAP,
   DEAD_SITE_HEALTH_SCORE,
+  HEALTHY_SITE_MOBILE_MIN,
   HEALTHY_SITE_SELLABILITY_CAP,
   PROVISIONAL_SELLABILITY_CAP,
   UNKNOWN_REPUTATION_SCORE,
@@ -17,6 +18,7 @@ import {
   computeSellabilityScore,
   deriveStarGrade,
   isBuilderPlatform,
+  isHealthySite,
   platformScore,
   reviewCountScore,
   type HealthScoreInput,
@@ -89,13 +91,18 @@ describe("computeHealthScore (PRD 4.1)", () => {
     expect(a).toEqual(b);
   });
 
-  it("weights each signal per PRD 4.1", () => {
-    // Kill mobile only: drop should be exactly 20% of 100.
+  it("weights each signal per PRD 4.1 (RFL.FIX.3i: mobile 0.25, desktop 0.20)", () => {
+    // Kill mobile only: drop should be exactly 25% of 100.
     const full = computeHealthScore(healthyInput()).score;
     const noMobile = computeHealthScore(
       healthyInput({ psMobilePerformance: 0 }),
     ).score;
-    expect(full - noMobile).toBe(20);
+    expect(full - noMobile).toBe(25);
+    // Kill desktop only: 20% of 100.
+    const noDesktop = computeHealthScore(
+      healthyInput({ psDesktopPerformance: 0 }),
+    ).score;
+    expect(full - noDesktop).toBe(20);
   });
 
   it("PRD 4.4 special case: dead site pins health to 10", () => {
@@ -325,6 +332,36 @@ describe("computeSellabilityScore (PRD 4.3)", () => {
     );
     expect(weak.score).toBeLessThan(55);
     expect(weak.breakdown.capped).toBe("healthy_site");
+  });
+
+  it("RFL.FIX.3i: the healthy_site cap also needs mobile ≥ 50; unmeasured mobile keeps the health-only rule", () => {
+    expect(HEALTHY_SITE_MOBILE_MIN).toBe(50);
+    // Same blend as the health-70 case above (65), mobile failing → uncapped.
+    const failingMobile = computeSellabilityScore(
+      sellableInput({ healthScore: 70, mobilePerformance: 48 }),
+    );
+    expect(failingMobile.score).toBe(65);
+    expect(failingMobile.breakdown.capped).toBeUndefined();
+    const atMin = computeSellabilityScore(
+      sellableInput({ healthScore: 70, mobilePerformance: 50 }),
+    );
+    expect(atMin.score).toBe(55);
+    expect(atMin.breakdown.capped).toBe("healthy_site");
+    for (const mobilePerformance of [null, undefined]) {
+      const unmeasured = computeSellabilityScore(
+        sellableInput({ healthScore: 70, mobilePerformance }),
+      );
+      expect(unmeasured.breakdown.capped).toBe("healthy_site");
+    }
+    // The chain cap still applies whatever mobile scored.
+    const chain = computeSellabilityScore(
+      sellableInput({ healthScore: 70, mobilePerformance: 20, isChain: true }),
+    );
+    expect(chain.breakdown.capped).toBe("chain");
+    expect(isHealthySite(69, 99)).toBe(false);
+    expect(isHealthySite(70, 49)).toBe(false);
+    expect(isHealthySite(70, 50)).toBe(true);
+    expect(isHealthySite(70, null)).toBe(true);
   });
 
   it("provisional (blocked) audits cap at 55 with capped='provisional'", () => {

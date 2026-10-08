@@ -9,7 +9,12 @@
  * when ANTHROPIC_API_KEY is absent) only interprets those facts
  * (CLAUDE.md 4.2: deterministic before AI).
  */
-import { deriveStarGrade, type AgentResult, type Business } from "@rapidforge/shared";
+import {
+  deriveStarGrade,
+  isHealthySite,
+  type AgentResult,
+  type Business,
+} from "@rapidforge/shared";
 import { generateJsonSummary, MODEL_HAIKU } from "../lib/ai";
 import {
   detectPlatform,
@@ -91,10 +96,20 @@ export interface HealthVerdict {
 
 export type HealthBand = "healthy" | "middling" | "poor";
 
-/** The star grade's band: 4–5★ healthy (the healthy_site cap), 3★ middling, 1–2★ poor. */
-export function healthBand(healthScore: number): HealthBand {
+/**
+ * The star grade's band: 4–5★ healthy only when the healthy_site rule holds
+ * (mobile ≥ 50, RFL.FIX.3i; a 4★ page with failing mobile is middling),
+ * 3★ middling, 1–2★ poor.
+ */
+export function healthBand(
+  healthScore: number,
+  mobilePerformance: number | null = null,
+): HealthBand {
   const stars = deriveStarGrade(healthScore);
-  return stars >= 4 ? "healthy" : stars === 3 ? "middling" : "poor";
+  if (stars >= 4) {
+    return isHealthySite(healthScore, mobilePerformance) ? "healthy" : "middling";
+  }
+  return stars === 3 ? "middling" : "poor";
 }
 
 /** How the narration names a platform — a legacy_static page is never "custom". */
@@ -230,7 +245,7 @@ export function buildTemplateHealthSummary(
     return {
       reasoning: sentences.join(" "),
       critical_issues: critical,
-      summary_one_liner: `Site is ${healthBand(verdict.healthScore)}: health ${verdict.healthScore}/100 (${deriveStarGrade(verdict.healthScore)}★)${where}; mobile performance ${m.ps_mobile_performance ?? "n/a"}/100 with ${critical.length} critical issue(s).`,
+      summary_one_liner: `Site is ${healthBand(verdict.healthScore, m.ps_mobile_performance)}: health ${verdict.healthScore}/100 (${deriveStarGrade(verdict.healthScore)}★)${where}; mobile performance ${m.ps_mobile_performance ?? "n/a"}/100 with ${critical.length} critical issue(s).`,
     };
   }
 

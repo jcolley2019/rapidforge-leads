@@ -175,7 +175,7 @@ describe("buildTemplateHealthSummary", () => {
 
   describe("with the Scorer's verdict (RFL.VERIFY.3 V4) — the one-liner follows the health band", () => {
     it("bands follow the star grade: 4–5★ healthy, 3★ middling, 1–2★ poor", () => {
-      expect([85, 70, 69, 50, 49, 0].map(healthBand)).toEqual([
+      expect([85, 70, 69, 50, 49, 0].map((h) => healthBand(h))).toEqual([
         "healthy",
         "healthy",
         "middling",
@@ -183,6 +183,11 @@ describe("buildTemplateHealthSummary", () => {
         "poor",
         "poor",
       ]);
+      // RFL.FIX.3i: 4★ with mobile < 50 is not the healthy_site rule → middling.
+      expect(healthBand(70, 48)).toBe("middling");
+      expect(healthBand(70, 50)).toBe("healthy");
+      expect(healthBand(85, 20)).toBe("middling");
+      expect(healthBand(60, 99)).toBe("middling");
       expect(platformLabel("legacy_static")).toBe("legacy static site");
       expect(platformLabel("wordpress")).toBe("wordpress");
     });
@@ -193,6 +198,14 @@ describe("buildTemplateHealthSummary", () => {
         "Site is healthy: health 78/100 (4★), platform custom; mobile performance 99/100 with 0 critical issue(s).",
       );
       expect(makeHealthSummaryGuardrail(99)(s).passed).toBe(true);
+    });
+
+    it("middling: Landers' 70 · 4★ with mobile 48 never reads 'healthy' (RFL.FIX.3i)", () => {
+      const s = buildTemplateHealthSummary(
+        base({ ssl_valid: true, ps_performance: 94, ps_mobile_performance: 48, desktop_measured: true }),
+        { healthScore: 70, platform: "wordpress" },
+      );
+      expect(s.summary_one_liner).toMatch(/^Site is middling: health 70\/100 \(4★\), platform wordpress; mobile performance 48\/100/);
     });
 
     it("middling: Accurbore's 60 · 3★ legacy_static page with PSI 99 never reads 'healthy' or 'custom'", () => {

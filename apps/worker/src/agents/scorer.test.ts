@@ -8,10 +8,13 @@ import { describe, expect, it } from "vitest";
 import type { Business } from "@rapidforge/shared";
 import {
   DESIGN_STUB_SCORE,
+  HEALTH_WEIGHTS,
   PLATFORM_SCORES,
   UNMEASURED_PSI_SCORE,
+  deriveStarGrade,
 } from "@rapidforge/shared";
 import type { ConversionOutput } from "./conversion";
+import type { DesignOutput } from "./design";
 import type { HealthOutput } from "./health";
 import { assembleScores, classifyPlatform, type ScoreInputs } from "./scorer";
 import type { SeoOutput } from "./seo";
@@ -277,5 +280,114 @@ describe("assembleScores — RFL.FIX.3k issues", () => {
       expect(scores.sellabilityScore).toBeLessThanOrEqual(55);
       expect(scores.scoreBreakdown.capped).toBe("healthy_site");
     }
+  });
+});
+
+describe("assembleScores — mobile-first weights and healthy cap (RFL.FIX.3i V3)", () => {
+  const landers: Business = {
+    ...business,
+    id: "biz-landers",
+    name: "Landers Home Services",
+    website_url: "https://landershomeservices.com/",
+    google_rating: 4.8,
+    review_count: 33,
+    category: "general_contractor",
+  };
+
+  function design(modernity: number): DesignOutput {
+    const dim = { score_0_100: modernity, notes: "n" };
+    return {
+      modernity_0_100: modernity,
+      feels_like_year: 2019,
+      dimensions: { typography: dim, color: dim, imagery: dim, layout: dim, mobile: dim },
+      reasoning: "r",
+      critical_issues: [],
+      used_vision: true,
+    };
+  }
+
+  /** Landers' VERIFY.3 measurements: tech 100, wordpress 65, conversion 3/5, freshness 2/3, design 68. */
+  function landersInputs(psi: { desktop: number; mobile: number; platform?: HealthOutput["platform"] }): ScoreInputs {
+    return inputs({
+      business: landers,
+      health: health({
+        ps_performance: psi.desktop,
+        ps_mobile_performance: psi.mobile,
+        desktop_measured: true,
+        ps_lcp_ms: 13_600,
+        ssl_valid: true,
+        https_enforced: true,
+        response_ms: 300,
+        platform: psi.platform ?? "wordpress",
+        copyright_year: null,
+        has_recent_last_modified: true,
+        last_modified_at: "2026-10-07T00:00:00.000Z",
+      }),
+      conversion: conversion({
+        has_viewport_meta: true,
+        has_visible_phone: true,
+        has_tel_link: true,
+        has_cta_above_fold: true,
+      }),
+      design: design(68),
+    });
+  }
+
+  type Terms = Record<keyof typeof HEALTH_WEIGHTS, number>;
+  const blend = (terms: Terms, w: Terms) =>
+    Math.round((Object.keys(w) as Array<keyof Terms>).reduce((sum, k) => sum + terms[k] * w[k], 0));
+  const PRE_3I_WEIGHTS: Terms = { ...HEALTH_WEIGHTS, performance: 0.25, mobile: 0.2 };
+
+  it("weights: mobile 0.25 outweighs desktop performance 0.20", () => {
+    expect(HEALTH_WEIGHTS.mobile).toBe(0.25);
+    expect(HEALTH_WEIGHTS.performance).toBe(0.2);
+  });
+
+  it("Landers (desktop 94, mobile 48): health equals the hand recompute (70) and the healthy cap does not apply", () => {
+    const scores = assembleScores(landersInputs({ desktop: 94, mobile: 48 }));
+    const h = scores.scoreBreakdown.health as Terms;
+    const stored: Terms = {
+      performance: 94,
+      mobile: 48,
+      technical: 100,
+      platform: 65,
+      conversion: 60,
+      freshness: 200 / 3,
+      design: 68,
+    };
+    for (const k of Object.keys(stored) as Array<keyof Terms>) expect(h[k]).toBeCloseTo(stored[k], 5);
+    // 94×0.20 + 48×0.25 + 100×0.10 + 65×0.15 + 60×0.15 + 66.7×0.10 + 68×0.05 = 69.62 → 70
+    expect(scores.healthScore).toBe(blend(stored, HEALTH_WEIGHTS));
+    expect(scores.healthScore).toBe(70);
+    // The pre-3i weights gave the VERIFY.3 72.
+    expect(blend(stored, PRE_3I_WEIGHTS)).toBe(72);
+    // Mobile 48 < 50: no healthy_site cap. 30×0.5 + 80×0.15 + 10 + 10 + 10 + 5 = 62.
+    expect(scores.scoreBreakdown.capped).toBeUndefined();
+    expect(scores.sellabilityScore).toBe(62);
+    // The star grade still follows STAR_BANDS alone (70 → 4★).
+    expect(scores.starGrade).toBe(4);
+  });
+
+  it("a site with mobile 85 / desktop 90 keeps its band and its healthy_site cap", () => {
+    const scores = assembleScores(landersInputs({ desktop: 90, mobile: 85, platform: "custom" }));
+    const h = scores.scoreBreakdown.health as Terms;
+    expect(h.performance).toBe(90);
+    expect(h.mobile).toBe(85);
+    const before = blend(h, PRE_3I_WEIGHTS);
+    expect(scores.starGrade).toBe(deriveStarGrade(before));
+    expect(scores.starGrade).toBe(4);
+    expect(scores.scoreBreakdown.capped).toBe("healthy_site");
+    expect(scores.sellabilityScore).toBe(55);
+  });
+
+  it("desktop off: the mobile copy fills the performance term as before", () => {
+    // With PSI_DESKTOP off the orchestrator passes the mobile run as desktop.
+    const base = landersInputs({ desktop: 99, mobile: 99, platform: "custom" });
+    const scores = assembleScores({ ...base, health: { ...base.health!, desktop_measured: false } });
+    const h = scores.scoreBreakdown.health as Terms;
+    expect(h.performance).toBe(99);
+    expect(h.mobile).toBe(99);
+    expect(scores.healthScore).toBe(blend(h, HEALTH_WEIGHTS));
+    expect(scores.scoreBreakdown.capped).toBe("healthy_site");
   });
 });

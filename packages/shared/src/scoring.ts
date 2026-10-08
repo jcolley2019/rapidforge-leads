@@ -13,10 +13,18 @@
 
 /** Signal weights. Must sum to 1. */
 export const HEALTH_WEIGHTS = {
-  /** PSI desktop performance score */
-  performance: 0.25,
-  /** PSI mobile performance score (70%+ of local searches are mobile) */
-  mobile: 0.2,
+  /**
+   * PSI desktop performance score. RFL.FIX.3i (V3, approved by Joey): 0.20,
+   * down from 0.25. With PSI_DESKTOP=true a fast desktop run was carrying
+   * pages whose mobile run fails (Landers: desktop 94, mobile 48 → 4★).
+   * With desktop off this slot still holds the mobile result.
+   */
+  performance: 0.2,
+  /**
+   * PSI mobile performance score. RFL.FIX.3i (V3): 0.25, up from 0.20, so
+   * mobile now outweighs desktop (70%+ of local searches are mobile).
+   */
+  mobile: 0.25,
   /** SSL valid, HTTPS enforced, response <2s, viewport meta present */
   technical: 0.1,
   /** Platform quality (builder platforms score low) */
@@ -131,13 +139,22 @@ export const UNKNOWN_REPUTATION_SCORE = 50;
 
 /**
  * Needs-rebuild cap (audit finding 2): a site whose health is at/above
- * HEALTHY_SITE_HEALTH_MIN is not a rebuild prospect whatever its reputation,
- * so sellability is capped at HEALTHY_SITE_SELLABILITY_CAP. A provisional
- * audit (bot-blocked, health neutral) gets the same cap so unknown health
- * can never rank above measured-bad health. The chain cap (40) is lower and
- * wins when both apply. The no-website 95 special case is never capped.
+ * HEALTHY_SITE_HEALTH_MIN and whose mobile performance is at/above
+ * HEALTHY_SITE_MOBILE_MIN (isHealthySite) is not a rebuild prospect whatever
+ * its reputation, so sellability is capped at HEALTHY_SITE_SELLABILITY_CAP.
+ * A provisional audit (bot-blocked, health neutral) gets the same cap so
+ * unknown health can never rank above measured-bad health. The chain cap
+ * (40) is lower and wins when both apply. The no-website 95 special case is
+ * never capped.
  */
 export const HEALTHY_SITE_HEALTH_MIN = 70;
+/**
+ * RFL.FIX.3i (V3, approved by Joey): a failing mobile run keeps a site out
+ * of the healthy cap however good its blended health, because a page that
+ * fails on a phone is still a rebuild prospect. Unmeasured mobile (null)
+ * leaves the rule on health alone, as before.
+ */
+export const HEALTHY_SITE_MOBILE_MIN = 50;
 export const HEALTHY_SITE_SELLABILITY_CAP = 55;
 export const PROVISIONAL_SELLABILITY_CAP = 55;
 
@@ -377,6 +394,11 @@ export interface SellabilityInput {
    * and the audit is provisional → PROVISIONAL_SELLABILITY_CAP applies.
    */
   siteBlocked?: boolean;
+  /**
+   * PSI mobile performance 0–100 (RFL.FIX.3i): the healthy_site cap needs it
+   * at/above HEALTHY_SITE_MOBILE_MIN. Null/absent = unmeasured → health alone.
+   */
+  mobilePerformance?: number | null;
 }
 
 /** Which cap bound the final score (the lowest applicable one). */
@@ -416,6 +438,22 @@ export function reviewCountScore(reviewCount: number | null): number {
 }
 
 /**
+ * The healthy-site rule (RFL.FIX.3i): health ≥ HEALTHY_SITE_HEALTH_MIN and
+ * mobile performance ≥ HEALTHY_SITE_MOBILE_MIN (null mobile = unmeasured →
+ * health alone). Drives the healthy_site cap and the Health narration's
+ * "healthy" band, so the two never disagree.
+ */
+export function isHealthySite(
+  healthScore: number,
+  mobilePerformance: number | null,
+): boolean {
+  return (
+    healthScore >= HEALTHY_SITE_HEALTH_MIN &&
+    (mobilePerformance === null || mobilePerformance >= HEALTHY_SITE_MOBILE_MIN)
+  );
+}
+
+/**
  * Sellability Score (PRD 4.3) — pure, deterministic.
  *
  * Special case (PRD 4.4 + CLAUDE.md 6.7, non-negotiable routing): no-website
@@ -436,7 +474,7 @@ export function computeSellabilityScore(
     caps.push(["provisional", PROVISIONAL_SELLABILITY_CAP]);
   } else if (
     input.healthScore !== null &&
-    input.healthScore >= HEALTHY_SITE_HEALTH_MIN
+    isHealthySite(input.healthScore, input.mobilePerformance ?? null)
   ) {
     caps.push(["healthy_site", HEALTHY_SITE_SELLABILITY_CAP]);
   }

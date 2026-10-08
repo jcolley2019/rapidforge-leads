@@ -151,6 +151,8 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
     hasPhone: business.phone !== null,
     isChain: business.is_chain === true,
     businessStatus: business.business_status,
+    // RFL.FIX.3i: the healthy_site cap also needs mobile ≥ 50.
+    mobilePerformance: health?.ps_mobile_performance ?? null,
   });
 
   // RFL.FIX.3k: the Last-Modified date becomes an age so issues stay pure.
