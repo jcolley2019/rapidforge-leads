@@ -818,7 +818,8 @@ export function createApp(
       }
       // RFL.FIX.3h: a stored brief is returned as-is (≈ 11¢ per re-run
       // otherwise, same pattern as design-brief) unless ?force=true.
-      if (req.query.force !== "true" && audit.builder_brief_md) {
+      const force = req.query.force === "true";
+      if (!force && audit.builder_brief_md) {
         const markdown = audit.builder_brief_md;
         const headings = h2Headings(markdown);
         res.json({
@@ -861,14 +862,16 @@ export function createApp(
             competitors,
             siteHtmlExcerpt,
             signal,
-            force: req.query.force === "true",
+            force,
           }),
         persist: (auditId, output) =>
           deps.store.updateAudit(auditId, {
             builder_brief_md: output.markdown,
             // RFL.FIX.3f: the embedded Design Brief also fills
-            // audits.design_brief when nothing is stored there yet.
-            ...(output.design_brief && !audit.design_brief
+            // audits.design_brief when nothing is stored there yet. On
+            // ?force=true (RFL.FIX.3i) the fresh one overwrites it, so the
+            // Design Brief tab and the brief's embedded JSON always match.
+            ...(output.design_brief && (force || !audit.design_brief)
               ? { design_brief: output.design_brief }
               : {}),
           }),

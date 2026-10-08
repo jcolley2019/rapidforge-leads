@@ -513,7 +513,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - A Design Brief failure only drops the JSON block.
 - **Inputs → outputs:**
   - `audits.builder_brief_md`, a `usage_events` `ai_call` row, and an `agent_runs` row with `input.on_demand = true`.
-  - The embedded Design Brief is also saved to `audits.design_brief` when that column is still empty, so the Design Brief tab then shows it without a second call.
+  - The embedded Design Brief is also saved to `audits.design_brief` when that column is still empty, so the Design Brief tab then shows it without a second call. With `?force=true` the fresh one overwrites a stored one, so the tab and the brief's embedded JSON always match.
   - A stored brief is returned as-is (`stored: true`, no agent run, no spend) unless the request has `?force=true`; the drawer's "Regenerate" button sends it.
   - Events: `agent.started` and `agent.completed` / `agent.failed` only (apps/worker/src/agents/on-demand.ts).
 - **Who reads it downstream:** drawer Builder Brief tab (copy and regenerate); you or Claude Code.
@@ -541,7 +541,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 - **Guardrails** (guardrails/design-brief.ts): quotes must be verbatim from `places_details.reviews`, tone and services must be non-empty, and the whole object must parse against `DesignBriefSchema`. Otherwise the agent fails and writes nothing.
 - **Inputs → outputs:**
   - On its own route: `audits.design_brief`, plus `agent_runs` and `ai_call` rows. A stored brief is returned without new spend unless `?force=true`.
-  - Inside the Builder Brief: the JSON block in the markdown, also saved to `audits.design_brief` when that column is empty. A brief already stored there is embedded as-is instead of making a new call, unless the Builder Brief request has `?force=true`.
+  - Inside the Builder Brief: the JSON block in the markdown, also saved to `audits.design_brief` when that column is empty. A brief already stored there is embedded as-is instead of making a new call, unless the Builder Brief request has `?force=true`; then the regenerated one overwrites the stored one.
 - **Who reads it downstream:** the rapidforge-demos repo; drawer Design Brief tab (shows the photos through the proxy).
 - **Typical cost per lead:**
   - Under about 0.4¢: output ceiling 600 × $5/M = 0.3¢, plus input. The input is a short system prompt, ≤ 1,500 characters of excerpt and ≤ 5 × 400 characters of reviews, ≈ 1,000 tokens at ~4 characters per token, so ≈ 0.1¢.
@@ -603,7 +603,7 @@ The left rail has eight views (apps/web/src/views/views.ts). The web app holds n
 | Action | Route | What it does | Spend |
 |---|---|---|---|
 | Analyst | `POST /api/businesses/:id/analyst` | Runs the Analyst on the latest completed audit. Chains get 409 unless `?force=true`. Runs every time (no stored reuse). **No button calls it today.** | ≈ 3¢ |
-| Builder Brief | `POST /api/businesses/:id/builder-brief` | Returns the stored brief; `?force=true` (the drawer's "Regenerate") writes a new one and fills an empty `audits.design_brief`. Without `?force=true` a stored Design Brief is embedded rather than regenerated | ≈ 11.4¢ when generated |
+| Builder Brief | `POST /api/businesses/:id/builder-brief` | Returns the stored brief; `?force=true` (the drawer's "Regenerate") writes a new one and overwrites `audits.design_brief` with the regenerated Design Brief. Without `?force=true` a stored Design Brief is embedded rather than regenerated | ≈ 11.4¢ when generated |
 | Design Brief | `POST /api/businesses/:id/design-brief` | Returns the stored brief; `?force=true` regenerates | ≈ 0.4¢ when generated |
 | Sales Script | `POST /api/businesses/:id/sales-summary` | Returns the stored script; `?force=true` (the drawer's "Regenerate") writes a new one | ≈ 1.3¢ when generated |
 | PDF report | `GET /api/businesses/:id/report` | Two-page report (apps/worker/src/lib/pdf-report.ts). Real PDF needs `SCREENSHOTS_ENABLED=true` (else 503 "screenshots disabled"); fixture mode returns HTML | $0 |

@@ -501,7 +501,7 @@ describe("POST /api/businesses/:id/builder-brief", () => {
 });
 
 describe("builder-brief embedded design brief (RFL.FIX.3f)", () => {
-  it("persists the embedded Design Brief to an empty audits.design_brief and never overwrites a stored one", async () => {
+  it("persists the embedded Design Brief to an empty audits.design_brief; ?force=true overwrites a stored one (RFL.FIX.3i)", async () => {
     const { business } = await seedLead({
       places_details: { ...FIXTURE_DETAILS["fx-001"], fetchedAt: "2026-07-06T07:00:00.000Z" },
     });
@@ -519,7 +519,13 @@ describe("builder-brief embedded design brief (RFL.FIX.3f)", () => {
     await store.updateAudit(audit.id, { design_brief: stored });
     const forced = await api("POST", `/api/businesses/${business.id}/builder-brief?force=true`);
     expect(forced.status).toBe(200);
-    expect((await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief).toEqual(stored);
+    // The freshly generated Design Brief replaced the stored one, and the
+    // column equals the JSON embedded in the brief the route returned.
+    const overwritten = (await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief;
+    expect(overwritten).not.toEqual(stored);
+    expect(overwritten).toMatchObject({ vertical: "plumber", source: { audit_id: audit.id } });
+    expect(forced.json.builder_brief_md).toContain(JSON.stringify(overwritten, null, 2));
+    expect(forced.json.builder_brief_md).not.toContain("Stored by the design-brief route");
   });
 });
 

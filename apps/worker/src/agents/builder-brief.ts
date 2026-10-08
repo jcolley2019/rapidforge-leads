@@ -63,7 +63,8 @@ export interface BuilderBriefOutput extends Record<string, unknown> {
   word_count: number;
   sections: string[];
   /** The embedded Design Brief (null when it was omitted) — the route
-   * persists it to audits.design_brief when that column is empty. */
+   * persists it to audits.design_brief when that column is empty, or over
+   * the stored one on ?force=true (RFL.FIX.3i). */
   design_brief: DesignBrief | null;
 }
 
