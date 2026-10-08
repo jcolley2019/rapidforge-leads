@@ -1,5 +1,6 @@
 import { Loader2, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { CoachingContext } from "@/components/CoachingTip";
 import { CommandPalette } from "@/components/CommandPalette";
 import { LeftRail } from "@/components/layout/LeftRail";
 import { TopBar } from "@/components/layout/TopBar";
@@ -35,6 +36,14 @@ export function App() {
   const workspaceId =
     auth.status === "signed_in" ? auth.workspaceId : null;
   const liveValue = useWorkspaceLive(workspaceId);
+
+  // Coaching tips are per user; the offline preview gets its own bucket.
+  const coachingUserId =
+    auth.status === "signed_in" ? auth.session.user.id : "preview";
+  const coaching = useMemo(
+    () => ({ userId: coachingUserId, openHelp: () => setView("help") }),
+    [coachingUserId],
+  );
 
   function renderView(current: ViewKey) {
     switch (current) {
@@ -99,6 +108,7 @@ export function App() {
   return (
     <LiveContext.Provider value={liveValue}>
       <LeadDrawerProvider>
+      <CoachingContext.Provider value={coaching}>
       <div className="flex h-screen flex-col text-foreground">
         {auth.status === "unconfigured" && (
           <div className="flex items-center gap-2 border-b border-agent-waiting/30 bg-agent-waiting/10 px-6 py-1.5 text-xs text-agent-waiting">
@@ -138,6 +148,7 @@ export function App() {
           onNavigate={setView}
         />
       </div>
+      </CoachingContext.Provider>
       </LeadDrawerProvider>
     </LiveContext.Provider>
   );

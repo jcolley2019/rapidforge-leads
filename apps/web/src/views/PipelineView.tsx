@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import { Loader2, Phone, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LeadStatusSchema, type LeadStatus } from "@rapidforge/shared";
+import { CoachingTip } from "@/components/CoachingTip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
@@ -156,6 +157,11 @@ export function PipelineView() {
           </Button>
         </div>
       </div>
+
+      <CoachingTip tipId="pipeline" title="Drag or set status">
+        Drag a card to another column to move the lead along, or change its
+        status in the lead drawer.
+      </CoachingTip>
 
       {error && (
         <p className="rounded-xl border border-agent-error/40 bg-agent-error/10 px-3.5 py-2 text-xs text-agent-error">

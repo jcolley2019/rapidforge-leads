@@ -7,6 +7,7 @@
 import { Loader2, Search } from "lucide-react";
 import { useState } from "react";
 import { ZipRadiusParamsSchema } from "@rapidforge/shared";
+import { CoachingTip } from "@/components/CoachingTip";
 import {
   CATEGORIES,
   SearchFilterControls,
@@ -107,6 +108,11 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">New Search</h1>
       </div>
+
+      <CoachingTip tipId="new-search" title="Pick a category and an area">
+        Choose a business type, then a zip code or map pin and a radius. Run
+        search takes you to the Workspace.
+      </CoachingTip>
 
       <div
         className="card-panel flex w-fit items-center gap-1 rounded-full p-1.5 text-xs"

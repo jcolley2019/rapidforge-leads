@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Search as SearchRow, UsageSummary } from "@rapidforge/shared";
+import { CoachingTip } from "@/components/CoachingTip";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -88,6 +89,11 @@ export function DashboardView({
           New search
         </Button>
       </div>
+
+      <CoachingTip tipId="dashboard" title="Start with a search">
+        Press New search, pick a business category and an area. The agents
+        find every match, audit its website and score it.
+      </CoachingTip>
 
       {error && (
         <p className="rounded-xl border border-agent-error/40 bg-agent-error/10 px-3.5 py-2 text-xs text-agent-error">

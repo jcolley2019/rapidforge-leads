@@ -35,6 +35,7 @@ import {
   type Issue,
   type LeadStatus,
 } from "@rapidforge/shared";
+import { CoachingTip } from "@/components/CoachingTip";
 import { Button } from "@/components/ui/button";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import { DemoTab } from "./DemoTab";
@@ -267,6 +268,10 @@ function OverviewTab({ lead }: { lead: LeadView }) {
 
   return (
     <div className="space-y-6">
+      <CoachingTip tipId="drawer" title="Briefs unlock after the audit">
+        Builder Brief, Design Brief and Sales Script unlock when the audit
+        completes. Regenerate pays for a fresh AI call.
+      </CoachingTip>
       <section className="flex items-center gap-3">
         <label
           htmlFor="lead-status"

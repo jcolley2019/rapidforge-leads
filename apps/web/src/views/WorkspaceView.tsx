@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { MapDrawParams, ZipRadiusParams } from "@rapidforge/shared";
+import { CoachingTip } from "@/components/CoachingTip";
 import { ReauditButton } from "@/components/leads/ReauditButton";
 import { ResultsTable } from "@/components/leads/ResultsTable";
 import { Button } from "@/components/ui/button";
@@ -166,6 +167,11 @@ export function WorkspaceView({ searchId, onNewSearch }: WorkspaceViewProps) {
           </Button>
         </div>
       </div>
+
+      <CoachingTip tipId="workspace" title="Watch the agents work">
+        All shows leads as they're scored; an agent's chip shows its live
+        activity. Cancel stops the audits still waiting.
+      </CoachingTip>
 
       {error && (
         <p className="rounded-xl border border-agent-error/40 bg-agent-error/10 px-4 py-2.5 text-xs text-agent-error">

@@ -8,6 +8,7 @@
 import { ArrowDown, ArrowUp, Download, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LeadStatusSchema, type LeadStatus } from "@rapidforge/shared";
+import { CoachingTip } from "@/components/CoachingTip";
 import { ProvisionalTag } from "@/components/leads/AuditTags";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -261,6 +262,11 @@ export function LeadsView() {
           </Button>
         </div>
       </div>
+
+      <CoachingTip tipId="leads" title="Every lead, in one list">
+        Open any row for the drawer; export CSV from here. Tick rows to change
+        status or re-audit several at once.
+      </CoachingTip>
 
       {/* Filter bar */}
       <div className="card-panel flex flex-wrap items-center gap-2 px-4 py-3 text-xs">
