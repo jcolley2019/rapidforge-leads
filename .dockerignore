@@ -1,0 +1,9 @@
+# RFL.HOST.6 — keep the worker image's build context small and secret-free.
+**/node_modules
+.git
+apps/web/dist
+**/.env
+**/.env.*
+!**/.env.example
+docs
+**/*.md

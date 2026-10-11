@@ -15,11 +15,13 @@ vi.mock("puppeteer-core", () => {
 import {
   BROWSER_LAUNCH_TIMEOUT_MS,
   BrowserUnavailableError,
+  CONTAINER_LAUNCH_ARGS,
   LAUNCH_ARGS,
   LAUNCH_RETRY_AFTER_MS,
   browserPagesInUse,
   findBrowserExecutables,
   getSharedBrowser,
+  launchArgs,
   preloadBrowserModule,
   resetSharedBrowser,
   withPage,
@@ -326,5 +328,26 @@ describe("findBrowserExecutables (async fs only)", () => {
     expect(found).toEqual([]);
     expect(reason).toBe("no Chrome/Chromium found");
     expect(probed.some((p) => p.startsWith("D:"))).toBe(false);
+  });
+});
+
+describe("launchArgs — container branch (RFL.HOST.6)", () => {
+  it("Linux with PUPPETEER_EXECUTABLE_PATH adds --no-sandbox and --disable-dev-shm-usage once each", () => {
+    const args = launchArgs({ PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium" }, "linux");
+    expect(args.slice(0, LAUNCH_ARGS.length)).toEqual([...LAUNCH_ARGS]);
+    for (const flag of CONTAINER_LAUNCH_ARGS) {
+      expect(args.filter((a) => a === flag)).toHaveLength(1);
+    }
+  });
+
+  it("Windows, or Linux without the env path, launches exactly LAUNCH_ARGS", () => {
+    expect(launchArgs({ PUPPETEER_EXECUTABLE_PATH: "C:\chrome.exe" }, "win32")).toEqual([...LAUNCH_ARGS]);
+    expect(launchArgs({}, "linux")).toEqual([...LAUNCH_ARGS]);
+  });
+
+  it("returns a fresh array each call (puppeteer splices the one it is given)", () => {
+    const a = launchArgs({}, "win32");
+    a.length = 0;
+    expect(launchArgs({}, "win32")).toEqual([...LAUNCH_ARGS]);
   });
 });

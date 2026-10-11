@@ -54,6 +54,25 @@ export const LAUNCH_ARGS: readonly string[] = [
   "--disable-features=HttpsUpgrades,HttpsFirstBalancedMode,HttpsFirstBalancedModeAutoEnable,HttpsFirstModeV2ForEngagedSites",
 ];
 
+/**
+ * RFL.HOST.6: the worker image (Dockerfile) runs Chromium as root from
+ * PUPPETEER_EXECUTABLE_PATH, with Docker's 64MB /dev/shm. Added only on that
+ * Linux path, so Windows dev launches exactly LAUNCH_ARGS.
+ */
+export const CONTAINER_LAUNCH_ARGS: readonly string[] = ["--no-sandbox", "--disable-dev-shm-usage"];
+
+/** A fresh launch-args array for this process (container extras deduped in). */
+export function launchArgs(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const args = [...LAUNCH_ARGS];
+  if (env.PUPPETEER_EXECUTABLE_PATH && platform === "linux") {
+    for (const flag of CONTAINER_LAUNCH_ARGS) if (!args.includes(flag)) args.push(flag);
+  }
+  return args;
+}
+
 /** No browser for this request; `reason` is short enough for an issue label. */
 export class BrowserUnavailableError extends Error {
   override readonly name = "BrowserUnavailableError";
@@ -327,7 +346,7 @@ async function launchShared(signal: AbortSignal, attempt: { label: string }): Pr
         // A fresh copy per launch: puppeteer splices --disable-features out
         // of the array it is given (merging it into its own list), which
         // would silently drop the flag from every later relaunch.
-        args: [...LAUNCH_ARGS],
+        args: launchArgs(),
         timeout: BROWSER_LAUNCH_TIMEOUT_MS,
         // Aborted only when the budget fires: puppeteer kills the spawn.
         signal,
