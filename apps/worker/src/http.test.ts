@@ -1116,3 +1116,36 @@ describe("POST /api/searches/:id/cancel (RFL.WEB.10)", () => {
     expect(missing.status).toBe(404);
   });
 });
+
+describe("CORS (RFL.HOST.6)", () => {
+  it("allows the local Vite origin", async () => {
+    const res = await fetch(`${base}/health`, {
+      headers: { origin: "http://localhost:5173" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
+  });
+
+  it("sends no Allow-Origin to an origin outside the list", async () => {
+    const res = await fetch(`${base}/health`, {
+      headers: { origin: "https://evil.example" },
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("answers an OPTIONS preflight to /api/searches with 204 and the allow headers", async () => {
+    const res = await fetch(`${base}/api/searches`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type",
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    expect(res.headers.get("access-control-allow-methods")).toBe("GET,POST,PUT,DELETE,OPTIONS");
+    expect(res.headers.get("access-control-allow-headers")).toBe("Authorization,Content-Type");
+  });
+});

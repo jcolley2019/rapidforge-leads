@@ -26,7 +26,8 @@ import type { OrchestratorDeps } from "./orchestrator";
 import { startQueuePoller } from "./queue";
 import { createDataStore } from "./store";
 
-const port = Number(process.env.WORKER_PORT ?? 8788);
+// RFL.HOST.6: the host (Railway) injects PORT; local .env keeps WORKER_PORT.
+const port = Number(process.env.PORT ?? process.env.WORKER_PORT ?? 8788);
 const startedAt = Date.now();
 
 const deps: OrchestratorDeps = {

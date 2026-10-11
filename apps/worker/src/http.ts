@@ -5,6 +5,7 @@
  * service-role key, so workspace isolation is enforced here per route
  * (foreign rows 404, never 403 — no existence leaks).
  */
+import cors from "cors";
 import express, { type Express } from "express";
 import { z } from "zod";
 import {
@@ -28,6 +29,7 @@ import { AnalystOutputSchema } from "./agents/prompts/analyst";
 import { BRIEF_SECTIONS, type CompetitorSummary } from "./agents/prompts/builder-brief";
 import { DEMO_SUB_RE, DemoRunner, type DemoRunnerOptions } from "./demo";
 import { aiSummaryMode } from "./lib/ai";
+import { webOrigins } from "./lib/env";
 import {
   PLACE_PHOTO_MAX_WIDTH_PX,
   PLACE_PHOTO_NAME_RE,
@@ -184,6 +186,18 @@ export function createApp(
   options: AppOptions = {},
 ): Express {
   const app = express();
+  // RFL.HOST.6: the hosted web app (WEB_ORIGINS) calls the worker
+  // cross-origin with a Bearer JWT — no cookies, so no credentials. An
+  // unlisted Origin gets no Allow-Origin header; preflights end here (204),
+  // ahead of the /api JWT gate.
+  app.use(
+    cors({
+      origin: webOrigins(),
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Authorization", "Content-Type"],
+      credentials: false,
+    }),
+  );
   app.use(express.json());
 
   // Build-demo runner (RFL.DEMO.1): one per app, holds the per-business lock

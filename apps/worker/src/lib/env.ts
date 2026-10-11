@@ -19,3 +19,20 @@ export function forceFixtures(): boolean {
 export function screenshotsEnabled(): boolean {
   return process.env.SCREENSHOTS_ENABLED === "true";
 }
+
+/** The Vite dev server — always allowed, so local dev never needs WEB_ORIGINS. */
+export const LOCAL_WEB_ORIGIN = "http://localhost:5173";
+
+/**
+ * RFL.HOST.6: browser origins the worker answers cross-origin (CORS) — the
+ * hosted web app (Vercel) calling the hosted worker (Railway). WEB_ORIGINS is
+ * comma-separated; entries are trimmed and a trailing slash dropped (an
+ * Origin header never carries one). Unset → localhost only.
+ */
+export function webOrigins(env: NodeJS.ProcessEnv = process.env): string[] {
+  const extra = (env.WEB_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+  return [...new Set([LOCAL_WEB_ORIGIN, ...extra])];
+}
