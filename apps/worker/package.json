@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@rapidforge/ai-core": "github:jcolley2019/rapidforge-ai-core#v0.9.0",
+    "@rapidforge/ai-core": "git+https://github.com/jcolley2019/rapidforge-ai-core.git#v0.9.0",
     "@rapidforge/shared": "*",
     "@supabase/supabase-js": "^2.47.10",
     "cors": "^2.8.6",
