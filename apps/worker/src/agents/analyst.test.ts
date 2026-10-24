@@ -4,6 +4,7 @@ import { buildTemplateAnalyst, runAnalyst } from "./analyst";
 import {
   agentsCitedIn,
   agentsCitedWithValueIn,
+  analystPlaceholdersIn,
   countWords,
   makeAnalystGuardrail,
 } from "./guardrails/analyst";
@@ -176,6 +177,27 @@ describe("makeAnalystGuardrail", () => {
   it("rejects a verdict inconsistent with the star grade", () => {
     const bad: AnalystOutput = { ...VALID, verdict: "excellent" };
     expect(guard(bad).passed).toBe(false);
+  });
+
+  it("rejects placeholder text in any field — a bare 'placeholder' improvement or a bracket fill (RFL.AI.10)", () => {
+    const bare: AnalystOutput = {
+      ...VALID,
+      top_3_improvements: [
+        ...VALID.top_3_improvements,
+        { priority: 4, improvement: "placeholder", rationale: "placeholder", estimated_impact: "placeholder" },
+      ],
+    };
+    const verdict = guard(bare);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.notes).toBe("Contains placeholder(s): placeholder.");
+    const bracket = { ...VALID, one_line_verdict: "Call [Business Name] today about the slow site." };
+    expect(guard(bracket).passed).toBe(false);
+    expect(guard(bracket).notes).toContain("[Business Name]");
+  });
+
+  it("clean output with no placeholder passes (negative)", () => {
+    expect(analystPlaceholdersIn(VALID)).toEqual([]);
+    expect(guard(VALID)).toEqual({ passed: true, notes: null });
   });
 });
 

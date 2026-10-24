@@ -3,11 +3,13 @@
  * 6.2). Reject: fewer than 3 improvements; reasoning citing fewer than 3
  * agents by name WITH a measured value (a number in the same sentence —
  * RFL.FIX.3f); a one-line verdict over 20 words; a verdict inconsistent
- * with the deterministic star grade.
+ * with the deterministic star grade; placeholder text in any free-text field
+ * (RFL.AI.10 — the eval saw a 4th improvement reading literally "placeholder").
  */
 import type { GuardrailResult } from "../../lib/ai";
 import { CITABLE_AGENTS } from "../money-facts";
 import { VERDICT_STAR_RANGE, type AnalystOutput } from "../prompts/analyst";
+import { placeholdersIn } from "./builder-brief";
 
 const MIN_IMPROVEMENTS = 3;
 const MIN_AGENTS_CITED = 3;
@@ -46,6 +48,27 @@ export function agentsCitedWithValueIn(text: string): string[] {
   return CITABLE_AGENTS.filter((agent) => cited.has(agent));
 }
 
+/** Every free-text field of the output, for the placeholder check. */
+function textFieldsOf(value: AnalystOutput): string[] {
+  return [
+    value.reasoning,
+    value.one_line_verdict,
+    ...value.top_3_improvements.flatMap((i) => [i.improvement, i.rationale, i.estimated_impact]),
+  ];
+}
+
+/**
+ * Placeholder hits across the output: the Brief's bracket/curly/lorem
+ * patterns plus the bare word "placeholder", which the eval saw unbracketed.
+ */
+export function analystPlaceholdersIn(value: AnalystOutput): string[] {
+  const text = textFieldsOf(value).join("\n");
+  const hits = placeholdersIn(text);
+  const bare = text.match(/\bplaceholder\b/i);
+  if (bare) hits.push(bare[0]);
+  return [...new Set(hits)];
+}
+
 export function makeAnalystGuardrail(
   starGrade: number | null,
 ): (value: AnalystOutput) => GuardrailResult {
@@ -54,6 +77,14 @@ export function makeAnalystGuardrail(
       return {
         passed: false,
         notes: `Only ${value.top_3_improvements.length} improvement(s); need ${MIN_IMPROVEMENTS}.`,
+      };
+    }
+
+    const placeholders = analystPlaceholdersIn(value);
+    if (placeholders.length > 0) {
+      return {
+        passed: false,
+        notes: `Contains placeholder(s): ${placeholders.join(", ")}.`,
       };
     }
 
