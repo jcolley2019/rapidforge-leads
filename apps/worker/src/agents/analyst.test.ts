@@ -10,6 +10,8 @@ import {
 import { buildAuditFacts } from "./money-facts";
 import { ANALYST_SYSTEM, buildAnalystSystem, type AnalystOutput } from "./prompts/analyst";
 import { CONFIG_DEFAULTS, resolveConfigVars } from "./prompts/config-vars";
+import { MODEL_SONNET } from "../lib/ai";
+import { coreModeEnv, fakeProvider } from "../lib/ai.testkit";
 
 function makeBusiness(overrides: Partial<Business> = {}): Business {
   return {
@@ -254,5 +256,23 @@ describe("runAnalyst (template mode, no API key)", () => {
     expect(result.costCents).toBe(0);
     expect(result.output?.top_3_improvements).toHaveLength(3);
     expect(result.guardrailPassed).toBe(true);
+  });
+});
+
+describe("runAnalyst model override (RFL.EVAL.5)", () => {
+  let restoreEnv: () => void = () => undefined;
+  let restoreProvider: () => void = () => undefined;
+  afterEach(() => {
+    restoreProvider();
+    restoreEnv();
+  });
+
+  it("ctx.model reaches the AI call in place of Opus", async () => {
+    restoreEnv = coreModeEnv();
+    const p = fakeProvider({ text: "not json" }); // → template; the request is what we assert
+    restoreProvider = p.restore;
+    await runAnalyst({ business: makeBusiness(), audit: makeAudit(), config: null, model: MODEL_SONNET });
+    expect(p.requests).toHaveLength(1);
+    expect(p.requests[0]).toMatchObject({ model: MODEL_SONNET, outputConfig: { effort: "low" } });
   });
 });

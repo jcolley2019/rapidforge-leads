@@ -25,7 +25,7 @@ import {
   deriveKeywords,
 } from "./prompts/builder-brief";
 import { resolveConfigVars } from "./prompts/config-vars";
-import { MODEL_HAIKU, MODEL_OPUS } from "../lib/ai";
+import { MODEL_HAIKU, MODEL_OPUS, MODEL_SONNET } from "../lib/ai";
 import { coreModeEnv, fakeProvider, jsonReply, truncatedReply } from "../lib/ai.testkit";
 import { STAGE_BUDGET_MS } from "../orchestrator";
 
@@ -380,6 +380,39 @@ describe("runBuilderBrief on Opus (RFL.VERIFY.3 V1) — one call, 8,000 cap, req
     expect(result.error).toBeNull();
     expect(result.modelUsed).toBe(MODEL_OPUS);
     expect(result.guardrailPassed).toBe(true);
+  });
+});
+
+describe("runBuilderBrief model override (RFL.EVAL.5)", () => {
+  let restoreEnv: () => void = () => undefined;
+  let restoreProvider: () => void = () => undefined;
+  afterEach(() => {
+    restoreProvider();
+    restoreEnv();
+  });
+
+  it("ctx.model reaches the brief call in place of Opus; the Design Brief block stays Haiku", async () => {
+    restoreEnv = coreModeEnv();
+    const p = fakeProvider((req) =>
+      req.model === MODEL_HAIKU
+        ? jsonReply({ tone_descriptors: ["dependable", "local", "straightforward"], services: ["Drain cleaning"] })
+        : { text: templateBrief() },
+    );
+    restoreProvider = p.restore;
+    const result = await runBuilderBrief({
+      business: makeBusiness(),
+      audit: makeAudit(),
+      config: null,
+      competitors: [],
+      siteHtmlExcerpt: null,
+      model: MODEL_SONNET,
+    });
+    expect(new Set(p.requests.map((r) => r.model))).toEqual(new Set([MODEL_SONNET, MODEL_HAIKU]));
+    expect(p.requests.find((r) => r.model === MODEL_SONNET)).toMatchObject({
+      maxTokens: 8_000,
+      outputConfig: { effort: "low" },
+    });
+    expect(result.modelUsed).toBe(MODEL_SONNET);
   });
 });
 

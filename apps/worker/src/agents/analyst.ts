@@ -12,7 +12,7 @@
  * otherwise via POST /api/businesses/:id/analyst.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_OPUS } from "../lib/ai";
+import { generateJsonSummary, MODEL_OPUS, type ModelId } from "../lib/ai";
 import { makeAnalystGuardrail } from "./guardrails/analyst";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
 import {
@@ -43,6 +43,8 @@ export interface AnalystContext {
   /** The completed audit to synthesize (its measured data + scores). */
   audit: Audit;
   config: WorkspaceConfig | null;
+  /** Model override (RFL.EVAL.5); unset keeps MODEL_OPUS. */
+  model?: ModelId;
 }
 
 /** star grade → verdict, staying inside VERDICT_STAR_RANGE. */
@@ -226,7 +228,7 @@ export async function runAnalyst(
     const vars: CascadingVars = resolveConfigVars(ctx.config);
 
     const outcome = await generateJsonSummary<AnalystOutput>({
-      model: MODEL_OPUS,
+      model: ctx.model ?? MODEL_OPUS,
       effort: ANALYST_EFFORT,
       system: buildAnalystSystem(vars),
       prompt: buildAnalystPrompt(facts, vars),

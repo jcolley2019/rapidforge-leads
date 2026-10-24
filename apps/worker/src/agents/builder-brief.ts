@@ -18,7 +18,13 @@ import {
   type WorkspaceConfig,
 } from "@rapidforge/shared";
 import { cityFromPlacesAddress } from "../lib/address";
-import { centsFromMicrocents, generateMarkdown, MODEL_OPUS, sumMicrocents } from "../lib/ai";
+import {
+  centsFromMicrocents,
+  generateMarkdown,
+  MODEL_OPUS,
+  sumMicrocents,
+  type ModelId,
+} from "../lib/ai";
 import {
   buildDesignBrief,
   embedDesignBrief,
@@ -83,6 +89,8 @@ export interface BuilderBriefContext {
    * Brief instead of reusing the one stored in audits.design_brief.
    */
   force?: boolean;
+  /** Model override (RFL.EVAL.5); unset keeps MODEL_OPUS. */
+  model?: ModelId;
 }
 
 /**
@@ -211,7 +219,7 @@ export async function runBuilderBrief(
     const inputs = briefBusinessInputsOf(ctx.business, ctx.audit);
 
     const outcome = await generateMarkdown({
-      model: MODEL_OPUS,
+      model: ctx.model ?? MODEL_OPUS,
       effort: BRIEF_EFFORT,
       system: BUILDER_BRIEF_SYSTEM,
       prompt: buildBuilderBriefPrompt(
