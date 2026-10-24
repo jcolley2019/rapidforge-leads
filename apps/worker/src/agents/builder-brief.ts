@@ -1,12 +1,12 @@
 /**
- * Builder Brief — PRD 6.12 (v1.5, MARKDOWN). Runs on **Opus 4.8** (Sprint 8),
- * at effort "low" for cost.
+ * Builder Brief — PRD 6.12 (v1.5, MARKDOWN). Runs on **Sonnet 5.5** at effort
+ * "low" (RFL.AI.10, per docs/EVAL-2026-10-24.md: Sonnet won 20/20 blind pairs).
  *
  * A paste-ready rebuild brief a developer (or Claude Code) can scaffold from,
  * built over the measured audit + fresh local competitors + target keywords.
  * On-demand only (PRD 3.3) via the lead drawer. A hard AI failure or a
  * twice-failed guardrail falls back to a complete deterministic template.
- * RFL.VERIFY.3 V1: one Opus call — a reply cut off at the cap is not
+ * RFL.VERIFY.3 V1: one model call — a reply cut off at the cap is not
  * retried; the run fails ("truncated at 8000") and the template is stored.
  */
 import {
@@ -21,7 +21,7 @@ import { cityFromPlacesAddress } from "../lib/address";
 import {
   centsFromMicrocents,
   generateMarkdown,
-  MODEL_OPUS,
+  MODEL_SONNET,
   sumMicrocents,
   type ModelId,
 } from "../lib/ai";
@@ -46,7 +46,7 @@ import {
   type CompetitorSummary,
 } from "./prompts/builder-brief";
 
-/** Opus effort — "low" keeps cost down; the strengthened prompt carries the
+/** Effort — "low" keeps cost down; the strengthened prompt carries the
  * section structure. Raise later if section completeness ever regresses. */
 const BRIEF_EFFORT = "low" as const;
 
@@ -89,7 +89,7 @@ export interface BuilderBriefContext {
    * Brief instead of reusing the one stored in audits.design_brief.
    */
   force?: boolean;
-  /** Model override (RFL.EVAL.5); unset keeps MODEL_OPUS. */
+  /** Model override (RFL.EVAL.5); unset keeps MODEL_SONNET. */
   model?: ModelId;
 }
 
@@ -219,7 +219,7 @@ export async function runBuilderBrief(
     const inputs = briefBusinessInputsOf(ctx.business, ctx.audit);
 
     const outcome = await generateMarkdown({
-      model: ctx.model ?? MODEL_OPUS,
+      model: ctx.model ?? MODEL_SONNET,
       effort: BRIEF_EFFORT,
       system: BUILDER_BRIEF_SYSTEM,
       prompt: buildBuilderBriefPrompt(

@@ -3,8 +3,9 @@
  * and output format each agent asks ai-core for.
  *   Health / Conversion / Presence / Reputation / SEO → template by default;
  *     Haiku 4.5 (no effort) only with AI_SUMMARIES=haiku.
- *   Design, Sales Summary → Sonnet 5.5 at effort "low"; Analyst stays Opus 4.8 (RFL.AI.9a).
- *   Builder Brief → Opus 4.8 at effort "low" (its Design Brief block: Haiku).
+ *   Design, Sales Summary, Analyst, Builder Brief → Sonnet 5.5 at effort "low"
+ *     (Analyst + Brief moved from Opus in RFL.AI.10; the Brief's Design Brief block: Haiku).
+ *   Opus 4.8 → only the refusal fallback.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Audit, Business } from "@rapidforge/shared";
@@ -223,19 +224,19 @@ describe("judgment agents", () => {
     });
   });
 
-  it("Analyst stays Opus 4.8, effort low (RFL.AI.9a; gate unchanged)", async () => {
+  it("Analyst → Sonnet 5.5, effort low (RFL.AI.10; gate unchanged)", async () => {
     const p = fakeProvider({ text: "not json" });
     restoreProvider = p.restore;
     const result = await runAnalyst({ business, audit, config: null });
     expect(result.status).toBe("completed");
     expect(p.requests[0]).toMatchObject({
-      model: MODEL_OPUS,
+      model: MODEL_SONNET,
       maxTokens: 1_500,
       outputConfig: { effort: "low", format: { type: "json_schema" } },
     });
   });
 
-  it("Builder Brief stays Opus 4.8 at effort low (markdown, no format); its Design Brief block is Haiku without effort", async () => {
+  it("Builder Brief → Sonnet 5.5 at effort low (markdown, no format); its Design Brief block is Haiku without effort", async () => {
     const p = fakeProvider({ text: "## Goal\nstub" });
     restoreProvider = p.restore;
     const result = await runBuilderBrief({
@@ -247,8 +248,8 @@ describe("judgment agents", () => {
     });
     expect(result.status).toBe("completed");
     const models = new Set(p.requests.map((r) => r.model));
-    expect(models).toEqual(new Set([MODEL_OPUS, MODEL_HAIKU]));
-    const brief = p.requests.find((r) => r.model === MODEL_OPUS)!;
+    expect(models).toEqual(new Set([MODEL_SONNET, MODEL_HAIKU]));
+    const brief = p.requests.find((r) => r.model === MODEL_SONNET)!;
     // RFL.VERIFY.3 V1: one call at the 8,000 cap, request timeout = the budget.
     expect(brief.maxTokens).toBe(8_000);
     expect(brief.timeoutMs).toBe(120_000);

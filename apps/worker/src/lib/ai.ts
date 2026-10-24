@@ -40,9 +40,9 @@ import { forceFixtures } from "./env";
 // Model assignments (CLAUDE.md 4.1 — retired names appear nowhere).
 /** Filter edge-pass, cheap classification, and the narration summaries AI_SUMMARIES opts in (haiku = all five, or a list). */
 export const MODEL_HAIKU = "claude-haiku-4-5";
-/** Design (vision), Sales Summary, Analyst — all at effort "low". */
+/** Analyst, Builder Brief (RFL.AI.10, per docs/EVAL-2026-10-24.md), Design (vision), Sales Summary — all at effort "low". */
 export const MODEL_SONNET = "claude-sonnet-5-5";
-/** Builder Brief (effort "low") and the refusal fallback for every model. */
+/** ONLY the refusal fallback for every model (RFL.AI.10 moved Analyst + Builder Brief to Sonnet). */
 export const MODEL_OPUS = "claude-opus-4-8";
 /** Fable 5 — an OPTIONAL alternative for Analyst/Builder Brief; not selected by default. */
 export const MODEL_FABLE = "claude-fable-5";

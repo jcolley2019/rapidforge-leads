@@ -316,7 +316,7 @@ describe("RFL.BRIEF.7 — section anchoring and embedded Design Brief JSON", () 
   });
 });
 
-describe("runBuilderBrief on Opus (RFL.VERIFY.3 V1) — one call, 8,000 cap, request timeout = budget", () => {
+describe("runBuilderBrief on Sonnet 5.5 (RFL.VERIFY.3 V1) — one call, 8,000 cap, request timeout = budget", () => {
   let restoreEnv: () => void;
   let restoreProvider: (() => void) | null = null;
   beforeEach(() => {
@@ -347,16 +347,16 @@ describe("runBuilderBrief on Opus (RFL.VERIFY.3 V1) — one call, 8,000 cap, req
     expect(BRIEF_TIMEOUT_MS).toBe(STAGE_BUDGET_MS.analyst);
   });
 
-  it("a truncation makes exactly one Opus call, fails the run 'truncated at 8000' and keeps the template as output", async () => {
+  it("a truncation makes exactly one model call, fails the run 'truncated at 8000' and keeps the template as output", async () => {
     const p = fakeProvider((req) =>
-      req.model === MODEL_OPUS ? truncatedReply("## Project overview\nOPUS-CUT-OFF-TEXT") : judgment,
+      req.model === MODEL_SONNET ? truncatedReply("## Project overview\nMODEL-CUT-OFF-TEXT") : judgment,
     );
     restoreProvider = p.restore;
     const result = await runBuilderBrief(ctx());
 
-    const opus = p.requests.filter((r) => r.model === MODEL_OPUS);
-    expect(opus).toHaveLength(1);
-    expect(opus[0]).toMatchObject({ maxTokens: 8_000, timeoutMs: 120_000 });
+    const brief = p.requests.filter((r) => r.model === MODEL_SONNET);
+    expect(brief).toHaveLength(1);
+    expect(brief[0]).toMatchObject({ maxTokens: 8_000, timeoutMs: 120_000 });
     expect(result.status).toBe("failed");
     expect(result.error).toBe("truncated at 8000");
     expect(result.modelUsed).toBeNull();
@@ -364,22 +364,22 @@ describe("runBuilderBrief on Opus (RFL.VERIFY.3 V1) — one call, 8,000 cap, req
     expect(result.guardrailNotes).toContain("Truncated at max_tokens 8000");
     // The template is the output the route stores; the cut-off text is not.
     expect(result.output!.markdown.startsWith(templateBrief().replace(/\s+$/, ""))).toBe(true);
-    expect(result.output!.markdown).not.toContain("OPUS-CUT-OFF-TEXT");
+    expect(result.output!.markdown).not.toContain("MODEL-CUT-OFF-TEXT");
     expect(result.output!.sections).toHaveLength(12);
     // The cut-off call was paid for, so it is counted.
     expect(result.costMicrocents).toBeGreaterThan(0);
   });
 
-  it("a reply that finishes is one Opus call and a completed run", async () => {
-    const p = fakeProvider((req) => (req.model === MODEL_OPUS ? { text: templateBrief() } : judgment));
+  it("a reply that finishes is one model call and a completed run", async () => {
+    const p = fakeProvider((req) => (req.model === MODEL_SONNET ? { text: templateBrief() } : judgment));
     restoreProvider = p.restore;
     const result = await runBuilderBrief(ctx());
 
-    expect(p.requests.filter((r) => r.model === MODEL_OPUS)).toHaveLength(1);
+    expect(p.requests.filter((r) => r.model === MODEL_SONNET)).toHaveLength(1);
     expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(1);
     expect(result.status).toBe("completed");
     expect(result.error).toBeNull();
-    expect(result.modelUsed).toBe(MODEL_OPUS);
+    expect(result.modelUsed).toBe(MODEL_SONNET);
     expect(result.guardrailPassed).toBe(true);
   });
 });
@@ -392,7 +392,7 @@ describe("runBuilderBrief model override (RFL.EVAL.5)", () => {
     restoreEnv();
   });
 
-  it("ctx.model reaches the brief call in place of Opus; the Design Brief block stays Haiku", async () => {
+  it("ctx.model reaches the brief call in place of Sonnet; the Design Brief block stays Haiku", async () => {
     restoreEnv = coreModeEnv();
     const p = fakeProvider((req) =>
       req.model === MODEL_HAIKU
@@ -406,14 +406,14 @@ describe("runBuilderBrief model override (RFL.EVAL.5)", () => {
       config: null,
       competitors: [],
       siteHtmlExcerpt: null,
-      model: MODEL_SONNET,
+      model: MODEL_OPUS,
     });
-    expect(new Set(p.requests.map((r) => r.model))).toEqual(new Set([MODEL_SONNET, MODEL_HAIKU]));
-    expect(p.requests.find((r) => r.model === MODEL_SONNET)).toMatchObject({
+    expect(new Set(p.requests.map((r) => r.model))).toEqual(new Set([MODEL_OPUS, MODEL_HAIKU]));
+    expect(p.requests.find((r) => r.model === MODEL_OPUS)).toMatchObject({
       maxTokens: 8_000,
       outputConfig: { effort: "low" },
     });
-    expect(result.modelUsed).toBe(MODEL_SONNET);
+    expect(result.modelUsed).toBe(MODEL_OPUS);
   });
 });
 
@@ -448,7 +448,7 @@ describe("Builder Brief reuses a stored Design Brief (RFL.VERIFY.3 V8)", () => {
   };
   const replies = () =>
     fakeProvider((req) =>
-      req.model === MODEL_OPUS
+      req.model === MODEL_SONNET
         ? { text: templateBrief() }
         : jsonReply({ tone_descriptors: ["fresh-a", "fresh-b", "fresh-c"], services: ["Fresh service"] }),
     );
@@ -467,7 +467,7 @@ describe("Builder Brief reuses a stored Design Brief (RFL.VERIFY.3 V8)", () => {
     const result = await runBuilderBrief(ctx(makeAudit({ design_brief: STORED })));
 
     expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(0);
-    expect(p.requests.filter((r) => r.model === MODEL_OPUS)).toHaveLength(1);
+    expect(p.requests.filter((r) => r.model === MODEL_SONNET)).toHaveLength(1);
     expect(result.status).toBe("completed");
     expect(result.output!.design_brief).toEqual(STORED);
     expect(result.output!.markdown).toContain(JSON.stringify(STORED, null, 2));

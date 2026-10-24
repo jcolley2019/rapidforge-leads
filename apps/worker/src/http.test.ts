@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Business, SearchResult, WorkspaceConfig } from "@rapidforge/shared";
 import { createApp } from "./http";
 import { TimeoutError, type CompletionRequest } from "@rapidforge/ai-core";
-import { MODEL_HAIKU, MODEL_OPUS, setAiProviderForTests } from "./lib/ai";
+import { MODEL_HAIKU, MODEL_SONNET, setAiProviderForTests } from "./lib/ai";
 import { coreModeEnv, fakeProvider, jsonReply, truncatedReply } from "./lib/ai.testkit";
 import { resetReportRenderer } from "./lib/pdf-report";
 import {
@@ -543,7 +543,7 @@ describe("builder-brief reuses the Design Brief tab's stored brief (RFL.VERIFY.3
 
     const restoreEnv = coreModeEnv();
     const p = fakeProvider((req) =>
-      req.model === MODEL_OPUS
+      req.model === MODEL_SONNET
         ? truncatedReply("## Project overview\ncut")
         : jsonReply({ tone_descriptors: ["fresh-a", "fresh-b", "fresh-c"], services: ["Fresh service"] }),
     );
@@ -551,7 +551,7 @@ describe("builder-brief reuses the Design Brief tab's stored brief (RFL.VERIFY.3
       const res = await api("POST", `/api/businesses/${business.id}/builder-brief`);
       expect(res.status).toBe(200);
       expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(0);
-      expect(p.requests.filter((r) => r.model === MODEL_OPUS)).toHaveLength(1);
+      expect(p.requests.filter((r) => r.model === MODEL_SONNET)).toHaveLength(1);
       expect(res.json.builder_brief_md).toContain(JSON.stringify(stored, null, 2));
       expect((await store.getLatestCompletedAuditForBusiness(business.id))?.design_brief).toEqual(stored);
     } finally {
@@ -709,18 +709,18 @@ describe("stored builder brief / sales summary (RFL.FIX.3h)", () => {
 });
 
 describe("builder-brief truncation (RFL.VERIFY.3 V1)", () => {
-  it("one Opus call; agent_runs records failed 'truncated at 8000'; the template is stored and returned", async () => {
+  it("one model call; agent_runs records failed 'truncated at 8000'; the template is stored and returned", async () => {
     const { business } = await seedLead();
     await seedCompletedAudit(business.id);
     const restoreEnv = coreModeEnv();
     const p = fakeProvider((req) =>
-      req.model === MODEL_OPUS
+      req.model === MODEL_SONNET
         ? truncatedReply("## Project overview\ncut off mid-sent")
         : jsonReply({ tone_descriptors: ["dependable", "local", "plain"], services: ["Drain cleaning"] }),
     );
     try {
       const res = await api("POST", `/api/businesses/${business.id}/builder-brief?force=true`);
-      expect(p.requests.filter((r) => r.model === MODEL_OPUS)).toHaveLength(1);
+      expect(p.requests.filter((r) => r.model === MODEL_SONNET)).toHaveLength(1);
       expect(res.status).toBe(200);
       expect(res.json.error).toBe("truncated at 8000");
       expect(res.json.model_used).toBeNull();
@@ -794,12 +794,12 @@ describe("on-demand budget (RFL.FIX.3i)", () => {
     const restoreEnv = coreModeEnv();
     let reached!: () => void;
     const providerCalled = new Promise<void>((resolve) => (reached = resolve));
-    const opusTimeouts: Array<number | undefined> = [];
+    const briefTimeouts: Array<number | undefined> = [];
     // Behaves like ai-core: rejects with TimeoutError at request.timeoutMs,
     // or with the caller's abort reason when the budget's signal fires.
     setAiProviderForTests({
       complete: (request: CompletionRequest) => {
-        if (request.model === MODEL_OPUS) opusTimeouts.push(request.timeoutMs);
+        if (request.model === MODEL_SONNET) briefTimeouts.push(request.timeoutMs);
         reached();
         return new Promise((_resolve, reject) => {
           const timer = setTimeout(
@@ -820,7 +820,7 @@ describe("on-demand budget (RFL.FIX.3i)", () => {
       await vi.advanceTimersByTimeAsync(STAGE_BUDGET_MS.analyst);
       const res = await pending;
 
-      expect(opusTimeouts).toEqual([STAGE_BUDGET_MS.analyst]);
+      expect(briefTimeouts).toEqual([STAGE_BUDGET_MS.analyst]);
       // Had the request timeout won, the template would have answered (200).
       expect(res.status).toBe(502);
       expect(res.json.error).toBe(`builder-brief timed out after ${STAGE_BUDGET_MS.analyst}ms`);

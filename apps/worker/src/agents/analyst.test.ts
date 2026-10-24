@@ -11,7 +11,7 @@ import {
 import { buildAuditFacts } from "./money-facts";
 import { ANALYST_SYSTEM, buildAnalystSystem, type AnalystOutput } from "./prompts/analyst";
 import { CONFIG_DEFAULTS, resolveConfigVars } from "./prompts/config-vars";
-import { MODEL_SONNET } from "../lib/ai";
+import { MODEL_OPUS } from "../lib/ai";
 import { coreModeEnv, fakeProvider } from "../lib/ai.testkit";
 
 function makeBusiness(overrides: Partial<Business> = {}): Business {
@@ -289,12 +289,12 @@ describe("runAnalyst model override (RFL.EVAL.5)", () => {
     restoreEnv();
   });
 
-  it("ctx.model reaches the AI call in place of Opus", async () => {
+  it("ctx.model reaches the AI call in place of Sonnet", async () => {
     restoreEnv = coreModeEnv();
     const p = fakeProvider({ text: "not json" }); // → template; the request is what we assert
     restoreProvider = p.restore;
-    await runAnalyst({ business: makeBusiness(), audit: makeAudit(), config: null, model: MODEL_SONNET });
+    await runAnalyst({ business: makeBusiness(), audit: makeAudit(), config: null, model: MODEL_OPUS });
     expect(p.requests).toHaveLength(1);
-    expect(p.requests[0]).toMatchObject({ model: MODEL_SONNET, outputConfig: { effort: "low" } });
+    expect(p.requests[0]).toMatchObject({ model: MODEL_OPUS, outputConfig: { effort: "low" } });
   });
 });

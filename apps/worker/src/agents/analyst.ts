@@ -1,6 +1,6 @@
 /**
- * Analyst — PRD 6.11 (v1.5). Runs on **Opus 4.8** at effort "low" (RFL.AI.9a
- * kept the human-read verdict on Opus; the stack does not depend on Fable 5).
+ * Analyst — PRD 6.11 (v1.5). Runs on **Sonnet 5.5** at effort "low" (RFL.AI.10,
+ * per docs/EVAL-2026-10-24.md: Sonnet won 17/20 blind pairs with higher grounding).
  *
  * Narrative synthesis over the deterministic scores: an executive verdict,
  * top-3 improvements, and reasoning that cites the audit agents by name and
@@ -12,7 +12,7 @@
  * otherwise via POST /api/businesses/:id/analyst.
  */
 import type { AgentResult, Audit, Business, WorkspaceConfig } from "@rapidforge/shared";
-import { generateJsonSummary, MODEL_OPUS, type ModelId } from "../lib/ai";
+import { generateJsonSummary, MODEL_SONNET, type ModelId } from "../lib/ai";
 import { makeAnalystGuardrail } from "./guardrails/analyst";
 import { buildAuditFacts, type AuditFacts } from "./money-facts";
 import {
@@ -30,7 +30,7 @@ import {
 } from "./prompts/analyst";
 
 /**
- * Opus 4.8 at effort "low": the verdict space is bounded by the deterministic
+ * Sonnet 5.5 at effort "low": the verdict space is bounded by the deterministic
  * scores and the guardrail (star band, three agents cited, three items), so
  * cheap thinking is enough; raise for depth later (CLAUDE.md 4.1).
  */
@@ -43,7 +43,7 @@ export interface AnalystContext {
   /** The completed audit to synthesize (its measured data + scores). */
   audit: Audit;
   config: WorkspaceConfig | null;
-  /** Model override (RFL.EVAL.5); unset keeps MODEL_OPUS. */
+  /** Model override (RFL.EVAL.5); unset keeps MODEL_SONNET. */
   model?: ModelId;
 }
 
@@ -228,7 +228,7 @@ export async function runAnalyst(
     const vars: CascadingVars = resolveConfigVars(ctx.config);
 
     const outcome = await generateJsonSummary<AnalystOutput>({
-      model: ctx.model ?? MODEL_OPUS,
+      model: ctx.model ?? MODEL_SONNET,
       effort: ANALYST_EFFORT,
       system: buildAnalystSystem(vars),
       prompt: buildAnalystPrompt(facts, vars),
