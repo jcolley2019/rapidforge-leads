@@ -21,6 +21,7 @@ import { cityFromPlacesAddress } from "../lib/address";
 import {
   BRIEF_REVIEW_QUOTES_MAX,
   BRIEF_SECTIONS,
+  BUILDER_BRIEF_SYSTEM,
   buildBuilderBriefPrompt,
   deriveKeywords,
 } from "./prompts/builder-brief";
@@ -490,5 +491,21 @@ describe("Builder Brief reuses a stored Design Brief (RFL.VERIFY.3 V8)", () => {
     restoreProvider = p.restore;
     await runBuilderBrief(ctx(makeAudit({ design_brief: { business_name: "half a brief" } })));
     expect(p.requests.filter((r) => r.model === MODEL_HAIKU)).toHaveLength(1);
+  });
+});
+
+describe("Builder Brief city fact + bracket ban (RFL.AI.10)", () => {
+  it("the prompt names the real city and the system prompt forbids bracket fills", () => {
+    const facts = buildAuditFacts(makeBusiness(), makeAudit());
+    const prompt = buildBuilderBriefPrompt(facts, resolveConfigVars(null), [], deriveKeywords(facts), null);
+    expect(prompt).toContain("Business city: Boise");
+    expect(BUILDER_BRIEF_SYSTEM).toContain("[City]");
+    expect(BUILDER_BRIEF_SYSTEM).toMatch(/Square-bracket fills .* are forbidden/);
+  });
+
+  it("an address with no parseable city says unknown and tells the model to write 'your area'", () => {
+    const facts = buildAuditFacts(makeBusiness({ address: null }), makeAudit());
+    const prompt = buildBuilderBriefPrompt(facts, resolveConfigVars(null), [], deriveKeywords(facts), null);
+    expect(prompt).toContain("Business city: unknown — write 'your area', never a bracket");
   });
 });

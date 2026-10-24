@@ -79,6 +79,8 @@ You MUST output ALL TWELVE of the H2 sections below, verbatim and in this exact 
 (hero image prompt, icons)
 ## Deploy instructions
 
+Every H1, H2, page title and meta description MUST use the real city name given as "Business city" (or "your area" when it is unknown). Square-bracket fills of any kind — [City], [Business Name], [Phone], [INSERT ...] — are forbidden anywhere in the brief, including templated per-city pages: write one concrete example instead. A brief containing one fails review.
+
 Before you finish, re-read your output and confirm all twelve \`## \` headers above are present, in order — if any is missing, add it. Keep the whole brief under 2000 words: be concise within each section rather than dropping any section.`;
 
 /**
@@ -146,10 +148,16 @@ export function buildBuilderBriefPrompt(
           .join("\n")
       : "- (no fresh competitors available)";
 
+  // RFL.AI.10: the same city the keywords use, as a named fact — the eval saw
+  // per-city page templates written as "[City]", which the guardrail rejects.
+  const city = cityFromPlacesAddress(facts.business.address);
   return [
     `Business: ${facts.business.name}`,
     `Industry: ${facts.business.category ?? vars.target_industry}`,
     `Location: ${facts.business.address ?? vars.user_location}`,
+    city
+      ? `Business city: ${city}`
+      : "Business city: unknown — write 'your area', never a bracket",
     `Your offer to them: ${vars.your_offer}`,
     `Ideal website traits: ${vars.ideal_website_traits}`,
     `Target keywords: ${keywords.join(", ")}`,
