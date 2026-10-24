@@ -54,7 +54,7 @@ import { currentMonthStartIso } from "./store/usage";
 import type { UpdateSearchResultPatch } from "./store/types";
 
 /** HTML → a compact plain-text excerpt for the Builder Brief prompt. */
-function htmlToExcerpt(html: string): string {
+export function htmlToExcerpt(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -70,7 +70,7 @@ function htmlToExcerpt(html: string): string {
  * (RFL.FIX.3j). A business found by several searches is one lead per search,
  * so leads collapse to distinct businesses first (RFL.FIX.3g).
  */
-async function fetchCompetitors(
+export async function fetchCompetitors(
   store: DataStore,
   workspaceId: string,
   businessId: string,
