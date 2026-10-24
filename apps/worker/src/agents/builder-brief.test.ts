@@ -14,8 +14,8 @@ import { countWords } from "./guardrails/analyst";
 import {
   builderBriefGuardrail,
   missingSections,
-  placeholdersIn,
 } from "./guardrails/builder-brief";
+import { placeholdersIn } from "./guardrails/text";
 import { buildAuditFacts } from "./money-facts";
 import { cityFromPlacesAddress } from "../lib/address";
 import {

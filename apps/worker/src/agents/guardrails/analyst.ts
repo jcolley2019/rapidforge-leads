@@ -9,7 +9,7 @@
 import type { GuardrailResult } from "../../lib/ai";
 import { CITABLE_AGENTS } from "../money-facts";
 import { VERDICT_STAR_RANGE, type AnalystOutput } from "../prompts/analyst";
-import { placeholdersIn } from "./builder-brief";
+import { placeholdersIn } from "./text";
 
 const MIN_IMPROVEMENTS = 3;
 const MIN_AGENTS_CITED = 3;
