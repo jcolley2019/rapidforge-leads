@@ -471,9 +471,10 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - The prompt embeds that view through `factsToPromptJson`, which drops `agents_run` (already a header line in every money-agent prompt) and Reputation's `google_rating` / `review_count` (echoes of the business row). A fact several agents carry is sent once (`SHARED_FACTS`): when the Scorer's "Not mobile-friendly (missing viewport meta tag)" issue is present, Conversion's `has_viewport_meta` and Design's "not mobile-responsive" critical issue are dropped from the prompt and the issue gets `"source": "conversion"`. Guardrails and templates still read the full view. The Builder Brief and Sales Summary prompts use the same function.
   - Its template fallback builds the verdict from the star grade, priority from sellability (≥ 75 hot, ≥ 50 warm), and the top three issues.
 - **What the AI judges:** a verdict (`actively_losing_business` … `excellent`), `sales_lead_priority`, exactly three improvements, 5–8 sentences of reasoning citing at least three agents by name and measured value, and a one-line verdict of 20 words or fewer. It must not re-score. The system prompt (`buildAnalystSystem`) writes for a salesperson at `{user_brand}` in `{user_location}` and asks for the verdict in their `{sales_tone}`; the user prompt adds `{your_offer}`. All four come from workspace_config through `resolveConfigVars` (apps/worker/src/agents/prompts/config-vars.ts), so a blank Settings field becomes its default, never a literal placeholder. Prompt: apps/worker/src/agents/prompts/analyst.ts.
-- **Model and settings:** `claude-opus-4-8`, effort `low`, maxTokens 1,500. 120 s budget, both when auto-run and on demand.
+- **Model and settings:** `claude-sonnet-5-5`, effort `low`, maxTokens 1,500. 120 s budget, both when auto-run and on demand. Moved from `claude-opus-4-8` in RFL.AI.10 on the result of docs/EVAL-2026-10-24.md (blind pairwise eval: Sonnet preferred 17/20 with higher factual grounding).
 - **Guardrails** (guardrails/analyst.ts):
   - fewer than 3 improvements fails;
+  - placeholder text in any free-text field fails, including the bare word "placeholder" (RFL.AI.10 — the eval saw Opus return a 4th improvement reading literally "placeholder");
   - fewer than 3 agents cited fails. An agent counts only when it is named in a sentence that also carries a number; a number-free mention is allowed but not counted. The template states Conversion's booleans as "N of 4 contact paths" for the same reason;
   - a one-liner over 20 words fails;
   - the verdict must fit the star grade (for example "excellent" only at 4–5★).
@@ -483,13 +484,13 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - Its `agent_runs` row goes through the normal lifecycle with target.
 - **Who reads it downstream:** drawer Overview tab; Sales Summary prompt; PDF report (verdict and improvements); Design Brief (`one_line_verdict` becomes `current_site_problem`).
 - **Typical cost per lead:**
-  - About 3¢ (measured, same model and effort).
-  - Output ceiling 1,500 × $25/M = 3.75¢ per attempt.
+  - About 1.7¢ on Sonnet 5.5 (EVAL-2026-10-24 mean; 3.4¢ on Opus before RFL.AI.10).
+  - Output ceiling 1,500 × $10/M = 1.5¢ per attempt.
   - Only eligible leads pay it.
 - **Known gaps:**
   - `POST /api/businesses/:id/analyst` exists, but no screen calls it: `generateAnalyst()` in apps/web/src/lib/api.ts is unused. Analyst output appears only where the auto-run wrote it.
   - Each on-demand call re-spends: unlike the other on-demand routes, the Analyst route has no stored-result reuse.
-  - The comment next to `MODEL_SONNET` in lib/ai.ts still lists the Analyst; the code uses `MODEL_OPUS`. The analyst.ts header still says it auto-runs for sellability ≥ 60, leaving out the star, chain and provisional conditions.
+  - The analyst.ts header still says it auto-runs for sellability ≥ 60, leaving out the star, chain and provisional conditions.
   - Its template's padding improvement prints the raw Places type ("help general_contractor rank locally").
 
 ### 12. Builder Brief
@@ -502,10 +503,10 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - A ≤ 1,500-character text excerpt of a fresh homepage fetch (apps/worker/src/http.ts).
   - Its template fallback is a complete 12-section brief (without the Google Business Profile block).
 - **What the AI judges:** writes all twelve required H2 sections in order: Project overview · Business details · Target audience · Pages to build · Design direction · SEO requirements · AEO requirements · Conversion requirements · Performance requirements · Content to migrate · Assets · Deploy instructions. The client stack is fixed as Vite + React + Tailwind + shadcn/ui. Uses `{your_offer}`, `{ideal_website_traits}`, `{target_industry}`, `{user_location}`. Prompt: apps/worker/src/agents/prompts/builder-brief.ts.
-- **Model and settings:** `claude-opus-4-8`, effort `low`, maxTokens 8,000 and exactly one call. A reply cut off at 8,000 is not retried: the `agent_runs` row is recorded `failed` with error "truncated at 8000", and the deterministic template is stored and returned. The request timeout is 120 s, the same as the one 120 s budget that covers the whole run (embedded Design Brief included); the budget starts first, so it wins when both would fire and the route answers 502. It appends the Design Brief (12b) JSON under "## Design Brief (JSON)": the one already stored in `audits.design_brief` when it parses (no new call, so the brief and the Design Brief tab agree), otherwise a fresh one. `?force=true` regenerates it too (`storedDesignBrief`, apps/worker/src/agents/builder-brief.ts).
+- **Model and settings:** `claude-sonnet-5-5` (moved from `claude-opus-4-8` in RFL.AI.10 per docs/EVAL-2026-10-24.md: Sonnet preferred 20/20 blind pairs), effort `low`, maxTokens 8,000 and exactly one call. A reply cut off at 8,000 is not retried: the `agent_runs` row is recorded `failed` with error "truncated at 8000", and the deterministic template is stored and returned. The request timeout is 120 s, the same as the one 120 s budget that covers the whole run (embedded Design Brief included); the budget starts first, so it wins when both would fire and the route answers 502. It appends the Design Brief (12b) JSON under "## Design Brief (JSON)": the one already stored in `audits.design_brief` when it parses (no new call, so the brief and the Design Brief tab agree), otherwise a fresh one. `?force=true` regenerates it too (`storedDesignBrief`, apps/worker/src/agents/builder-brief.ts).
 - **Guardrails** (guardrails/builder-brief.ts):
   - every section must be its own H2 line;
-  - no placeholders (`[INSERT …]`, `{business_name}`, lorem ipsum);
+  - no placeholders (`[INSERT …]`, `[City]`, `{business_name}`, lorem ipsum). Since RFL.AI.10 the prompt states "Business city:" as a fact and forbids bracket fills, after the eval saw per-city page templates written as `[City]`;
   - at most 2,000 words.
   - A Design Brief failure only drops the JSON block.
 - **Inputs → outputs:**
@@ -515,8 +516,8 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - Events: `agent.started` and `agent.completed` / `agent.failed` only (apps/worker/src/agents/on-demand.ts).
 - **Who reads it downstream:** drawer Builder Brief tab (copy and regenerate); you or Claude Code.
 - **Typical cost per lead:**
-  - About 11¢ measured, plus about 0.4¢ for the embedded Design Brief.
-  - Output ceiling 8,000 × $25/M = 20¢ for the one call (thinking tokens count against it).
+  - About 5¢ on Sonnet 5.5 including the embedded Design Brief (EVAL-2026-10-24 mean; 12¢ on Opus before RFL.AI.10).
+  - Output ceiling 8,000 × $10/M = 8¢ for the one call (thinking tokens count against it).
 - **Known gaps:**
   - "Competitors (pulled fresh)" come from stored workspace leads, not a new Places search.
   - Screenshots reach the prompt as URLs only; the model never sees the images.
@@ -705,6 +706,7 @@ Other routes: `GET /health` (no login; queue and mode readout) and the static `/
 |---|---|---|
 | Narration model (Health, Conversion, Presence, Reputation, SEO) | Sonnet 4.6 summaries (PRD §3.2, §3.4) | Deterministic template by default; `claude-haiku-4-5` for all five with `AI_SUMMARIES=haiku`, or for the agents a comma list names (`AI_SUMMARIES=reputation`) |
 | Design and Sales Summary model | Sonnet 4.6 | `claude-sonnet-5-5`, effort `low` |
+| Analyst and Builder Brief model | Fable 5 / Opus 4.8 | `claude-sonnet-5-5`, effort `low` (RFL.AI.10, per docs/EVAL-2026-10-24.md); Opus 4.8 is only the refusal fallback |
 | Health weights | performance (desktop) 25 % · mobile 20 % (§4.1) | performance 0.20 · mobile 0.25 (RFL.FIX.3i) |
 | Star grade | From health bands alone (§4.2) | Same bands, capped at 3★ when the healthy-site rule fails (mobile below 60) |
 | Sellability weights | 40 / 20 / 15 / 10 / 10 / 5 (§4.3) | 50 / 15 / 10 / 10 / 10 / 5, plus caps: chain 40, provisional 55, healthy site 55 (health ≥ 70 and mobile ≥ 60) |
