@@ -57,8 +57,9 @@ Locally nothing changes: `npm run dev` still runs both, and Vite proxies `/api` 
 | `VITE_SUPABASE_URL` | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon public key (RLS enforced) |
 | `VITE_WORKER_URL` | The Railway worker's public URL, e.g. `https://<service>.up.railway.app` (no trailing slash) |
+| `VITE_GOOGLE_MAPS_BROWSER_KEY` | Map-draw search. The "Maps Browser Key" from Google Cloud → Credentials (same value as `apps/web/.env`). Set for Production + Preview. Without it the Map-draw tab shows a setup placeholder instead of a map |
 
-`VITE_GOOGLE_MAPS_BROWSER_KEY` is optional (map-draw search); if set, add `https://app.rapidforgeai.com/*` and `https://rapidforge-leads.vercel.app/*` to its HTTP-referrer restrictions (as of 2026-10-24 the Maps Browser Key allows only `http://localhost:5173/*`).
+The Maps Browser Key is public by design: it ships in the bundle, so Google enforces its restrictions. API restriction: Maps JavaScript API only. Website (HTTP-referrer) restriction: `https://app.rapidforgeai.com/*`, `https://rapidforge-leads.vercel.app/*` and `http://localhost:5173/*`. A new hosted origin must be added there too, or the map fails with `RefererNotAllowedMapError`. The key's Cloud project also needs a billing account in good standing: a past-due account shows Google's "can't load Google Maps correctly" dialog and logs `BillingNotEnabledMapError`. Vite inlines `VITE_` values at build time, so a changed variable only reaches the site after a redeploy (Deployments → ⋯ → Redeploy).
 
 ### Supabase Auth redirect URLs
 
