@@ -574,14 +574,14 @@ The left rail has nine views (apps/web/src/views/views.ts). The web app holds no
 | Screen | What it shows | Data it reads |
 |---|---|---|
 | Sign-in | Supabase Auth login (apps/web/src/features/auth/AuthPage.tsx) | Supabase |
-| Dashboard | Recent searches, usage, lead KPIs | `GET /api/searches`, `GET /api/usage`, `GET /api/leads` |
+| Dashboard | Recent searches (each with a trash button), usage, lead KPIs | `GET /api/searches`, `GET /api/usage`, `GET /api/leads`, `DELETE /api/searches/:id` |
 | Workspace | The live view of one search: chip bar **All · scout · filter · health · conversion · presence · traffic · design · reputation · seo · scorer** (apps/web/src/lib/agent-state.ts), live results table, per-agent event feed, Cancel button while audits run | `GET /api/searches/:id` (polling fallback) + Realtime `agent_event`; `POST /api/searches/:id/cancel` |
 | Pipeline | Kanban by lead status | `GET /api/leads`, `POST /api/leads/:id/status` |
 | New Search | Zip/Radius tab and Map tab (Keyword tab shown as "v1.5") | `POST /api/searches` |
 | Leads | Every lead across all searches; CSV export (built in the browser); bulk status change and bulk re-audit | `GET /api/leads`, `POST /api/leads/:id/status`, `POST /api/businesses/:id/reaudit` |
 | Agents | "Coming soon" placeholder (`StubView`) | — |
 | Analytics | "Coming soon" placeholder | — |
-| Settings | The six cascading variables; Help & coaching (Open Help, Reset coaching tips) | `GET /api/config`, `PUT /api/config` |
+| Settings | The six cascading variables; Help & coaching (Open Help, Reset coaching tips); the Danger zone (Clear all data) | `GET /api/config`, `PUT /api/config`, `DELETE /api/workspace/data` |
 | Help | Six walkthroughs (run a search, read a score, the lead drawer, export, build a demo, settings) and a glossary; each section ends with a "Go to" button into the view it describes. Also opened from the top bar's ? button, a tip's "Learn more" and Settings (apps/web/src/views/HelpView.tsx) | — (static) |
 
 **Lead drawer tabs** (apps/web/src/components/leads/LeadDrawer.tsx). Builder Brief, Design Brief and Sales Script stay locked ("Audit this lead first") until the lead's audit is `completed`. Hot leads have completed audits, so they unlock too.
@@ -609,8 +609,12 @@ The left rail has nine views (apps/web/src/views/views.ts). The web app holds no
 | PDF report | `GET /api/businesses/:id/report` | Two-page report (apps/worker/src/lib/pdf-report.ts). Real PDF needs `SCREENSHOTS_ENABLED=true` (else 503 "screenshots disabled"); fixture mode returns HTML | $0 |
 | Re-audit | `POST /api/businesses/:id/reaudit` | Queues an `audit_business` job under the newest search for that business. The drawer and Workspace buttons send `force: true` (skips the 30-day cache). When the audit's `lead.scored` arrives, the web bumps `leadsVersion` (debounced 500 ms), so the Leads list, the Pipeline board, an open command palette and the drawer (opened from Leads, Workspace or Pipeline) show the new score without a reload | a fresh audit |
 | Cancel search | `POST /api/searches/:id/cancel` | Fails queued jobs, aborts running ones, search → `failed`; 409 if already finished | $0 |
+| Delete search | `DELETE /api/searches/:id` | Removes a finished search (see **Deleting data** below); 409 "Cancel the search before deleting it" while it runs | $0 |
+| Clear all data | `DELETE /api/workspace/data` | Body `{ "confirm": "DELETE ALL" }` exactly, else 400; empties the workspace's six data tables | $0 |
 
 Other routes: `GET /health` (no login; queue and mode readout) and the static `/fixtures/screenshots` route for fixture images.
+
+**Deleting data** (RFL.DATA.1; apps/worker/src/store/types.ts `deleteSearch` / `clearWorkspaceData`, supabase/migrations/0011_delete_helpers.sql). The trash button on a Dashboard row deletes that search: its `search_results`, then every business of the workspace that no remaining `search_results` row references (the **orphan rule**) together with its `audits`, and the `jobs` and `agent_runs` of those businesses and of the search, then the `searches` row. A business that another search also found keeps its row and all of its audits, so the Leads count drops only by the orphans. The button is disabled ("Cancel first") until the search is `completed` or `failed`. Settings → Danger zone → Clear all data removes every row of the same six tables for the workspace once you type `DELETE ALL`. Both run as one Postgres transaction (plpgsql functions the worker calls with the service-role key; the web's roles cannot execute them). Kept in every case: `workspaces`, `workspace_members`, `workspace_config` (your Settings), and `usage_events` (the cost ledger, so the month's spend still reads right). Not touched: screenshot files in the Storage bucket and any demo site already deployed. After either delete, `leadsVersion` bumps so Dashboard, Leads, Pipeline and the top bar refetch; clear-all lands you on the Dashboard with the counts.
 
 **Coaching tips** (apps/web/src/components/CoachingTip.tsx, apps/web/src/lib/coaching.ts). Dashboard, New Search, Workspace, Leads, Pipeline and the drawer's Overview tab each open with one dismissible tip (a sentence or two and a "Learn more" link into Help). Dismissals are kept in the browser's localStorage under `rapidforge-coaching:<user id>` (the offline preview uses `rapidforge-coaching:preview`) as a JSON list of tip ids, so they are per user and per browser; nothing reaches the database. Settings → Help & coaching → "Reset coaching tips" clears the list and every tip shows again.
 

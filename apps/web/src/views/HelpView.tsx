@@ -105,6 +105,12 @@ const SECTIONS: HelpSection[] = [
           stops the queued audits and aborts the running ones. Leads already
           scored are kept.
         </li>
+        <li>
+          Done with a search? The trash icon on its Dashboard row deletes it,
+          along with any business only that search found. A business another
+          search also found stays, audits and all. Cancel a running search
+          before deleting it.
+        </li>
       </ol>
     ),
   },
@@ -365,6 +371,12 @@ const SECTIONS: HelpSection[] = [
         <li>
           Search defaults prefill New Search with your usual radius and
           category. Appearance switches between dark and light.
+        </li>
+        <li>
+          <strong className="font-medium">Danger zone</strong> at the bottom
+          clears every search, lead, audit and brief in the workspace once you
+          type DELETE ALL. Your settings and the cost ledger stay. There is no
+          undo.
         </li>
       </ol>
     ),
