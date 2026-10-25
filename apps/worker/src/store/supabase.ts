@@ -22,10 +22,13 @@ import type {
   WorkspaceConfig,
 } from "@rapidforge/shared";
 import {
+  SearchActiveError,
+  SearchNotFoundError,
   sortLeads,
   type BusinessCostSummary,
   type CreateSearchInput,
   type DataStore,
+  type DeleteCounts,
   type EnqueueJobInput,
   type InsertAgentRunInput,
   type InsertAuditInput,
@@ -76,6 +79,26 @@ function must<T>(data: T | null, error: { message: string } | null, op: string):
   if (error) throw new Error(`[store] ${op}: ${error.message}`);
   if (data === null) throw new Error(`[store] ${op}: no row returned`);
   return data;
+}
+
+/** The jsonb counts a 0011 delete function returns → DeleteCounts. */
+function deleteCountsFrom(data: unknown, op: string): DeleteCounts {
+  const row = (data ?? null) as Record<string, unknown> | null;
+  if (!row || typeof row !== "object") {
+    throw new Error(`[store] ${op}: no counts returned — is migration 0011 applied?`);
+  }
+  const n = (key: string): number => {
+    const v = row[key];
+    return typeof v === "number" ? v : 0;
+  };
+  return {
+    results: n("results"),
+    businesses: n("businesses"),
+    audits: n("audits"),
+    jobs: n("jobs"),
+    agentRuns: n("agent_runs"),
+    searches: n("searches"),
+  };
 }
 
 export class SupabaseStore implements DataStore {
@@ -806,6 +829,30 @@ export class SupabaseStore implements DataStore {
       .select()
       .single();
     return must(data, error, "updateWorkspaceConfig") as WorkspaceConfig;
+  }
+
+  // -- deletes (RFL.DATA.1; migration 0011) -----------------------------------
+
+  async deleteSearch(workspaceId: string, searchId: string): Promise<DeleteCounts> {
+    const { data, error } = await this.db.rpc("delete_search", {
+      p_workspace_id: workspaceId,
+      p_search_id: searchId,
+    });
+    if (error) {
+      // The function raises these by name (0011) — same typed errors as MemoryStore.
+      if (error.message.includes("search_active")) throw new SearchActiveError(searchId);
+      if (error.message.includes("search_not_found")) throw new SearchNotFoundError(searchId);
+      throw new Error(`[store] deleteSearch: ${error.message}`);
+    }
+    return deleteCountsFrom(data, "deleteSearch");
+  }
+
+  async clearWorkspaceData(workspaceId: string): Promise<DeleteCounts> {
+    const { data, error } = await this.db.rpc("clear_workspace_data", {
+      p_workspace_id: workspaceId,
+    });
+    if (error) throw new Error(`[store] clearWorkspaceData: ${error.message}`);
+    return deleteCountsFrom(data, "clearWorkspaceData");
   }
 
   // -- auth -------------------------------------------------------------------

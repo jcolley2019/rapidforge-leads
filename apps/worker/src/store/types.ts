@@ -246,6 +246,43 @@ export interface UpdateBusinessPatch {
 }
 
 // ---------------------------------------------------------------------------
+// Deletes (RFL.DATA.1)
+// ---------------------------------------------------------------------------
+
+/** Rows removed by deleteSearch / clearWorkspaceData, per table. */
+export interface DeleteCounts {
+  results: number;
+  businesses: number;
+  audits: number;
+  jobs: number;
+  agentRuns: number;
+  searches: number;
+}
+
+/** A search that cancel/complete has not settled yet (pending → scouting → auditing). */
+export function isSearchActive(status: string | null | undefined): boolean {
+  return status !== "completed" && status !== "failed";
+}
+
+/** deleteSearch refused: the search is still running — cancel it first. */
+export class SearchActiveError extends Error {
+  readonly code = "search_active" as const;
+  constructor(searchId: string) {
+    super(`Search ${searchId} is still running — cancel it before deleting it`);
+    this.name = "SearchActiveError";
+  }
+}
+
+/** deleteSearch refused: no such search in the workspace. */
+export class SearchNotFoundError extends Error {
+  readonly code = "search_not_found" as const;
+  constructor(searchId: string) {
+    super(`Search ${searchId} not found`);
+    this.name = "SearchNotFoundError";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Read models (GET /api/searches/:id)
 // ---------------------------------------------------------------------------
 
@@ -387,6 +424,18 @@ export interface DataStore {
     workspaceId: string,
     patch: UpdateWorkspaceConfigRequest,
   ): Promise<WorkspaceConfig>;
+
+  // deletes (RFL.DATA.1) — usage_events, workspace_config and tenancy stay
+  /**
+   * Delete one search: its search_results, every workspace business left
+   * with no search_results row (the orphans) with their audits, the jobs
+   * and agent_runs of those businesses and of the search, then the search.
+   * One transaction. Throws SearchNotFoundError (not in workspace) or
+   * SearchActiveError (status not completed/failed — cancel first).
+   */
+  deleteSearch(workspaceId: string, searchId: string): Promise<DeleteCounts>;
+  /** Same tables, every row of the workspace, same order. */
+  clearWorkspaceData(workspaceId: string): Promise<DeleteCounts>;
 
   // auth support
   getWorkspaceIdForUser(userId: string): Promise<string | null>;

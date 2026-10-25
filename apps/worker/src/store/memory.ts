@@ -22,8 +22,12 @@ import {
   DEV_WORKSPACE_ID,
   sortLeads,
   type BusinessCostSummary,
+  isSearchActive,
+  SearchActiveError,
+  SearchNotFoundError,
   type CreateSearchInput,
   type DataStore,
+  type DeleteCounts,
   type EnqueueJobInput,
   type InsertAgentRunInput,
   type InsertAuditInput,
@@ -626,6 +630,103 @@ export class MemoryStore implements DataStore {
     };
     this.configs.set(workspaceId, updated);
     return updated;
+  }
+
+  // -- deletes (RFL.DATA.1) ---------------------------------------------------
+
+  async deleteSearch(workspaceId: string, searchId: string): Promise<DeleteCounts> {
+    const search = this.searches.get(searchId);
+    if (!search || search.workspace_id !== workspaceId) {
+      throw new SearchNotFoundError(searchId);
+    }
+    if (isSearchActive(search.status)) throw new SearchActiveError(searchId);
+
+    // Orphans: workspace businesses no OTHER search's results reference.
+    const keep = new Set<string>();
+    for (const r of this.searchResults.values()) {
+      if (r.search_id !== searchId) keep.add(r.business_id);
+    }
+    const businessIds = new Set<string>();
+    for (const b of this.businesses.values()) {
+      if (b.workspace_id === workspaceId && !keep.has(b.id)) businessIds.add(b.id);
+    }
+    return this.purge(workspaceId, new Set([searchId]), businessIds);
+  }
+
+  async clearWorkspaceData(workspaceId: string): Promise<DeleteCounts> {
+    const searchIds = new Set<string>();
+    for (const s of this.searches.values()) {
+      if (s.workspace_id === workspaceId) searchIds.add(s.id);
+    }
+    const businessIds = new Set<string>();
+    for (const b of this.businesses.values()) {
+      if (b.workspace_id === workspaceId) businessIds.add(b.id);
+    }
+    return this.purge(workspaceId, searchIds, businessIds);
+  }
+
+  /** Child-first, the same order as migrations 0009/0011. */
+  private purge(
+    workspaceId: string,
+    searchIds: ReadonlySet<string>,
+    businessIds: ReadonlySet<string>,
+  ): DeleteCounts {
+    const counts: DeleteCounts = {
+      results: 0,
+      businesses: 0,
+      audits: 0,
+      jobs: 0,
+      agentRuns: 0,
+      searches: 0,
+    };
+    const jobIds = new Set<string>();
+    for (const job of this.jobs.values()) {
+      if (job.workspace_id !== workspaceId) continue;
+      const p = job.payload as { search_id?: string; business_id?: string };
+      if (
+        (p.search_id !== undefined && searchIds.has(p.search_id)) ||
+        (p.business_id !== undefined && businessIds.has(p.business_id))
+      ) {
+        jobIds.add(job.id);
+      }
+    }
+    for (const [id, run] of this.agentRuns) {
+      if (run.workspace_id !== workspaceId) continue;
+      const sid = (run.input as { search_id?: string } | null)?.search_id;
+      if (
+        (run.target_id !== null && businessIds.has(run.target_id)) ||
+        (run.job_id !== null && jobIds.has(run.job_id)) ||
+        (sid !== undefined && searchIds.has(sid))
+      ) {
+        this.agentRuns.delete(id);
+        counts.agentRuns += 1;
+      }
+    }
+    for (const id of jobIds) {
+      this.jobs.delete(id);
+      counts.jobs += 1;
+    }
+    for (const [id, audit] of this.audits) {
+      if (businessIds.has(audit.business_id)) {
+        this.audits.delete(id);
+        counts.audits += 1;
+      }
+    }
+    for (const [id, result] of this.searchResults) {
+      if (searchIds.has(result.search_id)) {
+        this.searchResults.delete(id);
+        counts.results += 1;
+      }
+    }
+    for (const id of businessIds) {
+      this.businesses.delete(id);
+      counts.businesses += 1;
+    }
+    for (const id of searchIds) {
+      this.searches.delete(id);
+      counts.searches += 1;
+    }
+    return counts;
   }
 
   // -- auth -------------------------------------------------------------------
