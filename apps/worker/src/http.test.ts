@@ -1117,6 +1117,101 @@ describe("POST /api/searches/:id/cancel (RFL.WEB.10)", () => {
   });
 });
 
+describe("DELETE /api/searches/:id and /api/workspace/data (RFL.DATA.1)", () => {
+  /** A completed search with one business only it found, and one audit. */
+  async function seedCompletedSearch() {
+    const { business, result } = await seedLead();
+    const search = (await store.getSearch(result.search_id))!;
+    await store.updateSearch(search.id, { status: "completed" });
+    await store.insertAudit({
+      workspace_id: DEV_WORKSPACE_ID,
+      business_id: business.id,
+      website_url: business.website_url,
+      http_status: 200,
+      response_ms: 300,
+      ssl_valid: true,
+      website_health_score: 40,
+      star_grade: 2,
+      sellability_score: 70,
+      score_breakdown: null,
+      issues: [],
+      status: "completed",
+      error_message: null,
+      completed_at: new Date().toISOString(),
+    });
+    return { search, business };
+  }
+
+  it("deletes a completed search and returns the counts; only its orphan business goes", async () => {
+    const { search, business } = await seedCompletedSearch();
+    // The same business also sits in a second search — it must survive.
+    const other = await store.createSearch({
+      workspace_id: DEV_WORKSPACE_ID,
+      created_by: DEV_USER_ID,
+      mode: "zip_radius",
+      params: { zip: "83704", radius_miles: 10 },
+      category: "plumber",
+    });
+    const sharedBiz = (await seedLead()).business;
+    await store.ensureSearchResult(DEV_WORKSPACE_ID, search.id, sharedBiz.id);
+    await store.ensureSearchResult(DEV_WORKSPACE_ID, other.id, sharedBiz.id);
+
+    const res = await api("DELETE", `/api/searches/${search.id}`);
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({
+      results: 2,
+      businesses: 1,
+      audits: 1,
+      jobs: 0,
+      agentRuns: 0,
+      searches: 1,
+    });
+    expect(await store.getSearch(search.id)).toBeNull();
+    expect(await store.getBusiness(business.id)).toBeNull();
+    expect(await store.getBusiness(sharedBiz.id)).not.toBeNull();
+    expect((await store.getSearchDetail(other.id))?.leads).toHaveLength(1);
+  });
+
+  it("409s while the search is running, 404s a foreign or unknown id", async () => {
+    const { search, business } = await seedCompletedSearch();
+    await store.updateSearch(search.id, { status: "auditing" });
+    const running = await api("DELETE", `/api/searches/${search.id}`);
+    expect(running.status).toBe(409);
+    expect(running.json).toEqual({ error: "Cancel the search before deleting it" });
+    expect(await store.getSearch(search.id)).not.toBeNull();
+    expect(await store.getBusiness(business.id)).not.toBeNull();
+
+    const missing = await api(
+      "DELETE",
+      "/api/searches/00000000-0000-4000-8000-00000000dead",
+    );
+    expect(missing.status).toBe(404);
+  });
+
+  it("DELETE /api/workspace/data needs the exact phrase, then empties the workspace", async () => {
+    await seedCompletedSearch();
+    expect((await store.listWorkspaceLeads(DEV_WORKSPACE_ID)).length).toBeGreaterThan(0);
+
+    for (const body of [undefined, {}, { confirm: "delete all" }, { confirm: " DELETE ALL" }]) {
+      const res = await api("DELETE", "/api/workspace/data", body);
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe("Type DELETE ALL to confirm");
+    }
+    expect((await store.listWorkspaceLeads(DEV_WORKSPACE_ID)).length).toBeGreaterThan(0);
+
+    const res = await api("DELETE", "/api/workspace/data", { confirm: "DELETE ALL" });
+    expect(res.status).toBe(200);
+    expect(res.json.searches).toBeGreaterThan(0);
+    expect(res.json.businesses).toBeGreaterThan(0);
+    expect(res.json).toMatchObject({ results: expect.any(Number), audits: expect.any(Number) });
+    expect(await store.listWorkspaceLeads(DEV_WORKSPACE_ID)).toEqual([]);
+    expect(await store.listRecentSearches(DEV_WORKSPACE_ID, 50)).toEqual([]);
+    // Settings survive a clear-all.
+    const cfg = await api("GET", "/api/config");
+    expect(cfg.status).toBe(200);
+  });
+});
+
 describe("CORS (RFL.HOST.6)", () => {
   it("allows the local Vite origin", async () => {
     const res = await fetch(`${base}/health`, {

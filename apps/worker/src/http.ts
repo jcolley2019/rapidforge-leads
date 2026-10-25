@@ -51,7 +51,15 @@ import type { OrchestratorDeps } from "./orchestrator";
 import { cancelSearch, POLL_INTERVAL_MS, type QueuePoller } from "./queue";
 import type { DataStore } from "./store";
 import { currentMonthStartIso } from "./store/usage";
-import type { UpdateSearchResultPatch } from "./store/types";
+import {
+  isSearchActive,
+  SearchActiveError,
+  SearchNotFoundError,
+  type UpdateSearchResultPatch,
+} from "./store/types";
+
+/** DELETE /api/workspace/data body — the exact phrase, no trimming (RFL.DATA.1). */
+export const CLEAR_ALL_CONFIRM_PHRASE = "DELETE ALL";
 
 /** HTML → a compact plain-text excerpt for the Builder Brief prompt. */
 export function htmlToExcerpt(html: string): string {
@@ -357,6 +365,79 @@ export function createApp(
     } catch (err) {
       console.error("[api] POST /api/searches/:id/cancel failed:", err);
       res.status(500).json({ error: "Failed to cancel search" });
+    }
+  });
+
+  /**
+   * DELETE /api/searches/:id → remove a finished search (RFL.DATA.1): its
+   * results, the businesses no other search still references (with their
+   * audits, jobs, agent_runs), and the search. 409 while it is still
+   * running — cancel first. Returns the per-table counts.
+   */
+  app.delete("/api/searches/:id", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    try {
+      const search = await deps.store.getSearch(req.params.id);
+      if (!search || search.workspace_id !== auth.workspaceId) {
+        res.status(404).json({ error: "Search not found" });
+        return;
+      }
+      if (isSearchActive(search.status)) {
+        res.status(409).json({ error: "Cancel the search before deleting it" });
+        return;
+      }
+      const counts = await deps.store.deleteSearch(auth.workspaceId, search.id);
+      console.log(
+        `[api] search ${search.id} deleted — results=${counts.results} businesses=${counts.businesses} audits=${counts.audits} jobs=${counts.jobs} agent_runs=${counts.agentRuns}`,
+      );
+      res.json(counts);
+    } catch (err) {
+      // The store re-checks inside its transaction; a race lands here.
+      if (err instanceof SearchActiveError) {
+        res.status(409).json({ error: "Cancel the search before deleting it" });
+        return;
+      }
+      if (err instanceof SearchNotFoundError) {
+        res.status(404).json({ error: "Search not found" });
+        return;
+      }
+      console.error("[api] DELETE /api/searches/:id failed:", err);
+      res.status(500).json({ error: "Failed to delete search" });
+    }
+  });
+
+  /**
+   * DELETE /api/workspace/data → every search, business, audit, job and
+   * agent run in the workspace (RFL.DATA.1). Settings (workspace_config)
+   * and the cost ledger (usage_events) stay. Body must carry
+   * { confirm: "DELETE ALL" } exactly.
+   */
+  app.delete("/api/workspace/data", async (req, res) => {
+    const auth = req.auth;
+    if (!auth) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+    const confirm = (req.body as { confirm?: unknown } | undefined)?.confirm;
+    if (confirm !== CLEAR_ALL_CONFIRM_PHRASE) {
+      res.status(400).json({
+        error: `Type ${CLEAR_ALL_CONFIRM_PHRASE} to confirm`,
+      });
+      return;
+    }
+    try {
+      const counts = await deps.store.clearWorkspaceData(auth.workspaceId);
+      console.log(
+        `[api] workspace ${auth.workspaceId} data cleared by ${auth.userId} — searches=${counts.searches} results=${counts.results} businesses=${counts.businesses} audits=${counts.audits} jobs=${counts.jobs} agent_runs=${counts.agentRuns}`,
+      );
+      res.json(counts);
+    } catch (err) {
+      console.error("[api] DELETE /api/workspace/data failed:", err);
+      res.status(500).json({ error: "Failed to clear workspace data" });
     }
   });
 
