@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  combinePsiRuns,
   extractPsiMetrics,
   FixturePsiClient,
   PSI_RETRY_BACKOFF_MS,
   RealPsiClient,
+  type PsiMetrics,
 } from "./psi";
 import { fallbackPsiProfile, PSI_FIXTURES } from "./psi-fixtures";
 
@@ -42,6 +44,81 @@ describe("extractPsiMetrics", () => {
     expect(metrics.performance).toBeNull();
     expect(metrics.lcpMs).toBeNull();
     expect(metrics.hasCruxData).toBe(false);
+  });
+});
+
+describe("combinePsiRuns (RFL.PSI.1)", () => {
+  const runA: PsiMetrics = {
+    performance: 40,
+    accessibility: 80,
+    seo: 90,
+    bestPractices: 70,
+    lcpMs: 5000,
+    cls: 0.1,
+    tbtMs: 800,
+    hasCruxData: false,
+  };
+  const runB: PsiMetrics = {
+    performance: 60,
+    accessibility: 84,
+    seo: 92,
+    bestPractices: 74,
+    lcpMs: 3000,
+    cls: 0.3,
+    tbtMs: 400,
+    hasCruxData: true,
+  };
+
+  it("averages every field when both runs are present; CrUX is any-true", () => {
+    expect(combinePsiRuns([runA, runB])).toEqual({
+      performance: 50,
+      accessibility: 82,
+      seo: 91,
+      bestPractices: 72,
+      lcpMs: 4000,
+      cls: 0.2,
+      tbtMs: 600,
+      hasCruxData: true,
+    });
+  });
+
+  it("returns the surviving run unchanged when the other is null", () => {
+    const unrounded = { ...runA, cls: 0.123456 };
+    expect(combinePsiRuns([null, unrounded])).toBe(unrounded);
+    expect(combinePsiRuns([runB, null])).toBe(runB);
+  });
+
+  it("returns null when every run is null or there are none", () => {
+    expect(combinePsiRuns([null, null])).toBeNull();
+    expect(combinePsiRuns([])).toBeNull();
+  });
+
+  it("skips per-field nulls and keeps an all-null field null", () => {
+    const merged = combinePsiRuns([
+      { ...runA, performance: null, cls: null, tbtMs: null },
+      { ...runB, cls: null, tbtMs: null, hasCruxData: false },
+    ]);
+    expect(merged?.performance).toBe(60); // only runB measured it
+    expect(merged?.accessibility).toBe(82);
+    expect(merged?.cls).toBeNull();
+    expect(merged?.tbtMs).toBeNull();
+    expect(merged?.hasCruxData).toBe(false);
+  });
+
+  it("rounds scores and ms to integers and cls to 3 decimals", () => {
+    const merged = combinePsiRuns([
+      { ...runA, performance: 41, lcpMs: 5001, tbtMs: 801, cls: 0.1234 },
+      { ...runB, performance: 46, lcpMs: 5002, tbtMs: 802, cls: 0.1239 },
+    ]);
+    expect(merged?.performance).toBe(44); // 43.5 → 44
+    expect(merged?.lcpMs).toBe(5002); // 5001.5 → 5002
+    expect(merged?.tbtMs).toBe(802); // 801.5 → 802
+    expect(merged?.cls).toBe(0.124); // 0.12365 → 0.124
+  });
+
+  it("averages three runs", () => {
+    const merged = combinePsiRuns([runA, runB, { ...runB, performance: 80 }]);
+    expect(merged?.performance).toBe(60);
   });
 });
 

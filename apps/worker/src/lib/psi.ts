@@ -153,6 +153,43 @@ export function extractPsiMetrics(response: PsiApiResponse): PsiMetrics {
   };
 }
 
+/**
+ * RFL.PSI.1: merge repeated runs of ONE strategy. A single mobile run swings
+ * ±10 performance points, which flips star bands, so the orchestrator fires
+ * PSI_MOBILE_RUNS runs and keeps the per-field mean (= the median for two).
+ * Failed runs (null) are dropped; none left → null; one left → returned
+ * unchanged. Per field, nulls are skipped and an all-null field stays null.
+ * Scores and lcpMs/tbtMs round to integers, cls to 3 decimals. CrUX
+ * presence is true when any run saw field data. Pure — exported for tests.
+ */
+export function combinePsiRuns(
+  runs: (PsiMetrics | null)[],
+): PsiMetrics | null {
+  const ok = runs.filter((r): r is PsiMetrics => r !== null);
+  if (ok.length === 0) return null;
+  if (ok.length === 1) return ok[0]!;
+  const mean = (
+    pick: (m: PsiMetrics) => number | null,
+    round: (n: number) => number,
+  ): number | null => {
+    const values = ok.map(pick).filter((v): v is number => v !== null);
+    if (values.length === 0) return null;
+    return round(values.reduce((a, b) => a + b, 0) / values.length);
+  };
+  const toInt = Math.round;
+  const to3dp = (n: number) => Math.round(n * 1000) / 1000;
+  return {
+    performance: mean((m) => m.performance, toInt),
+    accessibility: mean((m) => m.accessibility, toInt),
+    seo: mean((m) => m.seo, toInt),
+    bestPractices: mean((m) => m.bestPractices, toInt),
+    lcpMs: mean((m) => m.lcpMs, toInt),
+    cls: mean((m) => m.cls, to3dp),
+    tbtMs: mean((m) => m.tbtMs, toInt),
+    hasCruxData: ok.some((m) => m.hasCruxData),
+  };
+}
+
 export class FixturePsiClient implements PsiClient {
   readonly mode = "fixture" as const;
 
