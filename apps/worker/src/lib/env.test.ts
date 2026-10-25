@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { LOCAL_WEB_ORIGIN, webOrigins } from "./env";
+import { LOCAL_WEB_ORIGIN, psiMobileRuns, webOrigins } from "./env";
+
+describe("psiMobileRuns (RFL.PSI.1)", () => {
+  it("defaults to 2 when unset, blank or not an integer", () => {
+    expect(psiMobileRuns({})).toBe(2);
+    expect(psiMobileRuns({ PSI_MOBILE_RUNS: "  " })).toBe(2);
+    expect(psiMobileRuns({ PSI_MOBILE_RUNS: "two" })).toBe(2);
+    expect(psiMobileRuns({ PSI_MOBILE_RUNS: "1.5" })).toBe(2);
+  });
+
+  it("reads an integer and clamps it to 1–3", () => {
+    expect(psiMobileRuns({ PSI_MOBILE_RUNS: "1" })).toBe(1);
+    expect(psiMobileRuns({ PSI_MOBILE_RUNS: " 3 " })).toBe(3);
+    expect(psiMobileRuns({ PSI_MOBILE_RUNS: "0" })).toBe(1);
+    expect(psiMobileRuns({ PSI_MOBILE_RUNS: "-4" })).toBe(1);
+    expect(psiMobileRuns({ PSI_MOBILE_RUNS: "9" })).toBe(3);
+  });
+});
 
 describe("webOrigins (RFL.HOST.6)", () => {
   it("is localhost only when WEB_ORIGINS is unset or blank", () => {

@@ -20,6 +20,22 @@ export function screenshotsEnabled(): boolean {
   return process.env.SCREENSHOTS_ENABLED === "true";
 }
 
+/** RFL.PSI.1: default and bounds for PSI_MOBILE_RUNS. */
+export const PSI_MOBILE_RUNS_DEFAULT = 2;
+export const PSI_MOBILE_RUNS_MAX = 3;
+
+/**
+ * RFL.PSI.1: how many parallel mobile PSI runs an audit merges (one mobile
+ * run swings ±10 performance points). Unset, blank or not an integer → 2;
+ * otherwise clamped to 1–3. Desktop (PSI_DESKTOP) always runs once.
+ */
+export function psiMobileRuns(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.PSI_MOBILE_RUNS?.trim();
+  const n = raw ? Number(raw) : NaN;
+  if (!Number.isInteger(n)) return PSI_MOBILE_RUNS_DEFAULT;
+  return Math.min(PSI_MOBILE_RUNS_MAX, Math.max(1, n));
+}
+
 /** The Vite dev server — always allowed, so local dev never needs WEB_ORIGINS. */
 export const LOCAL_WEB_ORIGIN = "http://localhost:5173";
 

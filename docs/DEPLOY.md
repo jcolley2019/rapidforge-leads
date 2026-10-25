@@ -34,6 +34,7 @@ Locally nothing changes: `npm run dev` still runs both, and Vite proxies `/api` 
 | `WEB_ORIGINS` | **Required once the web is on Vercel** | Comma-separated browser origins allowed by CORS. Set to exactly `https://app.rapidforgeai.com,https://rapidforge-leads.vercel.app,http://localhost:5173`. `http://localhost:5173` is always allowed, listed or not |
 | `SCREENSHOTS_ENABLED` | Optional (`true`) | Turns on Chromium screenshots (Sonnet vision Design pass, ~2¢/audit) and the real PDF report |
 | `PSI_DESKTOP` | Optional (`true`) | Second PageSpeed strategy (one more PSI call per audit) |
+| `PSI_MOBILE_RUNS` | Optional (`1`–`3`, default `2`) | Parallel mobile PageSpeed runs averaged per metric to cut run-to-run noise. `1` = a single run |
 | `AI_SUMMARIES` | Optional | `haiku`, or a list such as `reputation,seo`; unset = templates |
 | `PORT` | Do not set | Railway injects it |
 | `WORKER_PORT` | Do not set | Local-only fallback |
