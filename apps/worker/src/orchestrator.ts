@@ -41,7 +41,13 @@ import { detectBotProtection } from "./lib/bot-protection";
 import { BrowserUnavailableError } from "./lib/browser";
 import type { PlacesClient } from "./lib/places";
 import type { WebProbe } from "./lib/probe";
-import type { PsiClient, PsiStrategy } from "./lib/psi";
+import { psiMobileRuns } from "./lib/env";
+import {
+  combinePsiRuns,
+  type PsiClient,
+  type PsiMetrics,
+  type PsiStrategy,
+} from "./lib/psi";
 import {
   screenshotSlug,
   type ScreenshotCapturer,
@@ -289,7 +295,8 @@ async function handleAuditBusinessJob(
 /**
  * PRD 3.3 steps 4–5 (+ Sprint 6): Health / Conversion / Presence / Traffic /
  * Design / Reputation / SEO in parallel on shared measured inputs (ONE
- * homepage fetch, ONE mobile+desktop PSI pair, ONE screenshot capture, ONE
+ * homepage fetch, ONE merged mobile PSI result (PSI_MOBILE_RUNS runs) + an
+ * opt-in desktop run, ONE screenshot capture, ONE
  * sitemap/robots probe pair), then the deterministic Scorer finalizes the
  * audit row and `lead.scored` fires.
  *
@@ -314,23 +321,39 @@ async function runAuditPipeline(
   /** Stages that overran their budget — Scorer records one low issue each. */
   const timedOut: string[] = [];
 
+  // RFL.PSI.1: mobile fires psiMobileRuns() runs in parallel inside ONE
+  // stage (one budget) and merges them — a single run swings ±10 points.
+  // Desktop stays a single run. A stage overrun nulls every run.
   const runPsiLogged = async (strategy: PsiStrategy) => {
-    const metrics = await budgetedStage({
+    const runs = strategy === "mobile" ? psiMobileRuns() : 1;
+    const results = await budgetedStage<(PsiMetrics | null)[]>({
       log,
       stage: `psi-${strategy}`,
       budgetMs: STAGE_BUDGET_MS.psi,
-      run: () => deps.psi.run(url, strategy),
-      fallback: null,
+      run: () =>
+        Promise.all(
+          Array.from({ length: runs }, () => deps.psi.run(url, strategy)),
+        ),
+      fallback: Array.from({ length: runs }, () => null),
       timedOut,
       signal,
     });
-    await store.logUsageEvent({
-      workspace_id: search.workspace_id,
-      event_type: "pagespeed_call",
-      cost_cents: 0, // PSI is free tier (PRD 3.5)
-      metadata: { url, strategy, mode: deps.psi.mode, ok: metrics !== null },
-    });
-    return metrics;
+    for (const [i, metrics] of results.entries()) {
+      await store.logUsageEvent({
+        workspace_id: search.workspace_id,
+        event_type: "pagespeed_call",
+        cost_cents: 0, // PSI is free tier (PRD 3.5)
+        metadata: {
+          url,
+          strategy,
+          mode: deps.psi.mode,
+          ok: metrics !== null,
+          run: i,
+          runs,
+        },
+      });
+    }
+    return combinePsiRuns(results);
   };
   // Homepage fetch is the one shared input every page agent needs: an
   // overrun here fails the audit (the job retries once, then fails).

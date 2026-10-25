@@ -175,10 +175,9 @@ describe("stage budgets (RFL.QUEUE.8)", () => {
     expect(labels).toContain("psi-mobile timed out");
     expect(labels).toContain("Performance could not be measured");
     expect((audit.issues ?? []).find((i) => i.label === "psi-mobile timed out")?.severity).toBe("low");
-    // The PSI usage row is still logged (ok:false).
+    // The PSI usage rows are still logged — one per mobile run, all ok:false.
     const psiEvents = h.store.listUsageEvents().filter((e) => e.event_type === "pagespeed_call");
-    expect(psiEvents).toHaveLength(1);
-    expect(psiEvents[0]?.metadata?.ok).toBe(false);
+    expect(psiEvents.map((e) => e.metadata?.ok)).toEqual([false, false]);
   });
 
   it("a screenshot failure (RFL.VERIFY.3 V2): URLs null, error logged, issues unchanged, no ERR_ text in the Analyst prompt", async () => {

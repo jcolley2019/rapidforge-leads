@@ -5,7 +5,7 @@
  * scores, real issues, agent_runs per agent, and usage_events — with the
  * special routing and the 30-day cache intact.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   Audit,
   Business,
@@ -20,7 +20,12 @@ import {
   type ProbeResult,
   type WebProbe,
 } from "./lib/probe";
-import { FixturePsiClient } from "./lib/psi";
+import {
+  FixturePsiClient,
+  type PsiClient,
+  type PsiMetrics,
+  type PsiStrategy,
+} from "./lib/psi";
 import {
   FixtureScreenshotCapturer,
   FixtureScreenshotStorage,
@@ -315,7 +320,7 @@ describe("audit pipeline on fixture data", () => {
     ]);
   });
 
-  it("logs pagespeed_call x1 (mobile; desktop opt-in) and audit_run x1 usage events per audited business", async () => {
+  it("logs pagespeed_call x2 (two mobile runs; desktop opt-in) and audit_run x1 usage events per audited business", async () => {
     const business = await seedBusiness(harness, {
       google_place_id: "fx-025",
       name: "Precision Plumbing Idaho",
@@ -328,7 +333,14 @@ describe("audit pipeline on fixture data", () => {
     const events = harness.store.listUsageEvents();
     const byType = (type: UsageEvent["event_type"]) =>
       events.filter((e) => e.event_type === type);
-    expect(byType("pagespeed_call")).toHaveLength(1);
+    expect(byType("pagespeed_call").map((e) => e.metadata)).toEqual([0, 1].map((run) => ({
+      url: "https://precisionplumbingidaho.com",
+      strategy: "mobile",
+      mode: "fixture",
+      ok: true,
+      run,
+      runs: 2,
+    })));
     expect(byType("audit_run")).toHaveLength(1);
   });
 
@@ -378,12 +390,12 @@ describe("audit pipeline on fixture data", () => {
     expect(
       (filterRun.output as { outcome?: string } | null)?.outcome,
     ).toBe("cache_hit");
-    // Only the first run's PSI calls exist.
+    // Only the first run's PSI calls (two mobile runs) exist.
     expect(
       harness.store
         .listUsageEvents()
         .filter((e) => e.event_type === "pagespeed_call"),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   it("force=true bypasses the 30-day cache and runs a fresh pipeline (Sprint 5 re-audit)", async () => {
@@ -418,12 +430,12 @@ describe("audit pipeline on fixture data", () => {
     expect(lead.audit?.status).toBe("completed");
     // RFL.WEB.10: the pointer was repointed at completion, to the audit shown.
     expect(lead.result.latest_audit_id).toBe(lead.audit?.id);
-    // Two full pipeline runs → 2 PSI strategy pairs.
+    // Two full pipeline runs × two mobile PSI runs each.
     expect(
       harness.store
         .listUsageEvents()
         .filter((e) => e.event_type === "pagespeed_call"),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
   });
 
   it("a forced re-audit that fails keeps the pointer and the lead on the completed audit (RFL.WEB.10)", async () => {
@@ -588,6 +600,109 @@ function expectSingleBlockedAudit(audit: Audit | null | undefined): void {
   expect(breakdown.badge).toBeUndefined(); // never "Site broken — urgent"
   expect(audit?.analyst_output).toBeNull();
 }
+
+/**
+ * Fixture PSI that records every call and gives each mobile run its own
+ * numbers, so a merged result is distinguishable from any single run.
+ */
+class RecordingPsi implements PsiClient {
+  readonly mode = "fixture" as const;
+  readonly calls: PsiStrategy[] = [];
+  private readonly inner = new FixturePsiClient();
+  constructor(private readonly mobileRuns: Partial<PsiMetrics>[]) {}
+
+  async run(url: string, strategy: PsiStrategy): Promise<PsiMetrics | null> {
+    const base = await this.inner.run(url, strategy);
+    const mobileIndex = this.calls.filter((s) => s === "mobile").length;
+    this.calls.push(strategy);
+    if (!base || strategy !== "mobile") return base;
+    return { ...base, ...this.mobileRuns[mobileIndex] };
+  }
+}
+
+describe("mobile PSI median-of-two (RFL.PSI.1)", () => {
+  afterEach(() => {
+    delete process.env.PSI_MOBILE_RUNS;
+  });
+
+  async function auditWith(psi: RecordingPsi) {
+    harness.deps.psi = psi;
+    const business = await seedBusiness(harness, {
+      google_place_id: "fx-001",
+      name: "Snake River Plumbing Co",
+      website_url: "https://snakeriverplumbing.com",
+      address: "1120 N Main St, Meridian, ID 83642",
+    });
+    await runAuditJob(harness, business.id);
+    const health = harness.store
+      .listAgentRuns()
+      .find((r) => r.agent_name === "health" && r.target_id === business.id)!;
+    return {
+      healthOutput: health.output as {
+        ps_mobile_performance: number | null;
+        ps_lcp_ms: number | null;
+        ps_cls: number | null;
+      },
+      audit: (await leadFor(harness, business.id)).audit!,
+      psiEvents: harness.store
+        .listUsageEvents()
+        .filter((e) => e.event_type === "pagespeed_call"),
+    };
+  }
+
+  it("runs mobile twice by default and hands the merged metrics to Health", async () => {
+    const psi = new RecordingPsi([
+      { performance: 70, lcpMs: 2000, cls: 0.1 },
+      { performance: 90, lcpMs: 3001, cls: 0.2 },
+    ]);
+    const { healthOutput, audit, psiEvents } = await auditWith(psi);
+
+    expect(psi.calls).toEqual(["mobile", "mobile"]);
+    expect(healthOutput.ps_mobile_performance).toBe(80);
+    expect(healthOutput.ps_lcp_ms).toBe(2501); // 2500.5 rounds up
+    expect(healthOutput.ps_cls).toBe(0.15);
+    expect(audit.ps_mobile_performance).toBe(80);
+    expect(psiEvents.map((e) => e.metadata?.run)).toEqual([0, 1]);
+  });
+
+  it("PSI_MOBILE_RUNS=1 is exactly the single-run behavior", async () => {
+    process.env.PSI_MOBILE_RUNS = "1";
+    const psi = new RecordingPsi([
+      { performance: 70, lcpMs: 2000, cls: 0.123456 },
+      { performance: 90, lcpMs: 3001, cls: 0.2 },
+    ]);
+    const { healthOutput, audit, psiEvents } = await auditWith(psi);
+
+    expect(psi.calls).toEqual(["mobile"]);
+    expect(healthOutput.ps_mobile_performance).toBe(70);
+    expect(healthOutput.ps_lcp_ms).toBe(2000);
+    expect(healthOutput.ps_cls).toBe(0.123456); // passed through, not rounded
+    expect(audit.ps_mobile_performance).toBe(70);
+    expect(psiEvents).toHaveLength(1);
+    expect(psiEvents[0]?.metadata).toMatchObject({
+      strategy: "mobile",
+      ok: true,
+      run: 0,
+      runs: 1,
+    });
+  });
+
+  it("desktop stays a single run when PSI_DESKTOP=true", async () => {
+    process.env.PSI_DESKTOP = "true";
+    try {
+      const psi = new RecordingPsi([{ performance: 70 }, { performance: 90 }]);
+      const { psiEvents } = await auditWith(psi);
+      expect([...psi.calls].sort()).toEqual(["desktop", "mobile", "mobile"]);
+      expect(
+        psiEvents.filter((e) => e.metadata?.strategy === "desktop").map((e) => e.metadata),
+      ).toEqual([
+        expect.objectContaining({ ok: true, run: 0, runs: 1 }),
+      ]);
+    } finally {
+      delete process.env.PSI_DESKTOP;
+    }
+  });
+});
 
 describe("bot-blocked businesses (finding 4)", () => {
   it("probe 'unknown' → exactly one low issue, provisional, no page analysis", async () => {
