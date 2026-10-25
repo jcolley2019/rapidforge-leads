@@ -29,7 +29,7 @@ Filter writes the `audits` row and points `search_results.latest_audit_id` at it
 
 **5. Shared measurements, taken once and in parallel** (orchestrator.ts `runAuditPipeline`):
 - homepage HTML (15 s budget; this is the only stage whose failure fails the audit);
-- PSI mobile (45 s budget). An HTTP 429 or 5xx is retried once after 2 s; a second failure, any other error status or a timeout leaves PSI unmeasured (apps/worker/src/lib/psi.ts). PSI desktop runs only with `PSI_DESKTOP=true`; otherwise the desktop slot reuses the mobile result and Health records `desktop_measured: false`;
+- PSI mobile (two parallel runs merged by default, `PSI_MOBILE_RUNS`; 45 s budget for the stage). An HTTP 429 or 5xx is retried once after 2 s; a second failure, any other error status or a timeout leaves PSI unmeasured (apps/worker/src/lib/psi.ts). PSI desktop runs only with `PSI_DESKTOP=true`; otherwise the desktop slot reuses the mobile result and Health records `desktop_measured: false`;
 - homepage screenshots, only with `SCREENSHOTS_ENABLED=true` (30 s budget);
 - existence checks for `/sitemap.xml` and `/robots.txt`.
 
@@ -292,6 +292,7 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - Whether `Last-Modified` is within 365 days, plus the header's date as ISO (`last_modified_at`; null when absent or unparseable) for the Scorer's stale-site issue and `legacy_static` check.
   - Whether the HTML carries legacy pre-CSS markup (`legacy_markup`, from `hasLegacyMarkup` in apps/worker/src/lib/platform.ts; the patterns are listed under Design).
   - `desktop_measured`: true only when a real desktop PSI run happened; false means `ps_performance` is a copy of the mobile run.
+- **Mobile PSI is two runs, merged** (RFL.PSI.1). One mobile run can swing about ±10 performance points from one run to the next, which is enough to flip a star band or the mobile ≥ 60 healthy-site line. The orchestrator fires `PSI_MOBILE_RUNS` mobile runs in parallel (default 2, clamped 1–3) inside the one `psi-mobile` stage and 45 s budget, then `combinePsiRuns` (apps/worker/src/lib/psi.ts) merges them. Each field is the mean of the runs that measured it. With two runs the mean is the median. Scores, LCP and TBT round to whole numbers, CLS rounds to 3 decimals, and CrUX counts as present if any run saw it. A failed run is dropped; if only one run succeeds it is used as is. If the stage overruns, every run counts as failed. Each run logs its own `pagespeed_call` row (`metadata.run`, `metadata.runs`). Desktop (`PSI_DESKTOP`) stays a single run. `PSI_MOBILE_RUNS=1` restores the single-run behavior.
 - **What the AI judges:** writes a short interpretation (`reasoning`, `critical_issues`, `summary_one_liner`) citing the numbers. A critical issue's `value` may be a string, number or boolean, so a reply like `ssl_valid: false` parses. Prompt: apps/worker/src/agents/prompts/health.ts.
 - **Model and settings:** `claude-haiku-4-5`, only when `AI_SUMMARIES` is `haiku` or lists `health` (no effort parameter; default max 4,096 tokens). **Deterministic template by default.** With desktop PSI off the template says "PSI mobile performance is N/100 (desktop not measured)" instead of quoting the mobile copy as a desktop score. Health runs before the Scorer, so once the audit is scored the orchestrator re-renders the template narration on the Health `agent_runs` row from the final verdict: the one-liner states the health band (4–5★ healthy; 3★ middling, which includes every page with mobile performance below 60 because the star grade is capped at 3★ there, the same rule as the `healthy_site` cap; 1–2★ poor) and the classified platform (`legacy_static` reads "legacy static site", never "custom"), for example "Site is middling: health 60/100 (3★), a legacy static site; mobile performance 99/100 with 1 critical issue(s)." A Haiku narration is kept as the model wrote it.
 - **Guardrails** (apps/worker/src/agents/guardrails/health-summary.ts): the reasoning must contain at least 2 numbers, and `critical_issues` can't be empty when the worst performance score is below 50. Fail → retry once → saved flagged.
@@ -631,7 +632,7 @@ Other routes: `GET /health` (no login; queue and mode readout) and the static `/
 | Search share (geocode + nearby) | 0.3¢ | 0.3¢ | 0.3¢ | 0.3¢ | 0.3¢ |
 | Place Details (Scout for a missing website/phone, else Filter) | 4¢ | 4¢ | 4¢ | 4¢ | 4¢ |
 | Scout / Filter / Traffic / Scorer | 0 | 0 | 0 | 0 | 0 |
-| PSI (1 call; 2 with `PSI_DESKTOP`) | — | 0 | 0 | 0 | 0 |
+| PSI (2 mobile calls by default, `PSI_MOBILE_RUNS`; +1 with `PSI_DESKTOP`) | — | 0 | 0 | 0 | 0 |
 | 5 narration summaries | — | 0 (template) | 5 × 0.19 ≈ 0.9¢ | 0 | 0.9¢ |
 | Design | — | 0 (template, no screenshots) | ≈ 2¢ | 0 | 2¢ |
 | Analyst (auto, if eligible) | — | — | — | 3¢ | 3¢ |
