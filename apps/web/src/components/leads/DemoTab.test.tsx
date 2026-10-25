@@ -29,7 +29,7 @@ describe("DemoTabView", () => {
     expect(html).toContain("Build demo");
     expect(html).toContain("Builds a live demo site");
     expect(html).toContain('value="allplumbing"');
-    expect(html).toContain(".demos.rapidforge.ai");
+    expect(html).toContain(".demos.rapidforgeai.com");
     expect(html).not.toContain("Rebuild");
     expect(html).not.toContain("Building…");
   });
@@ -51,13 +51,13 @@ describe("DemoTabView", () => {
   it("ready: big public link with Open/Copy, small preview link, built-at and Rebuild", () => {
     const html = render({
       kind: "ready",
-      url: "https://allplumbing.demos.rapidforge.ai",
+      url: "https://allplumbing.demos.rapidforgeai.com",
       previewUrl: "https://rapidforge-demos-abc123.vercel.app",
       builtAt: "2026-10-07T18:00:00.000Z",
       dnsPending: false,
     });
-    expect(html).toContain('href="https://allplumbing.demos.rapidforge.ai"');
-    expect(html).toContain("allplumbing.demos.rapidforge.ai");
+    expect(html).toContain('href="https://allplumbing.demos.rapidforgeai.com"');
+    expect(html).toContain("allplumbing.demos.rapidforgeai.com");
     expect(html).toContain(">Open");
     expect(html).toContain(">Copy");
     expect(html).toContain('href="https://rapidforge-demos-abc123.vercel.app"');
@@ -70,7 +70,7 @@ describe("DemoTabView", () => {
   it("ready with the alias pending shows the DNS note", () => {
     const html = render({
       kind: "ready",
-      url: "https://allplumbing.demos.rapidforge.ai",
+      url: "https://allplumbing.demos.rapidforgeai.com",
       previewUrl: null,
       builtAt: null,
       dnsPending: true,
@@ -106,7 +106,7 @@ describe("statusFromLead", () => {
       id: "b1",
       name: "All Plumbing & Sewer",
       demo_status: "ready",
-      demo_url: "https://allplumbing.demos.rapidforge.ai",
+      demo_url: "https://allplumbing.demos.rapidforgeai.com",
       demo_preview_url: "https://x.vercel.app",
       demo_sub: "allplumbing",
       demo_built_at: "2026-10-07T18:00:00.000Z",
@@ -117,7 +117,7 @@ describe("statusFromLead", () => {
   it("seeds the tab from the business row's demo_* fields", () => {
     expect(statusFromLead(lead)).toEqual({
       demo_status: "ready",
-      demo_url: "https://allplumbing.demos.rapidforge.ai",
+      demo_url: "https://allplumbing.demos.rapidforgeai.com",
       demo_preview_url: "https://x.vercel.app",
       demo_sub: "allplumbing",
       demo_built_at: "2026-10-07T18:00:00.000Z",

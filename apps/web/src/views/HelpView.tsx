@@ -308,7 +308,7 @@ const SECTIONS: HelpSection[] = [
           </li>
           <li>
             Check the subdomain. It's prefilled from the business name and
-            becomes the demo's address under demos.rapidforge.ai.
+            becomes the demo's address under demos.rapidforgeai.com.
           </li>
           <li>
             Press <strong className="font-medium">Build demo</strong>. The

@@ -187,7 +187,7 @@ export function DemoTabView({
           <p className="text-sm text-muted-foreground">
             Builds a live demo site for this prospect from its Design Brief —
             five visual variants behind a picker, deployed to Vercel and aliased
-            under demos.rapidforge.ai. Generates the brief first if there is
+            under demos.rapidforgeai.com. Generates the brief first if there is
             none. Takes one to two minutes.
           </p>
           <SubField sub={sub} valid={subValid} onChange={onSubChange} disabled={busy} />
@@ -314,7 +314,7 @@ function SubField({
           className={cn("h-8 max-w-[200px] font-mono text-xs", !valid && "border-agent-error")}
           spellCheck={false}
         />
-        <span className="font-mono text-xs text-muted-foreground">.demos.rapidforge.ai</span>
+        <span className="font-mono text-xs text-muted-foreground">.demos.rapidforgeai.com</span>
       </div>
       {!valid && (
         <p className="text-[11px] text-agent-error">

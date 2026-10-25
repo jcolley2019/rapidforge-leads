@@ -109,7 +109,7 @@ const ReauditRequestSchema = z.object({
   force: z.boolean().optional().default(false),
 });
 
-/** POST /api/businesses/:id/demo body (RFL.DEMO.1). sub = demos.rapidforge.ai label. */
+/** POST /api/businesses/:id/demo body (RFL.DEMO.1). sub = demos.rapidforgeai.com label. */
 const BuildDemoRequestSchema = z.object({
   sub: z
     .string()

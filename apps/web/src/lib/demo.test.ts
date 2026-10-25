@@ -44,14 +44,14 @@ describe("demoView", () => {
       demoView({
         ...base,
         demo_status: "ready",
-        demo_url: "https://allplumbing.demos.rapidforge.ai",
+        demo_url: "https://allplumbing.demos.rapidforgeai.com",
         demo_preview_url: "https://x.vercel.app",
         demo_built_at: "2026-10-07T18:00:00.000Z",
         alias_ok: false,
       }),
     ).toEqual({
       kind: "ready",
-      url: "https://allplumbing.demos.rapidforge.ai",
+      url: "https://allplumbing.demos.rapidforgeai.com",
       previewUrl: "https://x.vercel.app",
       builtAt: "2026-10-07T18:00:00.000Z",
       dnsPending: true,

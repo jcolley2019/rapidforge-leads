@@ -4,7 +4,7 @@
  */
 import type { DemoStatusResponse } from "@/lib/api";
 
-/** A subdomain label under demos.rapidforge.ai — same rule as the worker. */
+/** A subdomain label under demos.rapidforgeai.com — same rule as the worker. */
 export const DEMO_SUB_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
 /**

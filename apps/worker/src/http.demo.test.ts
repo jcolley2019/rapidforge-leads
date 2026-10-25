@@ -188,7 +188,7 @@ const SUCCESS = {
   slug: "all-plumbing-sewer",
   sub: "allplumbing",
   previewUrl: "https://rapidforge-demos-abc123.vercel.app",
-  aliasUrl: "https://allplumbing.demos.rapidforge.ai",
+  aliasUrl: "https://allplumbing.demos.rapidforgeai.com",
   aliasOk: false,
   durationMs: 91_000,
 };
@@ -247,7 +247,7 @@ describe("POST /api/businesses/:id/demo", () => {
     const settled = await waitForSettled(business.id);
     expect(settled).toMatchObject({
       demo_status: "ready",
-      demo_url: "https://allplumbing.demos.rapidforge.ai",
+      demo_url: "https://allplumbing.demos.rapidforgeai.com",
       demo_preview_url: "https://rapidforge-demos-abc123.vercel.app",
       demo_sub: "allplumbing",
       demo_built_at: "2026-10-07T18:00:00.000Z",
@@ -260,11 +260,11 @@ describe("POST /api/businesses/:id/demo", () => {
     expect(status.status).toBe(200);
     expect(status.json).toMatchObject({
       demo_status: "ready",
-      demo_url: "https://allplumbing.demos.rapidforge.ai",
+      demo_url: "https://allplumbing.demos.rapidforgeai.com",
       alias_ok: false,
     });
     expect(status.json.log).toContain("▸ Deploy: vercel");
-    expect(status.json.log.at(-1)).toMatch(/Demo ready: https:\/\/allplumbing\.demos\.rapidforge\.ai \(public link goes live once DNS/);
+    expect(status.json.log.at(-1)).toMatch(/Demo ready: https:\/\/allplumbing\.demos\.rapidforgeai\.com \(public link goes live once DNS/);
   });
 
   it("generates the Design Brief first when the lead has none (ensureDesignBrief)", async () => {
