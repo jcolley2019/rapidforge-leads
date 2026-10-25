@@ -5,7 +5,7 @@
  * scores, real issues, agent_runs per agent, and usage_events — with the
  * special routing and the 30-day cache intact.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   Audit,
   Business,
@@ -27,6 +27,7 @@ import {
   type PsiStrategy,
 } from "./lib/psi";
 import {
+  DisabledScreenshotCapturer,
   FixtureScreenshotCapturer,
   FixtureScreenshotStorage,
 } from "./lib/screenshots";
@@ -34,6 +35,7 @@ import { FixtureSiteFetcher, type FetchedSite, type SiteFetcher } from "./lib/si
 import {
   analystEligible,
   handleJob,
+  STAGE_BUDGET_MS,
   type OrchestratorDeps,
 } from "./orchestrator";
 import { DEV_USER_ID, DEV_WORKSPACE_ID } from "./store/types";
@@ -701,6 +703,137 @@ describe("mobile PSI median-of-two (RFL.PSI.1)", () => {
     } finally {
       delete process.env.PSI_DESKTOP;
     }
+  });
+});
+
+/**
+ * Fixture PSI whose n-th mobile run lands after `delayMs` of (fake) time,
+ * carrying its own metric overrides.
+ */
+class DelayedPsi implements PsiClient {
+  readonly mode = "fixture" as const;
+  readonly calls: PsiStrategy[] = [];
+  private readonly inner = new FixturePsiClient();
+  constructor(
+    private readonly mobileRuns: { delayMs: number; metrics?: Partial<PsiMetrics> }[],
+  ) {}
+
+  async run(url: string, strategy: PsiStrategy): Promise<PsiMetrics | null> {
+    const spec =
+      strategy === "mobile"
+        ? this.mobileRuns[this.calls.filter((s) => s === "mobile").length]
+        : undefined;
+    this.calls.push(strategy);
+    const base = await this.inner.run(url, strategy);
+    if (!base || !spec) return base;
+    await new Promise((resolve) => setTimeout(resolve, spec.delayMs));
+    return { ...base, ...spec.metrics };
+  }
+}
+
+describe("partial mobile PSI survives a budget overrun (RFL.PSI.1.1)", () => {
+  const FAST_MS = 1_000;
+  const SLOW_MS = STAGE_BUDGET_MS.psi + 5_000;
+
+  beforeEach(() => {
+    // Screenshots disabled → no disk I/O, so the pipeline runs on fake time alone.
+    harness.deps.screenshotCapturer = new DisabledScreenshotCapturer();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.PSI_MOBILE_RUNS;
+  });
+
+  async function auditWith(psi: DelayedPsi) {
+    harness.deps.psi = psi;
+    const business = await seedBusiness(harness, {
+      google_place_id: "fx-001",
+      name: "Snake River Plumbing Co",
+      website_url: "https://snakeriverplumbing.com",
+      address: "1120 N Main St, Meridian, ID 83642",
+    });
+    let settled = false;
+    const job = runAuditJob(harness, business.id).finally(() => {
+      settled = true;
+    });
+    for (let step = 0; step < 300 && !settled; step += 1) {
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
+    await job;
+    const health = harness.store
+      .listAgentRuns()
+      .find((r) => r.agent_name === "health" && r.target_id === business.id)!;
+    const audit = (await leadFor(harness, business.id)).audit!;
+    return {
+      healthOutput: health.output as {
+        ps_mobile_performance: number | null;
+        ps_cls: number | null;
+      },
+      audit,
+      breakdown: audit.score_breakdown as {
+        stage_timeouts?: string[];
+        health?: { psi_unmeasured?: boolean };
+      },
+      labels: (audit.issues ?? []).map((i) => i.label),
+      psiOk: harness.store
+        .listUsageEvents()
+        .filter((e) => e.event_type === "pagespeed_call")
+        .map((e) => e.metadata?.ok),
+    };
+  }
+
+  it("one run fast, one past the deadline → Health gets the fast run unchanged, psi-mobile-partial", async () => {
+    const { healthOutput, audit, breakdown, labels, psiOk } = await auditWith(
+      new DelayedPsi([
+        { delayMs: FAST_MS, metrics: { performance: 71, cls: 0.123456 } },
+        { delayMs: SLOW_MS, metrics: { performance: 99, cls: 0.5 } },
+      ]),
+    );
+    expect(audit.status).toBe("completed");
+    expect(healthOutput.ps_mobile_performance).toBe(71);
+    expect(healthOutput.ps_cls).toBe(0.123456); // the lone survivor, not re-rounded
+    expect(breakdown.stage_timeouts).toEqual(["psi-mobile-partial"]);
+    expect(breakdown.health?.psi_unmeasured).toBeUndefined();
+    expect(labels).toContain("PSI mobile: 1 of 2 runs completed within budget");
+    expect(labels).not.toContain("psi-mobile timed out");
+    expect(labels).not.toContain("Performance could not be measured");
+    expect(psiOk).toEqual([true, false]);
+  });
+
+  it("both runs past the deadline → mobile unmeasured and psi-mobile, as before", async () => {
+    const { healthOutput, breakdown, labels, psiOk } = await auditWith(
+      new DelayedPsi([{ delayMs: SLOW_MS }, { delayMs: SLOW_MS }]),
+    );
+    expect(healthOutput.ps_mobile_performance).toBeNull();
+    expect(breakdown.stage_timeouts).toEqual(["psi-mobile"]);
+    expect(breakdown.health?.psi_unmeasured).toBe(true);
+    expect(labels).toContain("psi-mobile timed out");
+    expect(labels.some((l) => l.startsWith("PSI mobile:"))).toBe(false);
+    expect(psiOk).toEqual([false, false]);
+  });
+
+  it("PSI_MOBILE_RUNS=1 and slow → the single-run timeout, unchanged", async () => {
+    process.env.PSI_MOBILE_RUNS = "1";
+    const psi = new DelayedPsi([{ delayMs: SLOW_MS }]);
+    const { healthOutput, breakdown, labels, psiOk } = await auditWith(psi);
+    expect(psi.calls).toEqual(["mobile"]);
+    expect(healthOutput.ps_mobile_performance).toBeNull();
+    expect(breakdown.stage_timeouts).toEqual(["psi-mobile"]);
+    expect(labels).toContain("psi-mobile timed out");
+    expect(psiOk).toEqual([false]);
+  });
+
+  it("both runs within the deadline → merged, no timeout entry", async () => {
+    const { healthOutput, breakdown, psiOk } = await auditWith(
+      new DelayedPsi([
+        { delayMs: FAST_MS, metrics: { performance: 70 } },
+        { delayMs: STAGE_BUDGET_MS.psi - 5_000, metrics: { performance: 90 } },
+      ]),
+    );
+    expect(healthOutput.ps_mobile_performance).toBe(80);
+    expect(breakdown.stage_timeouts).toBeUndefined();
+    expect(psiOk).toEqual([true, true]);
   });
 });
 

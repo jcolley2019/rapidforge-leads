@@ -23,7 +23,11 @@ import { planBlockedOutcome, runFilter } from "./agents/filter";
 import { buildTemplateHealthSummary, runHealth } from "./agents/health";
 import { runPresence } from "./agents/presence";
 import { runReputation } from "./agents/reputation";
-import { classifyPlatform, runScorer } from "./agents/scorer";
+import {
+  classifyPlatform,
+  runScorer,
+  type PsiMobilePartial,
+} from "./agents/scorer";
 import { runScout } from "./agents/scout";
 import { runSeo } from "./agents/seo";
 import { runTraffic } from "./agents/traffic";
@@ -321,23 +325,72 @@ async function runAuditPipeline(
   /** Stages that overran their budget — Scorer records one low issue each. */
   const timedOut: string[] = [];
 
+  /** RFL.PSI.1.1: set when the deadline cut off some — not all — mobile runs. */
+  let psiMobilePartial: PsiMobilePartial | null = null;
+
   // RFL.PSI.1: mobile fires psiMobileRuns() runs in parallel inside ONE
-  // stage (one budget) and merges them — a single run swings ±10 points.
-  // Desktop stays a single run. A stage overrun nulls every run.
-  const runPsiLogged = async (strategy: PsiStrategy) => {
-    const runs = strategy === "mobile" ? psiMobileRuns() : 1;
-    const results = await budgetedStage<(PsiMetrics | null)[]>({
+  // stage (one deadline, STAGE_BUDGET_MS.psi) and merges them — a single
+  // run swings ±10 points. RFL.PSI.1.1: each run is recorded as it lands,
+  // so when the slowest overruns, the runs that finished in time are kept
+  // (`psi-mobile-partial`); only when none finished is it `psi-mobile` and
+  // mobile unmeasured. A cut-off run counts as a failed (null) run.
+  const raceMobileRuns = async (): Promise<(PsiMetrics | null)[]> => {
+    const runs = psiMobileRuns();
+    // undefined = still running when the stage deadline fired.
+    const landed: (PsiMetrics | null | undefined)[] = Array.from(
+      { length: runs },
+      () => undefined,
+    );
+    const overran: string[] = [];
+    await budgetedStage<unknown>({
       log,
-      stage: `psi-${strategy}`,
+      stage: "psi-mobile",
       budgetMs: STAGE_BUDGET_MS.psi,
       run: () =>
         Promise.all(
-          Array.from({ length: runs }, () => deps.psi.run(url, strategy)),
+          landed.map((_, i) =>
+            deps.psi.run(url, "mobile").then((metrics) => {
+              landed[i] = metrics;
+            }),
+          ),
         ),
-      fallback: Array.from({ length: runs }, () => null),
-      timedOut,
+      fallback: null,
+      timedOut: overran,
       signal,
     });
+    // Snapshot now: a cut-off run landing later must not change the audit.
+    const results = landed.map((metrics) => metrics ?? null);
+    if (overran.length > 0) {
+      const completed = landed.filter((m) => m !== undefined).length;
+      if (completed > 0) {
+        timedOut.push("psi-mobile-partial");
+        psiMobilePartial = { completed, runs };
+        console.log(
+          `${log.prefix} stage=psi-mobile partial ${completed}/${runs} runs within budget`,
+        );
+      } else {
+        timedOut.push("psi-mobile");
+      }
+    }
+    return results;
+  };
+  // Desktop (PSI_DESKTOP) stays a single run.
+  const runPsiLogged = async (strategy: PsiStrategy) => {
+    const results =
+      strategy === "mobile"
+        ? await raceMobileRuns()
+        : [
+            await budgetedStage({
+              log,
+              stage: "psi-desktop",
+              budgetMs: STAGE_BUDGET_MS.psi,
+              run: () => deps.psi.run(url, "desktop"),
+              fallback: null,
+              timedOut,
+              signal,
+            }),
+          ];
+    const runs = results.length;
     for (const [i, metrics] of results.entries()) {
       await store.logUsageEvent({
         workspace_id: search.workspace_id,
@@ -534,6 +587,7 @@ async function runAuditPipeline(
         ],
         psiUnmeasured: psiMobile === null,
         screenshotUnavailable,
+        psiMobilePartial,
       }),
   );
   if (scorer.status === "failed" || !scorer.output) {

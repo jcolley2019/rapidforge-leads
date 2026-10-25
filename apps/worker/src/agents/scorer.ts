@@ -59,6 +59,18 @@ export interface ScorerContext {
    * score_breakdown only, never an issue (RFL.VERIFY.3 V2).
    */
   screenshotUnavailable?: string | null;
+  /**
+   * RFL.PSI.1.1: the stage deadline cut off some — not all — mobile PSI
+   * runs; mobile is the merge of the `completed` ones. Labels the
+   * `psi-mobile-partial` stage timeout.
+   */
+  psiMobilePartial?: PsiMobilePartial | null;
+}
+
+/** RFL.PSI.1.1: mobile PSI runs that finished within budget, of `runs`. */
+export interface PsiMobilePartial {
+  completed: number;
+  runs: number;
 }
 
 export interface AssembledScores {
@@ -85,6 +97,7 @@ export interface ScoreInputs {
   stageTimeouts?: string[];
   psiUnmeasured?: boolean;
   screenshotUnavailable?: string | null;
+  psiMobilePartial?: PsiMobilePartial | null;
 }
 
 /** Last-Modified older than this (or absent) counts as "not maintained" for legacy_static. */
@@ -221,6 +234,18 @@ export function assembleScores(inputs: ScoreInputs): AssembledScores {
   // score_breakdown (stage_timeouts / screenshot_unavailable) and the log.
   for (const stage of stageTimeouts) {
     if (stage === "screenshot") continue;
+    // RFL.PSI.1.1: some mobile runs finished — mobile WAS measured.
+    if (stage === "psi-mobile-partial") {
+      const partial = inputs.psiMobilePartial;
+      issues.push({
+        severity: "low",
+        label: partial
+          ? `PSI mobile: ${partial.completed} of ${partial.runs} runs completed within budget`
+          : "PSI mobile: some runs completed within budget",
+        detail: "Mobile performance uses the runs that finished; the rest exceeded the stage budget",
+      });
+      continue;
+    }
     issues.push({
       severity: "low",
       label: `${stage} timed out`,
@@ -327,6 +352,7 @@ export async function runScorer(
       ...(ctx.stageTimeouts ? { stageTimeouts: ctx.stageTimeouts } : {}),
       ...(ctx.psiUnmeasured !== undefined ? { psiUnmeasured: ctx.psiUnmeasured } : {}),
       ...(ctx.screenshotUnavailable ? { screenshotUnavailable: ctx.screenshotUnavailable } : {}),
+      ...(ctx.psiMobilePartial ? { psiMobilePartial: ctx.psiMobilePartial } : {}),
     });
     const { health, conversion, presence, traffic, now } = ctx;
 

@@ -198,6 +198,21 @@ describe("assembleScores — missing agents", () => {
     expect(scores.scoreBreakdown.stage_timeouts).toEqual(["psi", "screenshot", "seo"]);
     expect(assembleScores(inputs()).scoreBreakdown.stage_timeouts).toBeUndefined();
   });
+
+  it("psi-mobile-partial reads as runs completed, not as a timed-out stage (RFL.PSI.1.1)", () => {
+    const scores = assembleScores(
+      inputs({
+        stageTimeouts: ["psi-mobile-partial"],
+        psiMobilePartial: { completed: 1, runs: 2 },
+      }),
+    );
+    const partial = scores.issues.filter((i) => i.label.startsWith("PSI mobile:"));
+    expect(partial.map((i) => [i.label, i.severity])).toEqual([
+      ["PSI mobile: 1 of 2 runs completed within budget", "low"],
+    ]);
+    expect(scores.issues.some((i) => i.label.endsWith(" timed out"))).toBe(false);
+    expect(scores.scoreBreakdown.stage_timeouts).toEqual(["psi-mobile-partial"]);
+  });
 });
 
 describe("classifyPlatform — legacy_static (RFL.FIX.3d)", () => {
