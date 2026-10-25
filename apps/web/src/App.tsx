@@ -31,6 +31,8 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Submitting a search routes to the Workspace view for that id.
   const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
+  // Settings' clear-all lands on the Dashboard with its counts (RFL.DATA.1).
+  const [dashboardNotice, setDashboardNotice] = useState<string | null>(null);
 
   // One Realtime subscription per signed-in session (PRD 5.6).
   const workspaceId =
@@ -55,6 +57,7 @@ export function App() {
               setActiveSearchId(searchId);
               setView("workspace");
             }}
+            notice={dashboardNotice}
           />
         );
       case "workspace":
@@ -82,7 +85,15 @@ export function App() {
       case "analytics":
         return <AnalyticsView />;
       case "settings":
-        return <SettingsView />;
+        return (
+          <SettingsView
+            onCleared={(summary) => {
+              setActiveSearchId(null); // that search no longer exists
+              setDashboardNotice(summary);
+              setView("dashboard");
+            }}
+          />
+        );
       case "help":
         return <HelpView onGoTo={setView} />;
     }

@@ -13,6 +13,7 @@ import {
   Moon,
   RotateCcw,
   Sun,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { UpdateWorkspaceConfigRequest } from "@rapidforge/shared";
@@ -27,8 +28,14 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { fetchConfig, saveConfig } from "@/lib/api";
+import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
+import { clearWorkspaceData, fetchConfig, saveConfig } from "@/lib/api";
 import { resetAll } from "@/lib/coaching";
+import {
+  CLEAR_ALL_PHRASE,
+  clearAllEnabled,
+  describeDeleteCounts,
+} from "@/lib/data-delete";
 import {
   getSearchDefaults,
   saveSearchDefaults,
@@ -88,7 +95,12 @@ const EMPTY_DRAFT: ConfigDraft = {
   user_brand: "",
 };
 
-export function SettingsView() {
+export interface SettingsViewProps {
+  /** Clear-all succeeded: the counts line to show, and the caller moves to Dashboard. */
+  onCleared?: (summary: string) => void;
+}
+
+export function SettingsView({ onCleared }: SettingsViewProps = {}) {
   const [draft, setDraft] = useState<ConfigDraft>(EMPTY_DRAFT);
   const [saved, setSaved] = useState<ConfigDraft>(EMPTY_DRAFT);
   const [loading, setLoading] = useState(true);
@@ -106,6 +118,12 @@ export function SettingsView() {
   const [theme, setTheme] = useState<Theme>(getTheme);
   const { userId, openHelp } = useCoaching();
   const [tipsFlash, setTipsFlash] = useState(false);
+
+  // Danger zone (RFL.DATA.1).
+  const { notifyLeadsChanged } = useLeadDrawer();
+  const [confirmText, setConfirmText] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,6 +195,22 @@ export function SettingsView() {
     resetAll(userId);
     setTipsFlash(true);
     window.setTimeout(() => setTipsFlash(false), 2000);
+  }
+
+  async function clearAll() {
+    if (clearing || !clearAllEnabled(confirmText)) return;
+    setClearing(true);
+    setClearError(null);
+    try {
+      const counts = await clearWorkspaceData(confirmText);
+      setConfirmText("");
+      notifyLeadsChanged(); // Dashboard / Leads / Pipeline / top bar refetch
+      onCleared?.(describeDeleteCounts(counts));
+    } catch (err) {
+      setClearError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setClearing(false);
+    }
   }
 
   return (
@@ -354,6 +388,52 @@ export function SettingsView() {
             {tipsFlash ? <Check aria-hidden /> : <RotateCcw aria-hidden />}
             {tipsFlash ? "Tips reset" : "Reset coaching tips"}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="border-agent-error/50" data-testid="danger-zone">
+        <CardHeader>
+          <CardTitle className="text-base text-agent-error">Danger zone</CardTitle>
+          <CardDescription>
+            Clear all data removes every search, lead, business, audit, brief,
+            sales script, queued job and agent run in this workspace. Settings
+            on this page, your coaching-tip state and the API cost ledger stay.
+            Built demo sites are not taken down. This cannot be undone.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="clear-all-confirm">
+              Type <span className="font-mono text-agent-error">{CLEAR_ALL_PHRASE}</span> to confirm
+            </Label>
+            <Input
+              id="clear-all-confirm"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={CLEAR_ALL_PHRASE}
+              autoComplete="off"
+              spellCheck={false}
+              className="max-w-xs font-mono"
+            />
+          </div>
+          <Button
+            variant="destructive"
+            onClick={() => void clearAll()}
+            disabled={!clearAllEnabled(confirmText) || clearing}
+            data-testid="clear-all-button"
+          >
+            {clearing ? (
+              <Loader2 className="animate-spin" aria-hidden />
+            ) : (
+              <Trash2 aria-hidden />
+            )}
+            {clearing ? "Clearing…" : "Clear all data"}
+          </Button>
+          {clearError && (
+            <p className="rounded-xl border border-agent-error/40 bg-agent-error/10 px-3.5 py-2 text-xs text-agent-error">
+              {clearError}
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

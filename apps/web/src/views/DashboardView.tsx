@@ -10,6 +10,7 @@ import {
   MapPin,
   Phone,
   Search,
+  Trash2,
   Users,
   Wallet,
 } from "lucide-react";
@@ -25,30 +26,55 @@ import {
 } from "@/components/ui/card";
 import { useLeadDrawer } from "@/features/leads/LeadDrawerContext";
 import {
+  deleteSearch,
   fetchRecentSearches,
   fetchUsage,
   fetchWorkspaceLeads,
   type LeadView,
 } from "@/lib/api";
+import {
+  confirmDeleteSearchMessage,
+  DELETE_CANCEL_FIRST,
+  deleteSearchDisabled,
+  describeDeleteCounts,
+} from "@/lib/data-delete";
 import { dedupeLeads } from "@/lib/dedupe";
 import { formatCents, relativeTime } from "@/lib/format";
 import { computeKpis, currentMonthStartIso } from "@/lib/kpis";
 import { cn } from "@/lib/utils";
 
+/** How long the "… removed" line stays under the Recent searches title. */
+const NOTICE_MS = 6000;
+
 export interface DashboardViewProps {
   onNewSearch: () => void;
   onOpenSearch: (searchId: string) => void;
+  /** A one-line result to show on arrival (Settings' clear-all lands here). */
+  notice?: string | null;
 }
 
 export function DashboardView({
   onNewSearch,
   onOpenSearch,
+  notice: incomingNotice = null,
 }: DashboardViewProps) {
-  const { leadsVersion } = useLeadDrawer();
+  const { leadsVersion, notifyLeadsChanged } = useLeadDrawer();
   const [leads, setLeads] = useState<LeadView[] | null>(null);
   const [searches, setSearches] = useState<SearchRow[] | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(incomingNotice);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setNotice(incomingNotice);
+  }, [incomingNotice]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const load = useCallback(async () => {
     try {
@@ -74,6 +100,27 @@ export function DashboardView({
     if (!leads || !searches) return null;
     return computeKpis(dedupeLeads(leads), searches, currentMonthStartIso());
   }, [leads, searches]);
+
+  // RFL.DATA.1: one search goes, with the businesses only it found. The
+  // confirm is window.confirm — there is no dialog component in ui/ yet.
+  async function removeSearch(search: SearchRow) {
+    if (deletingId || deleteSearchDisabled(search.status)) return;
+    if (!window.confirm(confirmDeleteSearchMessage(search, searchLocation(search)))) {
+      return;
+    }
+    setDeletingId(search.id);
+    setError(null);
+    try {
+      const counts = await deleteSearch(search.id);
+      await load();
+      notifyLeadsChanged(); // Leads / Pipeline / top-bar counts refetch
+      setNotice(describeDeleteCounts(counts));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4">
@@ -140,6 +187,16 @@ export function DashboardView({
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Recent searches</CardTitle>
+          {notice && (
+            <p
+              className="text-xs text-agent-complete"
+              role="status"
+              aria-live="polite"
+              data-testid="delete-notice"
+            >
+              {notice}
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           {searches === null ? (
@@ -153,30 +210,52 @@ export function DashboardView({
             </p>
           ) : (
             <ul className="divide-y divide-border">
-              {searches.slice(0, 8).map((search) => (
-                <li key={search.id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenSearch(search.id)}
-                    className="flex w-full items-center gap-3 px-1 py-2.5 text-left text-sm transition-colors hover:bg-accent/40"
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      <span className="font-medium">{search.category}</span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · {searchLocation(search)}
+              {searches.slice(0, 8).map((search) => {
+                const locked = deleteSearchDisabled(search.status);
+                const deleting = deletingId === search.id;
+                return (
+                  <li key={search.id} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onOpenSearch(search.id)}
+                      className="flex min-w-0 flex-1 items-center gap-3 px-1 py-2.5 text-left text-sm transition-colors hover:bg-accent/40"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="font-medium">{search.category}</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {searchLocation(search)}
+                        </span>
                       </span>
+                      <span className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+                        {search.results_count ?? 0} results
+                      </span>
+                      <StatusPill status={search.status ?? "pending"} />
+                      <span className="w-20 whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
+                        {relativeTime(search.created_at) ?? "—"}
+                      </span>
+                    </button>
+                    {/* Sibling of the row button, not nested — buttons can't nest. */}
+                    <span title={locked ? DELETE_CANCEL_FIRST : undefined}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-agent-error"
+                        aria-label="Delete search"
+                        title={locked ? DELETE_CANCEL_FIRST : "Delete search"}
+                        disabled={locked || deletingId !== null}
+                        onClick={() => void removeSearch(search)}
+                      >
+                        {deleting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        )}
+                      </Button>
                     </span>
-                    <span className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-                      {search.results_count ?? 0} results
-                    </span>
-                    <StatusPill status={search.status ?? "pending"} />
-                    <span className="w-20 whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
-                      {relativeTime(search.created_at) ?? "—"}
-                    </span>
-                  </button>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>

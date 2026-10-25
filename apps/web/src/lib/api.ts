@@ -114,6 +114,41 @@ export async function cancelSearch(id: string): Promise<CancelSearchResult> {
   });
 }
 
+/** Rows removed by a delete, per table (RFL.DATA.1). */
+export interface DeleteCounts {
+  results: number;
+  businesses: number;
+  audits: number;
+  jobs: number;
+  agentRuns: number;
+  searches: number;
+}
+
+/**
+ * Delete a finished search (RFL.DATA.1): its results, the businesses no
+ * other search still references (with their audits), and the search.
+ * 409 while it is still running — cancel first.
+ */
+export async function deleteSearch(id: string): Promise<DeleteCounts> {
+  return apiFetch(`/api/searches/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+/**
+ * Remove every search, business, audit, job and agent run in the workspace
+ * (RFL.DATA.1). Settings and the cost ledger stay. The worker 400s unless
+ * confirmPhrase is exactly "DELETE ALL".
+ */
+export async function clearWorkspaceData(
+  confirmPhrase: string,
+): Promise<DeleteCounts> {
+  return apiFetch("/api/workspace/data", {
+    method: "DELETE",
+    body: JSON.stringify({ confirm: confirmPhrase }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Sprint 5: pipeline / drawer / leads / settings / usage (PRD Section 8)
 // ---------------------------------------------------------------------------
