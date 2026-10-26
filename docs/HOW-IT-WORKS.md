@@ -244,6 +244,14 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
   - $0 AI.
   - Places: per search, 3¢ geocode (zip mode only) + 3¢ per tile (Nearby or Text Search, same Pro SKU price), shared across the results.
   - Plus 4¢ for each business that arrived without a website or phone.
+  - Measured Details ratios, read from `usage_events` on 2026-10-25 (Scout's enrichment calls carry no `business_id`; Filter's carry one). Both paths send the same field mask, so any gap is Google's data, not the request:
+
+    | Path | Search | Results | Scout Details (missing website/phone) | Filter Details (hot leads / live sites) |
+    |---|---|---|---|---|
+    | Nearby | `plumber`, 10 mi (9 tiles) | 36 | 10 (28%) | 17 (47%) |
+    | Text Search | `hvac`, 9 tiles | 9 | 1 (11%) | 7 (78%) |
+
+    One search each, so these are two samples, not an average. The RFL.SEARCH.CAT.2 live run's "8 of 9 needed Details" counted Scout's 1 plus Filter's 7.
 - **Known gaps:**
   - `plans.max_results_per_search` / `max_radius_miles` are never read: 100 is hard-coded and the 25-mile limit comes from the request schema.
   - Scout's details call uses the full Enterprise-tier mask. A business missing a phone or website pays 4¢ here even if Filter later skips it. filter.ts's comment that skips "never pay for the Enterprise SKU" holds only for Filter's own fetch.
@@ -628,6 +636,7 @@ Other routes: `GET /health` (no login; queue and mode readout) and the static `/
 - Prices are AI Core's table, dated 2026-10-03.
 - The example search is a 3-mile zip search. 3 mi = 4,828 m ≤ 5 km, so one tile (apps/worker/src/lib/geo.ts). That is 1 geocode (3¢) + 1 nearby call (3¢) = 6¢, returning 20 businesses (Nearby Search caps at 20), so the **search share is 6¢ ÷ 20 = 0.3¢ per lead**. Bigger searches scale the same way: for example, 10 miles = 9 tiles = 30¢ for up to 100 leads, which is also 0.3¢ each when 100 come back.
 - Place Details: 4¢. PSI: free.
+- Place Details is not charged on every lead. Measured 2026-10-25: Scout's missing-website/phone enrichment hit 28% of Nearby results (10 of 36, `plumber`) and 11% of Text Search results (1 of 9, `hvac`); Filter's own fetch added 47% and 78%. Table rows below show the per-lead 4¢ when it is paid. Details in the Scout section's cost notes.
 - AI figures are the per-agent estimates above: Haiku narration ≈ 0.19¢ each; Design ≈ 2¢; Analyst ≈ 3¢; Builder Brief ≈ 11¢ + 0.4¢ embedded Design Brief; Sales Summary ≈ 1.3¢.
 - "Default switches" means `AI_SUMMARIES` unset, `SCREENSHOTS_ENABLED` off and `PSI_DESKTOP` off. "All switches on" means `AI_SUMMARIES=haiku` and `SCREENSHOTS_ENABLED=true`. With `AI_SUMMARIES=reputation` only one narration is paid, so column B becomes 4.3 + 0.19 ≈ 4.5¢.
 - The per-agent figures are dated. The live `agent_runs` rows read for docs/AUDIT-2026-10-07.md Part 5 (2026-10-04 to 10-07) show narration at 1–1.5¢ each because they ran on the retired Sonnet before RFL.AI.9 moved narration to templates and Haiku; the Haiku 0.19¢ is an estimate from prompt sizes, not a measured row.
