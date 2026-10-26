@@ -10,6 +10,7 @@ import { ZipRadiusParamsSchema } from "@rapidforge/shared";
 import { CoachingTip } from "@/components/CoachingTip";
 import {
   CATEGORIES,
+  categoryQueryMismatch,
   SearchFilterControls,
 } from "@/components/search/SearchFilterControls";
 import { MapSearchTab } from "@/components/search/MapSearchTab";
@@ -47,6 +48,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
     const preferred = getSearchDefaults()?.category_type;
     return CATEGORIES.find((c) => c.type === preferred) ?? CATEGORIES[0];
   });
+  const [categoryQuery, setCategoryQuery] = useState("");
   const [minReviews, setMinReviews] = useState(0);
   const [minRating, setMinRating] = useState(0);
   // Chains excluded by default (RFL-04); the checkbox opts back in.
@@ -62,7 +64,11 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
     exclude_chains: excludeChains,
   };
   const validation = ZipRadiusParamsSchema.safeParse(params);
-  const canSubmit = validation.success && !!category && !submitting;
+  // Filter text that names no chip must never submit the old selection
+  // (RFL.SEARCH.CAT.1).
+  const categoryMismatch = categoryQueryMismatch(categoryQuery, category);
+  const canSubmit =
+    validation.success && !!category && !categoryMismatch && !submitting;
 
   async function submit() {
     if (!canSubmit || !category) return;
@@ -86,6 +92,8 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
     <SearchFilterControls
       category={category}
       onCategoryChange={setCategory}
+      categoryQuery={categoryQuery}
+      onCategoryQueryChange={setCategoryQuery}
       minReviews={minReviews}
       onMinReviewsChange={setMinReviews}
       minRating={minRating}
@@ -192,8 +200,17 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
 
             <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
               <p className="font-mono text-[11px] text-muted-foreground">
-                est. ≈{estCalls} Places calls (~${(estCalls * 0.032).toFixed(2)}{" "}
-                + details) · free in fixture mode
+                {categoryMismatch ? (
+                  <span className="text-agent-waiting">
+                    Pick a category from the list
+                  </span>
+                ) : (
+                  <>
+                    est. ≈{estCalls} Places calls (~$
+                    {(estCalls * 0.032).toFixed(2)} + details) · free in
+                    fixture mode
+                  </>
+                )}
               </p>
               <Button onClick={() => void submit()} disabled={!canSubmit}>
                 {submitting ? (
@@ -216,6 +233,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
         <div className="space-y-4">
           <MapSearchTab
             category={category}
+            categoryMismatch={categoryMismatch}
             filters={{
               min_reviews: minReviews,
               min_rating: minRating,

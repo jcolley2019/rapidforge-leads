@@ -3,7 +3,7 @@
  * rating / chains. One component so the Zip and Map tabs can never drift
  * (Sprint 5 kickoff: the map respects the same filters).
  */
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -69,9 +69,27 @@ const RATING_PRESETS = [
   { label: "4.5+", value: 4.5 },
 ];
 
+/**
+ * True when the filter box holds text that does not describe the selected
+ * category — the user typed something the list has no chip for (or a chip
+ * they never clicked) and would otherwise submit the previous selection
+ * silently (RFL.SEARCH.CAT.1: "HVAC · Nampa" ran as plumber).
+ */
+export function categoryQueryMismatch(
+  query: string,
+  category: Pick<Category, "label"> | undefined,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return false;
+  return !category || !category.label.toLowerCase().includes(q);
+}
+
 export interface SearchFilterControlsProps {
   category: Category | undefined;
   onCategoryChange: (category: Category) => void;
+  /** Filter-box text, owned by the view so submit can be gated on it. */
+  categoryQuery: string;
+  onCategoryQueryChange: (value: string) => void;
   minReviews: number;
   onMinReviewsChange: (value: number) => void;
   minRating: number;
@@ -83,6 +101,8 @@ export interface SearchFilterControlsProps {
 export function SearchFilterControls({
   category,
   onCategoryChange,
+  categoryQuery,
+  onCategoryQueryChange,
   minReviews,
   onMinReviewsChange,
   minRating,
@@ -90,8 +110,6 @@ export function SearchFilterControls({
   excludeChains,
   onExcludeChainsChange,
 }: SearchFilterControlsProps) {
-  const [categoryQuery, setCategoryQuery] = useState("");
-
   const filteredCategories = useMemo(() => {
     const q = categoryQuery.trim().toLowerCase();
     if (!q) return CATEGORIES;
@@ -104,16 +122,21 @@ export function SearchFilterControls({
         <Label htmlFor="category">
           Category{" "}
           {category && (
-            <span className="font-mono text-[11px] text-primary">
-              {category.type}
-            </span>
+            <>
+              <span className="text-primary" data-testid="selected-category">
+                {category.label}
+              </span>{" "}
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {category.type}
+              </span>
+            </>
           )}
         </Label>
         <Input
           id="category"
           placeholder="Filter categories…"
           value={categoryQuery}
-          onChange={(e) => setCategoryQuery(e.target.value)}
+          onChange={(e) => onCategoryQueryChange(e.target.value)}
         />
         <div className="max-h-40 space-y-2 overflow-y-auto pt-1">
           {CATEGORY_GROUPS.map((group) => {
@@ -146,8 +169,9 @@ export function SearchFilterControls({
           })}
           {filteredCategories.length === 0 && (
             <span className="text-xs text-muted-foreground">
-              No matching category — the curated list maps to Google Places
-              types.
+              No category matches &lsquo;{categoryQuery.trim()}&rsquo; — the
+              list maps to Google Places types; clear the box to keep{" "}
+              {category?.label ?? "the current pick"}.
             </span>
           )}
         </div>

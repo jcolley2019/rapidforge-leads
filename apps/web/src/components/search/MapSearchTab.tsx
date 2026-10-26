@@ -35,12 +35,15 @@ const DEFAULT_ZOOM = 11;
 
 export interface MapSearchTabProps {
   category: { label: string; type: string } | undefined;
+  /** Category filter text names no chip — same gate as the zip tab (RFL.SEARCH.CAT.1). */
+  categoryMismatch?: boolean;
   filters: SearchFilters;
   onSearchCreated: (searchId: string) => void;
 }
 
 export function MapSearchTab({
   category,
+  categoryMismatch = false,
   filters,
   onSearchCreated,
 }: MapSearchTabProps) {
@@ -50,6 +53,7 @@ export function MapSearchTab({
     <LiveMap
       mapsKey={mapsKey}
       category={category}
+      categoryMismatch={categoryMismatch}
       filters={filters}
       onSearchCreated={onSearchCreated}
     />
@@ -59,6 +63,7 @@ export function MapSearchTab({
 function LiveMap({
   mapsKey,
   category,
+  categoryMismatch,
   filters,
   onSearchCreated,
 }: MapSearchTabProps & { mapsKey: string }) {
@@ -206,10 +211,11 @@ function LiveMap({
 
   const estCalls = estimatePlacesCalls(radiusMiles);
   const estCost = formatCents(estimateSearchCostCents(radiusMiles));
-  const canSubmit = pin !== null && !!category && !submitting;
+  const canSubmit =
+    pin !== null && !!category && !categoryMismatch && !submitting;
 
   async function submit() {
-    if (!pin || !category || submitting) return;
+    if (!canSubmit || !pin || !category) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -294,9 +300,13 @@ function LiveMap({
 
       <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
         <p className="font-mono text-[11px] text-muted-foreground">
-          {pin
-            ? `pin ${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)} · est. ≈${estCalls} calls (~${estCost} + details)`
-            : "no pin yet"}
+          {categoryMismatch ? (
+            <span className="text-agent-waiting">Pick a category from the list</span>
+          ) : pin ? (
+            `pin ${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)} · est. ≈${estCalls} calls (~${estCost} + details)`
+          ) : (
+            "no pin yet"
+          )}
         </p>
         <Button onClick={() => void submit()} disabled={!canSubmit}>
           {submitting ? (
