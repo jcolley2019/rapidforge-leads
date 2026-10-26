@@ -8,28 +8,57 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
-/** Curated Places (New) included types (PRD 6.1 type filter). */
-export const CATEGORIES: Array<{ label: string; type: string }> = [
-  { label: "Plumber", type: "plumber" },
-  { label: "Electrician", type: "electrician" },
-  { label: "Roofer", type: "roofing_contractor" },
-  { label: "General contractor", type: "general_contractor" },
-  { label: "Painter", type: "painter" },
-  { label: "Locksmith", type: "locksmith" },
-  { label: "Moving company", type: "moving_company" },
-  { label: "Dentist", type: "dentist" },
-  { label: "Hair salon", type: "hair_salon" },
-  { label: "Beauty salon", type: "beauty_salon" },
-  { label: "Spa", type: "spa" },
-  { label: "Gym", type: "gym" },
-  { label: "Restaurant", type: "restaurant" },
-  { label: "Cafe", type: "cafe" },
-  { label: "Auto repair", type: "car_repair" },
-  { label: "Car wash", type: "car_wash" },
-  { label: "Real estate agency", type: "real_estate_agency" },
-  { label: "Lawyer", type: "lawyer" },
-  { label: "Veterinarian", type: "veterinary_care" },
-  { label: "Florist", type: "florist" },
+export type CategoryGroup =
+  | "Home services & trades"
+  | "Auto"
+  | "Health & wellness"
+  | "Other";
+
+export interface Category {
+  label: string;
+  type: string;
+  group: CategoryGroup;
+}
+
+/**
+ * Curated Places (New) included types (PRD 6.1 type filter). The worker
+ * passes `type` straight to Nearby Search `includedTypes`, so every entry
+ * must be spelled exactly as Google's place-types Table A lists it
+ * (RFL.SEARCH.CAT.1). There is no HVAC, landscaping, pest-control or
+ * handyman type in Table A — those trades cannot be searched by type.
+ * Trades first (the core four, then alphabetical), then the other groups.
+ */
+export const CATEGORIES: Category[] = [
+  { label: "Plumber", type: "plumber", group: "Home services & trades" },
+  { label: "Electrician", type: "electrician", group: "Home services & trades" },
+  { label: "Roofer", type: "roofing_contractor", group: "Home services & trades" },
+  { label: "General contractor", type: "general_contractor", group: "Home services & trades" },
+  { label: "Locksmith", type: "locksmith", group: "Home services & trades" },
+  { label: "Moving company", type: "moving_company", group: "Home services & trades" },
+  { label: "Painter", type: "painter", group: "Home services & trades" },
+  { label: "Auto repair", type: "car_repair", group: "Auto" },
+  { label: "Car wash", type: "car_wash", group: "Auto" },
+  { label: "Tire shop", type: "tire_shop", group: "Auto" },
+  { label: "Chiropractor", type: "chiropractor", group: "Health & wellness" },
+  { label: "Dentist", type: "dentist", group: "Health & wellness" },
+  { label: "Gym", type: "gym", group: "Health & wellness" },
+  { label: "Skin care clinic", type: "skin_care_clinic", group: "Health & wellness" },
+  { label: "Spa", type: "spa", group: "Health & wellness" },
+  { label: "Beauty salon", type: "beauty_salon", group: "Other" },
+  { label: "Cafe", type: "cafe", group: "Other" },
+  { label: "Florist", type: "florist", group: "Other" },
+  { label: "Hair salon", type: "hair_salon", group: "Other" },
+  { label: "Lawyer", type: "lawyer", group: "Other" },
+  { label: "Real estate agency", type: "real_estate_agency", group: "Other" },
+  { label: "Restaurant", type: "restaurant", group: "Other" },
+  { label: "Veterinarian", type: "veterinary_care", group: "Other" },
+];
+
+const CATEGORY_GROUPS: CategoryGroup[] = [
+  "Home services & trades",
+  "Auto",
+  "Health & wellness",
+  "Other",
 ];
 
 const RATING_PRESETS = [
@@ -41,8 +70,8 @@ const RATING_PRESETS = [
 ];
 
 export interface SearchFilterControlsProps {
-  category: { label: string; type: string } | undefined;
-  onCategoryChange: (category: { label: string; type: string }) => void;
+  category: Category | undefined;
+  onCategoryChange: (category: Category) => void;
   minReviews: number;
   onMinReviewsChange: (value: number) => void;
   minRating: number;
@@ -86,22 +115,35 @@ export function SearchFilterControls({
           value={categoryQuery}
           onChange={(e) => setCategoryQuery(e.target.value)}
         />
-        <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto pt-1">
-          {filteredCategories.map((c) => (
-            <button
-              key={c.type}
-              type="button"
-              onClick={() => onCategoryChange(c)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs transition-colors",
-                category?.type === c.type
-                  ? "border-primary/60 bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {c.label}
-            </button>
-          ))}
+        <div className="max-h-40 space-y-2 overflow-y-auto pt-1">
+          {CATEGORY_GROUPS.map((group) => {
+            const members = filteredCategories.filter((c) => c.group === group);
+            if (members.length === 0) return null;
+            return (
+              <div key={group} className="space-y-1">
+                <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  {group}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {members.map((c) => (
+                    <button
+                      key={c.type}
+                      type="button"
+                      onClick={() => onCategoryChange(c)}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-xs transition-colors",
+                        category?.type === c.type
+                          ? "border-primary/60 bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
           {filteredCategories.length === 0 && (
             <span className="text-xs text-muted-foreground">
               No matching category — the curated list maps to Google Places
