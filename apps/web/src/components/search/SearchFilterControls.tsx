@@ -22,6 +22,11 @@ export type CategoryGroup =
 
 export interface Category {
   label: string;
+  /**
+   * The `category` request value: a Table A type code (Nearby Search), or —
+   * for a phrase chip such as "general contractor", which is Table B and not
+   * valid for includedTypes — the phrase itself (Text Search).
+   */
   type: string;
   group: CategoryGroup;
 }
@@ -32,14 +37,15 @@ export interface Category {
  * must be spelled exactly as Google's place-types Table A lists it
  * (RFL.SEARCH.CAT.1) and be in the shared KNOWN_PLACE_TYPES set. There is
  * no HVAC, landscaping, pest-control or handyman type in Table A — those
- * trades are typed as a phrase and found through Text Search instead.
+ * trades are typed as a phrase and found through Text Search instead, as is
+ * "general contractor" (Table B; RFL.SEARCH.CAT.2.1), kept as a phrase chip.
  * Trades first (the core four, then alphabetical), then the other groups.
  */
 export const CATEGORIES: Category[] = [
   { label: "Plumber", type: "plumber", group: "Home services & trades" },
   { label: "Electrician", type: "electrician", group: "Home services & trades" },
   { label: "Roofer", type: "roofing_contractor", group: "Home services & trades" },
-  { label: "General contractor", type: "general_contractor", group: "Home services & trades" },
+  { label: "General contractor", type: "general contractor", group: "Home services & trades" },
   { label: "Locksmith", type: "locksmith", group: "Home services & trades" },
   { label: "Moving company", type: "moving_company", group: "Home services & trades" },
   { label: "Painter", type: "painter", group: "Home services & trades" },
@@ -88,15 +94,17 @@ export function normalizeCategoryText(text: string): string {
 }
 
 /**
- * A box matching a chip's label or type (case-insensitive) is that Places
- * type; anything else is a free phrase, submitted as typed.
+ * A box matching a chip's label or type (case-insensitive) is that chip's
+ * request value; anything else is a free phrase, submitted as typed. The
+ * legacy "general_contractor" (a saved default) maps to its phrase chip.
  */
 export function resolveCategory(text: string): ResolvedCategory {
   const phrase = normalizeCategoryText(text).slice(0, CATEGORY_MAX_CHARS);
   if (!phrase) return { kind: "empty" };
   const q = phrase.toLowerCase();
   const category = CATEGORIES.find(
-    (c) => c.type === q || c.label.toLowerCase() === q,
+    (c) =>
+      c.type === q || c.label.toLowerCase() === q || c.type === q.replace(/_/g, " "),
   );
   return category ? { kind: "type", category } : { kind: "phrase", phrase };
 }

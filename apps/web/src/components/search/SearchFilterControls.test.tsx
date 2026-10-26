@@ -39,15 +39,17 @@ describe("CATEGORIES", () => {
       "plumber",
       "electrician",
       "roofing_contractor",
-      "general_contractor",
+      "general contractor",
     ]);
     const groups = [...new Set(CATEGORIES.map((c) => c.group))];
     expect(groups).toEqual(["Home services & trades", "Auto", "Health & wellness", "Other"]);
   });
 
-  it("every chip type is a known Table A type the worker routes to Nearby, with no duplicates", () => {
+  it("every chip is a Table A type routed to Nearby, bar the one phrase chip routed to Text Search, with no duplicates", () => {
     const types = CATEGORIES.map((c) => c.type);
-    for (const type of types) expect(KNOWN_PLACE_TYPES.has(type)).toBe(true);
+    const phraseChips = CATEGORIES.filter((c) => !KNOWN_PLACE_TYPES.has(c.type));
+    expect(phraseChips.map((c) => c.type)).toEqual(["general contractor"]);
+    for (const c of phraseChips) expect(c.type).toBe(c.label.toLowerCase());
     expect(new Set(types).size).toBe(types.length);
     expect(types).not.toContain("hvac_contractor");
   });
@@ -63,6 +65,12 @@ describe("resolveCategory → request value + hint", () => {
     }
     expect(categoryRequestValue(resolveCategory("Roofer"))).toBe("roofing_contractor");
     expect(categoryRequestValue(resolveCategory("tire shop"))).toBe("tire_shop");
+  });
+
+  it("the General contractor chip submits its phrase (Text Search), also from the legacy type code", () => {
+    for (const text of ["General contractor", "general contractor", "general_contractor"]) {
+      expect(categoryRequestValue(resolveCategory(text))).toBe("general contractor");
+    }
   });
 
   it("any other phrase submits as typed, trimmed and collapsed", () => {
@@ -90,7 +98,7 @@ describe("suggestedCategories", () => {
     expect(suggestedCategories("tire").map((c) => c.type)).toEqual(["tire_shop"]);
     expect(suggestedCategories("contractor").map((c) => c.type)).toEqual([
       "roofing_contractor",
-      "general_contractor",
+      "general contractor",
     ]);
     expect(suggestedCategories("hvac")).toEqual([]);
   });

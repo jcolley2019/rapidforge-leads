@@ -17,6 +17,9 @@ describe("isPlaceType (RFL.SEARCH.CAT.2 routing)", () => {
     // Shaped like a type but not one Nearby accepts.
     expect(isPlaceType("hvac_contractor")).toBe(false);
     expect(isPlaceType("landscaper")).toBe(false);
+    // Table B: Google returns it as a primaryType but Nearby rejects it.
+    expect(isPlaceType("general_contractor")).toBe(false);
+    expect(isPlaceType("general contractor")).toBe(false);
     expect(isPlaceType("")).toBe(false);
   });
 

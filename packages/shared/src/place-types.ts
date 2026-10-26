@@ -9,13 +9,15 @@
  * `hvac_contractor` and `landscaper` as primaryType, but those are not
  * Table A types, so they stay out: typed literally they route to Text
  * Search, which Google answers, instead of a 400 from Nearby.
+ * `general_contractor` is the same story (Table B: Google returns it as a
+ * primaryType but rejects it in includedTypes), so "general contractor"
+ * runs Text Search too (RFL.SEARCH.CAT.2.1).
  */
 export const KNOWN_PLACE_TYPES: ReadonlySet<string> = new Set([
   // Home services & trades
   "plumber",
   "electrician",
   "roofing_contractor",
-  "general_contractor",
   "locksmith",
   "moving_company",
   "painter",

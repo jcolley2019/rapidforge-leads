@@ -140,6 +140,11 @@ describe("runScout (fixture mode, end-to-end)", () => {
       });
       expect(planDiscovery("hvac repair")).toEqual({ path: "text", textQuery: "hvac repair" });
       expect(planDiscovery("HVAC")).toEqual({ path: "text", textQuery: "HVAC" });
+      // Table B, not valid for includedTypes — the chip's phrase runs Text Search.
+      expect(planDiscovery("general contractor")).toEqual({
+        path: "text",
+        textQuery: "general contractor",
+      });
       expect(planDiscovery(`  ${"x".repeat(100)}  `)).toEqual({
         path: "text",
         textQuery: "x".repeat(80),
