@@ -1,7 +1,9 @@
 /**
  * Scout — PRD 6.1 (v1, deterministic, no LLM).
  *
- * Places Nearby Search (New) with type filter; grid-tiles areas larger
+ * Places Nearby Search (New) when `search.category` is a known type code,
+ * Places Text Search (New) with the phrase as typed otherwise
+ * (RFL.SEARCH.CAT.2); grid-tiles areas larger
  * than one search's coverage and dedupes by place_id; Place Details
  * enrichment for records missing website/phone; is_chain heuristic
  * (lib/chains: brand list + URL shape + multi-location, with chain_reason);
@@ -10,6 +12,8 @@
  * + `search_results`; logs a usage_events row per Places call.
  */
 import {
+  CATEGORY_MAX_CHARS,
+  isPlaceType,
   type AgentResult,
   type ChainReason,
   type Search,
@@ -30,6 +34,21 @@ import type { DataStore } from "../store";
 export const MAX_RESULTS_PER_SEARCH = 100;
 
 export { MULTI_LOCATION_CHAIN_THRESHOLD } from "../lib/chains";
+
+/** Which Places endpoint discovers a search's businesses (RFL.SEARCH.CAT.2). */
+export type DiscoveryPath = "nearby" | "text";
+
+/**
+ * Known type code → Nearby Search (precise `includedTypes`); any other
+ * phrase → Text Search with the phrase as typed, trimmed and capped.
+ */
+export function planDiscovery(
+  category: string,
+): { path: "nearby"; categoryType: string } | { path: "text"; textQuery: string } {
+  const trimmed = category.trim();
+  if (isPlaceType(trimmed)) return { path: "nearby", categoryType: trimmed };
+  return { path: "text", textQuery: trimmed.slice(0, CATEGORY_MAX_CHARS) };
+}
 
 // ---------------------------------------------------------------------------
 // Website classification (PRD 6.1) — deterministic, exported for tests
@@ -109,6 +128,8 @@ export interface ScoutOutput extends Record<string, unknown> {
   tiles: number;
   places_calls: number;
   tiles_truncated: boolean;
+  /** Which Places endpoint found the businesses (RFL.SEARCH.CAT.2). */
+  path: DiscoveryPath;
 }
 
 export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutput>> {
@@ -156,14 +177,27 @@ export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutp
       );
     }
 
+    const discovery = planDiscovery(search.category);
+    console.log(
+      `[scout] search ${search.id}: path=${discovery.path} category='${search.category}' tiles=${tiles.length}`,
+    );
+
     // Sequential tile fetch (rate-limit friendly), dedupe by place_id.
     const deduped = new Map<string, PlaceRecord>();
     for (const tile of tiles) {
-      const records = await places.nearbySearch({
-        center: { lat: tile.lat, lng: tile.lng },
-        radiusMeters: tile.radiusMeters,
-        categoryType: search.category,
-      });
+      const center = { lat: tile.lat, lng: tile.lng };
+      const records =
+        discovery.path === "nearby"
+          ? await places.nearbySearch({
+              center,
+              radiusMeters: tile.radiusMeters,
+              categoryType: discovery.categoryType,
+            })
+          : await places.textSearch({
+              center,
+              radiusMeters: tile.radiusMeters,
+              textQuery: discovery.textQuery,
+            });
       for (const record of records) {
         if (!deduped.has(record.placeId)) deduped.set(record.placeId, record);
       }
@@ -243,6 +277,7 @@ export async function runScout(ctx: ScoutContext): Promise<AgentResult<ScoutOutp
         tiles: tiles.length,
         places_calls: placesCalls,
         tiles_truncated: truncated,
+        path: discovery.path,
       },
       error: null,
       modelUsed: null, // deterministic — no LLM, ever

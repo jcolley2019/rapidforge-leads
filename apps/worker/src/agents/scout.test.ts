@@ -9,6 +9,7 @@ import {
   isKnownChainName,
   multiLocationPlaceIds,
   normalizeBusinessName,
+  planDiscovery,
   runScout,
 } from "./scout";
 
@@ -110,7 +111,7 @@ describe("normalizeBusinessName", () => {
 // ---------------------------------------------------------------------------
 
 describe("runScout (fixture mode, end-to-end)", () => {
-  async function scoutedSearch(radiusMiles: number) {
+  async function scoutedSearch(radiusMiles: number, category = "plumber") {
     const store = new MemoryStore();
     const places = new FixturePlacesClient();
     const search = await store.createSearch({
@@ -124,11 +125,61 @@ describe("runScout (fixture mode, end-to-end)", () => {
         min_rating: 0,
         exclude_chains: false,
       },
-      category: "plumber",
+      category,
     });
     const result = await runScout({ store, places, search, jobId: null });
     return { store, search, result };
   }
+
+  describe("discovery routing (RFL.SEARCH.CAT.2)", () => {
+    it("planDiscovery: a known type → nearby; a phrase → text, trimmed and capped at 80", () => {
+      expect(planDiscovery("plumber")).toEqual({ path: "nearby", categoryType: "plumber" });
+      expect(planDiscovery(" roofing_contractor ")).toEqual({
+        path: "nearby",
+        categoryType: "roofing_contractor",
+      });
+      expect(planDiscovery("hvac repair")).toEqual({ path: "text", textQuery: "hvac repair" });
+      expect(planDiscovery("HVAC")).toEqual({ path: "text", textQuery: "HVAC" });
+      expect(planDiscovery(`  ${"x".repeat(100)}  `)).toEqual({
+        path: "text",
+        textQuery: "x".repeat(80),
+      });
+    });
+
+    it("a type code runs Nearby Search only", async () => {
+      const { store, result } = await scoutedSearch(10, "plumber");
+      expect(result.output?.path).toBe("nearby");
+      const endpoints = (store as MemoryStore)
+        .listUsageEvents()
+        .map((e) => e.metadata?.endpoint);
+      expect(endpoints).toContain("nearby");
+      expect(endpoints).not.toContain("text");
+    });
+
+    it("a free phrase runs Text Search only and dedupes identically", async () => {
+      const nearby = await scoutedSearch(10, "plumber");
+      const { store, search, result } = await scoutedSearch(10, "hvac repair");
+
+      expect(result.status).toBe("completed");
+      expect(result.output?.path).toBe("text");
+      const endpoints = (store as MemoryStore)
+        .listUsageEvents()
+        .map((e) => e.metadata?.endpoint);
+      expect(endpoints).toContain("text");
+      expect(endpoints).not.toContain("nearby");
+      // Text Search tiles call once each, exactly like nearby.
+      expect(endpoints.filter((e) => e === "text")).toHaveLength(result.output!.tiles);
+
+      // Same tiles, same dedupe → the same 25 businesses, each once.
+      expect(result.output?.count).toBe(nearby.result.output?.count);
+      expect(new Set(result.output?.business_ids).size).toBe(FIXTURE_BUSINESSES.length);
+      const detail = await store.getSearchDetail(search.id);
+      // business.category still prefers the Places primaryType over the phrase.
+      const categories = new Set((detail?.leads ?? []).map((l) => l.business.category));
+      expect(categories.has("plumber")).toBe(true);
+      expect(categories.has("hvac repair")).toBe(false);
+    });
+  });
 
   it("finds all 25 fixtures at 10 miles, deduped across tiles", async () => {
     const { store, search, result } = await scoutedSearch(10);
