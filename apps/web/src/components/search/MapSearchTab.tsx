@@ -9,6 +9,11 @@
  */
 import { Loader2, MapPin, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import {
+  categoryHint,
+  categoryRequestValue,
+  type ResolvedCategory,
+} from "@/components/search/SearchFilterControls";
 import { Button } from "@/components/ui/button";
 import { createSearch } from "@/lib/api";
 import { formatCents } from "@/lib/format";
@@ -34,16 +39,14 @@ const DEFAULT_CENTER: LatLng = { lat: 43.615, lng: -116.2023 };
 const DEFAULT_ZOOM = 11;
 
 export interface MapSearchTabProps {
-  category: { label: string; type: string } | undefined;
-  /** Category filter text names no chip — same gate as the zip tab (RFL.SEARCH.CAT.1). */
-  categoryMismatch?: boolean;
+  /** The resolved box text — same gate as the zip tab (RFL.SEARCH.CAT.2). */
+  category: ResolvedCategory;
   filters: SearchFilters;
   onSearchCreated: (searchId: string) => void;
 }
 
 export function MapSearchTab({
   category,
-  categoryMismatch = false,
   filters,
   onSearchCreated,
 }: MapSearchTabProps) {
@@ -53,7 +56,6 @@ export function MapSearchTab({
     <LiveMap
       mapsKey={mapsKey}
       category={category}
-      categoryMismatch={categoryMismatch}
       filters={filters}
       onSearchCreated={onSearchCreated}
     />
@@ -63,7 +65,6 @@ export function MapSearchTab({
 function LiveMap({
   mapsKey,
   category,
-  categoryMismatch,
   filters,
   onSearchCreated,
 }: MapSearchTabProps & { mapsKey: string }) {
@@ -211,18 +212,18 @@ function LiveMap({
 
   const estCalls = estimatePlacesCalls(radiusMiles);
   const estCost = formatCents(estimateSearchCostCents(radiusMiles));
-  const canSubmit =
-    pin !== null && !!category && !categoryMismatch && !submitting;
+  const categoryValue = categoryRequestValue(category);
+  const canSubmit = pin !== null && categoryValue !== null && !submitting;
 
   async function submit() {
-    if (!canSubmit || !pin || !category) return;
+    if (!canSubmit || !pin || categoryValue === null) return;
     setSubmitting(true);
     setError(null);
     try {
       const params = mapSelectionToParams(pin, radiusMiles, filters);
       const { search_id } = await createSearch({
         mode: "map_draw",
-        category: category.type,
+        category: categoryValue,
         params,
       });
       onSearchCreated(search_id);
@@ -300,12 +301,15 @@ function LiveMap({
 
       <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
         <p className="font-mono text-[11px] text-muted-foreground">
-          {categoryMismatch ? (
-            <span className="text-agent-waiting">Pick a category from the list</span>
-          ) : pin ? (
-            `pin ${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)} · est. ≈${estCalls} calls (~${estCost} + details)`
+          {category.kind === "empty" ? (
+            <span className="text-agent-waiting">{categoryHint(category)}</span>
           ) : (
-            "no pin yet"
+            <>
+              <span className="text-foreground">{categoryHint(category)}</span>
+              {pin
+                ? ` · pin ${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)} · est. ≈${estCalls} calls (~${estCost} + details)`
+                : " · no pin yet"}
+            </>
           )}
         </p>
         <Button onClick={() => void submit()} disabled={!canSubmit}>

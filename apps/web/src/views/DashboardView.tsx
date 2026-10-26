@@ -41,6 +41,7 @@ import {
 import { dedupeLeads } from "@/lib/dedupe";
 import { formatCents, relativeTime } from "@/lib/format";
 import { computeKpis, currentMonthStartIso } from "@/lib/kpis";
+import { searchLocation } from "@/lib/search-label";
 import { cn } from "@/lib/utils";
 
 /** How long the "… removed" line stays under the Recent searches title. */
@@ -138,7 +139,7 @@ export function DashboardView({
       </div>
 
       <CoachingTip tipId="dashboard" title="Start with a search">
-        Press New search, pick a business category and an area. The agents
+        Press New search, type what kind of business and pick an area. The agents
         find every match, audit its website and score it.
       </CoachingTip>
 
@@ -262,21 +263,6 @@ export function DashboardView({
       </Card>
     </div>
   );
-}
-
-function searchLocation(search: SearchRow): string {
-  const params = search.params as {
-    zip?: string;
-    lat?: number;
-    lng?: number;
-    radius_miles?: number;
-  };
-  const radius = params.radius_miles ? ` · ${params.radius_miles} mi` : "";
-  if (params.zip) return `${params.zip}${radius}`;
-  if (params.lat !== undefined && params.lng !== undefined) {
-    return `${params.lat.toFixed(3)}, ${params.lng.toFixed(3)}${radius}`;
-  }
-  return search.mode;
 }
 
 function KpiCard({

@@ -1,9 +1,15 @@
 /**
- * Shared search filters (PRD 7.3) — category picker + min reviews / min
- * rating / chains. One component so the Zip and Map tabs can never drift
- * (Sprint 5 kickoff: the map respects the same filters).
+ * Shared search filters (PRD 7.3) — what-kind-of-business text + min
+ * reviews / min rating / chains. One component so the Zip and Map tabs can
+ * never drift (Sprint 5 kickoff: the map respects the same filters).
+ *
+ * RFL.SEARCH.CAT.2: the category is free text. A phrase that matches one of
+ * the CATEGORIES (by label or type) submits that Places type and runs
+ * Nearby Search on the worker; any other phrase submits as typed and runs
+ * Text Search. The chips beneath the box are shortcuts that fill it.
  */
 import { useMemo } from "react";
+import { CATEGORY_MAX_CHARS } from "@rapidforge/shared";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -24,8 +30,9 @@ export interface Category {
  * Curated Places (New) included types (PRD 6.1 type filter). The worker
  * passes `type` straight to Nearby Search `includedTypes`, so every entry
  * must be spelled exactly as Google's place-types Table A lists it
- * (RFL.SEARCH.CAT.1). There is no HVAC, landscaping, pest-control or
- * handyman type in Table A — those trades cannot be searched by type.
+ * (RFL.SEARCH.CAT.1) and be in the shared KNOWN_PLACE_TYPES set. There is
+ * no HVAC, landscaping, pest-control or handyman type in Table A — those
+ * trades are typed as a phrase and found through Text Search instead.
  * Trades first (the core four, then alphabetical), then the other groups.
  */
 export const CATEGORIES: Category[] = [
@@ -69,27 +76,112 @@ const RATING_PRESETS = [
   { label: "4.5+", value: 4.5 },
 ];
 
+/** What the box holds, as the worker will see it. */
+export type ResolvedCategory =
+  | { kind: "empty" }
+  | { kind: "type"; category: Category }
+  | { kind: "phrase"; phrase: string };
+
+/** Trim and collapse whitespace — the same normalisation the worker applies. */
+export function normalizeCategoryText(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
+}
+
 /**
- * True when the filter box holds text that does not describe the selected
- * category — the user typed something the list has no chip for (or a chip
- * they never clicked) and would otherwise submit the previous selection
- * silently (RFL.SEARCH.CAT.1: "HVAC · Nampa" ran as plumber).
+ * A box matching a chip's label or type (case-insensitive) is that Places
+ * type; anything else is a free phrase, submitted as typed.
  */
-export function categoryQueryMismatch(
-  query: string,
-  category: Pick<Category, "label"> | undefined,
-): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return false;
-  return !category || !category.label.toLowerCase().includes(q);
+export function resolveCategory(text: string): ResolvedCategory {
+  const phrase = normalizeCategoryText(text).slice(0, CATEGORY_MAX_CHARS);
+  if (!phrase) return { kind: "empty" };
+  const q = phrase.toLowerCase();
+  const category = CATEGORIES.find(
+    (c) => c.type === q || c.label.toLowerCase() === q,
+  );
+  return category ? { kind: "type", category } : { kind: "phrase", phrase };
+}
+
+/** The `category` value for POST /api/searches; null when nothing to submit. */
+export function categoryRequestValue(resolved: ResolvedCategory): string | null {
+  switch (resolved.kind) {
+    case "empty":
+      return null;
+    case "type":
+      return resolved.category.type;
+    case "phrase":
+      return resolved.phrase;
+  }
+}
+
+/** Submit-row hint naming the path the worker will take. */
+export function categoryHint(resolved: ResolvedCategory): string {
+  switch (resolved.kind) {
+    case "empty":
+      return "Type what kind of business to find";
+    case "type":
+      return `Category: ${resolved.category.label}`;
+    case "phrase":
+      return `Searching Google for '${resolved.phrase}'`;
+  }
+}
+
+/** Chips whose label or type contains the box text (all when empty). */
+export function suggestedCategories(text: string): Category[] {
+  const q = normalizeCategoryText(text).toLowerCase();
+  if (!q) return CATEGORIES;
+  return CATEGORIES.filter(
+    (c) => c.label.toLowerCase().includes(q) || c.type.includes(q),
+  );
+}
+
+/** Shortcut chips, grouped; clicking one fills the box with its label. Hook-free for tests. */
+export function CategoryChips({
+  suggestions,
+  selectedType,
+  onPick,
+}: {
+  suggestions: Category[];
+  selectedType: string | null;
+  onPick: (label: string) => void;
+}) {
+  return (
+    <>
+      {CATEGORY_GROUPS.map((group) => {
+        const members = suggestions.filter((c) => c.group === group);
+        if (members.length === 0) return null;
+        return (
+          <div key={group} className="space-y-1">
+            <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+              {group}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {members.map((c) => (
+                <button
+                  key={c.type}
+                  type="button"
+                  onClick={() => onPick(c.label)}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-xs transition-colors",
+                    selectedType === c.type
+                      ? "border-primary/60 bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
 }
 
 export interface SearchFilterControlsProps {
-  category: Category | undefined;
-  onCategoryChange: (category: Category) => void;
-  /** Filter-box text, owned by the view so submit can be gated on it. */
-  categoryQuery: string;
-  onCategoryQueryChange: (value: string) => void;
+  /** The box text, owned by the view (the request is derived with resolveCategory). */
+  category: string;
+  onCategoryChange: (value: string) => void;
   minReviews: number;
   onMinReviewsChange: (value: number) => void;
   minRating: number;
@@ -101,8 +193,6 @@ export interface SearchFilterControlsProps {
 export function SearchFilterControls({
   category,
   onCategoryChange,
-  categoryQuery,
-  onCategoryQueryChange,
   minReviews,
   onMinReviewsChange,
   minRating,
@@ -110,68 +200,38 @@ export function SearchFilterControls({
   excludeChains,
   onExcludeChainsChange,
 }: SearchFilterControlsProps) {
-  const filteredCategories = useMemo(() => {
-    const q = categoryQuery.trim().toLowerCase();
-    if (!q) return CATEGORIES;
-    return CATEGORIES.filter((c) => c.label.toLowerCase().includes(q));
-  }, [categoryQuery]);
+  const resolved = useMemo(() => resolveCategory(category), [category]);
+  const suggestions = useMemo(() => suggestedCategories(category), [category]);
+  const selectedType = resolved.kind === "type" ? resolved.category.type : null;
 
   return (
     <>
       <div className="space-y-2">
         <Label htmlFor="category">
-          Category{" "}
-          {category && (
-            <>
-              <span className="text-primary" data-testid="selected-category">
-                {category.label}
-              </span>{" "}
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {category.type}
-              </span>
-            </>
+          What kind of business?{" "}
+          {resolved.kind === "type" && (
+            <span className="font-mono text-[11px] text-muted-foreground" data-testid="selected-type">
+              {resolved.category.type}
+            </span>
           )}
         </Label>
         <Input
           id="category"
-          placeholder="Filter categories…"
-          value={categoryQuery}
-          onChange={(e) => onCategoryQueryChange(e.target.value)}
+          placeholder="e.g. hvac, roofer, med spa"
+          value={category}
+          maxLength={CATEGORY_MAX_CHARS}
+          onChange={(e) => onCategoryChange(e.target.value)}
         />
         <div className="max-h-40 space-y-2 overflow-y-auto pt-1">
-          {CATEGORY_GROUPS.map((group) => {
-            const members = filteredCategories.filter((c) => c.group === group);
-            if (members.length === 0) return null;
-            return (
-              <div key={group} className="space-y-1">
-                <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                  {group}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {members.map((c) => (
-                    <button
-                      key={c.type}
-                      type="button"
-                      onClick={() => onCategoryChange(c)}
-                      className={cn(
-                        "rounded-full border px-3 py-1 text-xs transition-colors",
-                        category?.type === c.type
-                          ? "border-primary/60 bg-primary/10 text-primary"
-                          : "border-border text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {c.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-          {filteredCategories.length === 0 && (
+          <CategoryChips
+            suggestions={suggestions}
+            selectedType={selectedType}
+            onPick={onCategoryChange}
+          />
+          {suggestions.length === 0 && resolved.kind === "phrase" && (
             <span className="text-xs text-muted-foreground">
-              No category matches &lsquo;{categoryQuery.trim()}&rsquo; — the
-              list maps to Google Places types; clear the box to keep{" "}
-              {category?.label ?? "the current pick"}.
+              No shortcut for &lsquo;{resolved.phrase}&rsquo; — Google is searched
+              for the phrase as typed.
             </span>
           )}
         </div>

@@ -10,7 +10,9 @@ import { ZipRadiusParamsSchema } from "@rapidforge/shared";
 import { CoachingTip } from "@/components/CoachingTip";
 import {
   CATEGORIES,
-  categoryQueryMismatch,
+  categoryHint,
+  categoryRequestValue,
+  resolveCategory,
   SearchFilterControls,
 } from "@/components/search/SearchFilterControls";
 import { MapSearchTab } from "@/components/search/MapSearchTab";
@@ -44,11 +46,11 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
   const [radius, setRadius] = useState(
     () => getSearchDefaults()?.radius_miles ?? 10,
   );
-  const [category, setCategory] = useState(() => {
-    const preferred = getSearchDefaults()?.category_type;
-    return CATEGORIES.find((c) => c.type === preferred) ?? CATEGORIES[0];
-  });
-  const [categoryQuery, setCategoryQuery] = useState("");
+  // The saved default is the text as typed — a type or a phrase
+  // (RFL.SEARCH.CAT.2); the first chip's label when nothing is saved.
+  const [category, setCategory] = useState(
+    () => getSearchDefaults()?.category_type ?? CATEGORIES[0]!.label,
+  );
   const [minReviews, setMinReviews] = useState(0);
   const [minRating, setMinRating] = useState(0);
   // Chains excluded by default (RFL-04); the checkbox opts back in.
@@ -64,20 +66,20 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
     exclude_chains: excludeChains,
   };
   const validation = ZipRadiusParamsSchema.safeParse(params);
-  // Filter text that names no chip must never submit the old selection
-  // (RFL.SEARCH.CAT.1).
-  const categoryMismatch = categoryQueryMismatch(categoryQuery, category);
-  const canSubmit =
-    validation.success && !!category && !categoryMismatch && !submitting;
+  // A chip match submits its Places type; any other phrase submits as
+  // typed; an empty box blocks (RFL.SEARCH.CAT.2).
+  const resolved = resolveCategory(category);
+  const categoryValue = categoryRequestValue(resolved);
+  const canSubmit = validation.success && categoryValue !== null && !submitting;
 
   async function submit() {
-    if (!canSubmit || !category) return;
+    if (!canSubmit || categoryValue === null) return;
     setSubmitting(true);
     setError(null);
     try {
       const { search_id } = await createSearch({
         mode: "zip_radius",
-        category: category.type,
+        category: categoryValue,
         params,
       });
       onSearchCreated(search_id);
@@ -92,8 +94,6 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
     <SearchFilterControls
       category={category}
       onCategoryChange={setCategory}
-      categoryQuery={categoryQuery}
-      onCategoryQueryChange={setCategoryQuery}
       minReviews={minReviews}
       onMinReviewsChange={setMinReviews}
       minRating={minRating}
@@ -117,9 +117,9 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
         <h1 className="text-2xl font-semibold tracking-tight">New Search</h1>
       </div>
 
-      <CoachingTip tipId="new-search" title="Pick a category and an area">
-        Choose a business type, then a zip code or map pin and a radius. Run
-        search takes you to the Workspace.
+      <CoachingTip tipId="new-search" title="Type a business kind and pick an area">
+        Type any kind of business (the chips are shortcuts), then a zip code
+        or map pin and a radius. Run search takes you to the Workspace.
       </CoachingTip>
 
       <div
@@ -200,15 +200,15 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
 
             <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
               <p className="font-mono text-[11px] text-muted-foreground">
-                {categoryMismatch ? (
-                  <span className="text-agent-waiting">
-                    Pick a category from the list
-                  </span>
+                {resolved.kind === "empty" ? (
+                  <span className="text-agent-waiting">{categoryHint(resolved)}</span>
                 ) : (
                   <>
-                    est. ≈{estCalls} Places calls (~$
-                    {(estCalls * 0.032).toFixed(2)} + details) · free in
-                    fixture mode
+                    <span className="text-foreground" data-testid="category-hint">
+                      {categoryHint(resolved)}
+                    </span>{" "}
+                    · est. ≈{estCalls} Places calls (~$
+                    {(estCalls * 0.032).toFixed(2)} + details)
                   </>
                 )}
               </p>
@@ -232,8 +232,7 @@ export function NewSearchView({ onSearchCreated }: NewSearchViewProps) {
       ) : (
         <div className="space-y-4">
           <MapSearchTab
-            category={category}
-            categoryMismatch={categoryMismatch}
+            category={resolved}
             filters={{
               min_reviews: minReviews,
               min_rating: minRating,

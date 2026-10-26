@@ -16,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { UpdateWorkspaceConfigRequest } from "@rapidforge/shared";
+import { CATEGORY_MAX_CHARS, type UpdateWorkspaceConfigRequest } from "@rapidforge/shared";
 import { useCoaching } from "@/components/CoachingTip";
 import { Button } from "@/components/ui/button";
 import {
@@ -322,16 +322,19 @@ export function SettingsView({ onCleared }: SettingsViewProps = {}) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="default-category">Default category type</Label>
+            <Label htmlFor="default-category">Default business kind</Label>
             <Input
               id="default-category"
               value={defaultCategory}
+              maxLength={CATEGORY_MAX_CHARS}
               onChange={(e) =>
                 updateDefaults(defaultRadius, e.target.value)
               }
-              placeholder="plumber"
-              className="font-mono"
+              placeholder="plumber, hvac, med spa…"
             />
+            <p className="text-xs text-muted-foreground">
+              Pre-fills the New Search box as typed — a Places type or any phrase.
+            </p>
           </div>
         </CardContent>
       </Card>
