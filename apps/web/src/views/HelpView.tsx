@@ -78,8 +78,9 @@ const SECTIONS: HelpSection[] = [
           drop a pin anywhere.
         </li>
         <li>
-          Choose a category. Categories are Google Places business types, such
-          as plumber or electrician; type in the box to filter the list.
+          Type any kind of business, such as hvac, roofer or med spa. The chips
+          under the box are shortcuts to Google Places types; a phrase that
+          matches none of them is searched on Google as typed.
         </li>
         <li>
           Set the radius, from 1 to 25 miles. Optionally raise the minimum

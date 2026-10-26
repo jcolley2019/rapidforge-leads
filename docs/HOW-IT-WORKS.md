@@ -6,7 +6,7 @@ Written for Joey from the code on `main` as of 2026-10-07 (`d81e36a`, after the 
 
 ## What RapidForge Leads does
 
-You type a business category (a Google Places type such as `plumber`) and an area (a zip code or a map pin, plus a radius of 1–25 miles). The worker asks Google Places for every matching business in that circle, stores them, and then works through them five at a time. Businesses with no website, or only a social profile, become instant hot leads. Businesses with a dead site are flagged "Site broken — urgent". Every other live site gets a full audit: the worker fetches the homepage once, runs Google PageSpeed Insights, and hands the same measured facts to seven audit agents. A deterministic Scorer then turns those facts into a Website Health score (0–100), a star grade (1–5) and a Sellability score (0–100). For the best prospects an AI Analyst writes a short verdict automatically; from the lead drawer you can then generate a Builder Brief (a rebuild spec), a Design Brief (JSON for the demo-site generator), a Sales Script and a PDF report. The rule throughout: code measures, scores are math, and AI only explains what was measured.
+You type what kind of business you want (a Google Places type such as `plumber`, or any phrase such as `hvac`) and an area (a zip code or a map pin, plus a radius of 1–25 miles). The worker asks Google Places for every matching business in that circle, stores them, and then works through them five at a time. Businesses with no website, or only a social profile, become instant hot leads. Businesses with a dead site are flagged "Site broken — urgent". Every other live site gets a full audit: the worker fetches the homepage once, runs Google PageSpeed Insights, and hands the same measured facts to seven audit agents. A deterministic Scorer then turns those facts into a Website Health score (0–100), a star grade (1–5) and a Sellability score (0–100). For the best prospects an AI Analyst writes a short verdict automatically; from the lead drawer you can then generate a Builder Brief (a rebuild spec), a Design Brief (JSON for the demo-site generator), a Sales Script and a PDF report. The rule throughout: code measures, scores are math, and AI only explains what was measured.
 
 **Where it runs.** Locally, `npm run dev` starts the web app on port 5173 and the worker on 8788, and Vite proxies `/api` to the worker. Hosted, the web app is a static Vite build on Vercel (`apps/web/vercel.json`) that calls the worker at `VITE_WORKER_URL`, and the worker is a Docker image on Railway (repo-root `Dockerfile` and `railway.json`) that listens on the host's `PORT` and allows the web origin through CORS (`WEB_ORIGINS`, apps/worker/src/lib/env.ts). The env lists, the production auth guard, the Places-key and Supabase-redirect steps, and the order to do them in are in [DEPLOY.md](DEPLOY.md).
 
@@ -14,11 +14,11 @@ You type a business category (a Google Places type such as `plumber`) and an are
 
 ## How a search runs, start to finish
 
-**1. You start a search.** The category picker (`CATEGORIES` in apps/web/src/components/search/SearchFilterControls.tsx) lists 23 types in four groups — Home services & trades, Auto, Health & wellness, Other — and every one must be spelled exactly as Google's place-types **Table A** lists it, because the worker passes it straight to Nearby Search `includedTypes`; Table A has no HVAC, landscaping, pest-control or handyman type, so those trades cannot be searched by type (RFL.SEARCH.CAT.1). Filter text that matches no chip keeps the current selection and disables Run search. The New Search screen sends `POST /api/searches` with `mode` (`zip_radius` or `map_draw`), `category`, and `params`: `zip` or `lat`/`lng`, `radius_miles` (1–25), `min_reviews` (default 0), `min_rating` (default 0) and `exclude_chains` (default **true**) (packages/shared/src/schemas.ts). The worker writes a `searches` row (status `pending`), adds one `jobs` row with `job_type = 'scout'`, and answers `202 {search_id, status: "queued"}` (apps/worker/src/http.ts).
+**1. You start a search.** The "What kind of business?" box is free text, at most 80 characters (RFL.SEARCH.CAT.2). Beneath it, `CATEGORIES` (apps/web/src/components/search/SearchFilterControls.tsx) renders 23 shortcut chips in four groups — Home services & trades, Auto, Health & wellness, Other — that filter as you type and fill the box when clicked. Text that exactly matches a chip's label or type (any case) submits that Places type, and the hint reads "Category: Roofer"; any other phrase submits as typed, and the hint reads "Searching Google for 'hvac'". An empty box disables Run search. Every chip type must be spelled exactly as Google's place-types **Table A** lists it and sit in the shared `KNOWN_PLACE_TYPES` set (packages/shared/src/place-types.ts), because the worker passes a known type straight to Nearby Search `includedTypes`; Table A has no HVAC, landscaping, pest-control or handyman type, so those trades are typed as a phrase and found through Text Search. The New Search screen sends `POST /api/searches` with `mode` (`zip_radius` or `map_draw`), `category` (the type or the phrase; the worker trims and collapses whitespace), and `params`: `zip` or `lat`/`lng`, `radius_miles` (1–25), `min_reviews` (default 0), `min_rating` (default 0) and `exclude_chains` (default **true**) (packages/shared/src/schemas.ts). The worker writes a `searches` row (status `pending`), adds one `jobs` row with `job_type = 'scout'`, and answers `202 {search_id, status: "queued"}` (apps/worker/src/http.ts).
 
 **2. The job poller claims it.** Every 2 seconds the worker claims the oldest `queued` job, flips it to `running` and adds 1 to `attempts`. It keeps claiming until 5 jobs are in flight (`AUDIT_CONCURRENCY_CAP`) (apps/worker/src/queue.ts, apps/worker/src/orchestrator.ts). A job that throws is retried once (`MAX_JOB_ATTEMPTS = 2`), then parked as `failed`. Only two job types exist in the code: `scout` and `audit_business`.
 
-**3. Scout finds the businesses (no AI).** The search goes to `scouting`. Scout turns the zip into a point, covers the circle with one or more Places Nearby Search calls, removes duplicates and anything outside the true radius, keeps the nearest 100, fetches Place Details for records missing a website or phone, flags chains, classifies each website, and upserts `businesses` plus one `search_results` row per business. The orchestrator then adds one `audit_business` job per business and sets the search to `auditing` (or straight to `completed` if nothing was found).
+**3. Scout finds the businesses (no AI).** The search goes to `scouting`. Scout turns the zip into a point, covers the circle with one or more Places calls — Nearby Search when `category` is a known type, Text Search with the phrase otherwise — removes duplicates and anything outside the true radius, keeps the nearest 100, fetches Place Details for records missing a website or phone, flags chains, classifies each website, and upserts `businesses` plus one `search_results` row per business. The orchestrator then adds one `audit_business` job per business and sets the search to `auditing` (or straight to `completed` if nothing was found).
 
 **4. Filter decides each business's route (no AI).** Each `audit_business` job runs under a 4-minute ceiling (`AUDIT_CEILING_MS`). Filter checks the gates (operational, minimum reviews, minimum rating, chain exclusion), then routes:
 - no website or social-only → hot lead, sellability 95, done;
@@ -73,7 +73,7 @@ Events go to the Realtime channel `workspace:{id}` under the event name `agent_e
  New Search (web) ── POST /api/searches ──► searches row + jobs(scout)
                                                    │  poller: every 2 s, ≤ 5 jobs at once
                                                    ▼
- SCOUT ── Places geocode / nearby / details ──► businesses, search_results
+ SCOUT ── Places geocode / nearby or text / details ──► businesses, search_results
    │  one jobs(audit_business) per business
    ▼
  FILTER (per business) ── gates · 30-day cache · probe ──► audits row
@@ -218,11 +218,11 @@ Three shared rules apply to every AI agent (apps/worker/src/lib/ai.ts):
 The "measured" cost figures below come from earlier live runs recorded in docs/AUDIT-2026-10.md §(e). The code does not recompute them.
 
 ### 1. Scout
-- **Job:** find every business of one category inside the search circle and store it.
+- **Job:** find every business of one kind inside the search circle and store it.
 - **Measures deterministically** (apps/worker/src/agents/scout.ts, apps/worker/src/lib/places/google-client.ts, apps/worker/src/lib/geo.ts, apps/worker/src/lib/chains.ts):
   - Search centre: zip → Places Text Search (`"<zip> USA"`), or the map pin.
   - Tiles: one circle up to 5 km radius; 5 km tiles up to 15 km; 10 km tiles beyond; at most 48 tiles.
-  - Per tile, one Places Nearby Search (New), filtered to the category, max 20 results. Fields: id, displayName, formattedAddress, location, rating, userRatingCount, businessStatus, nationalPhoneNumber, websiteUri, primaryType.
+  - Two discovery paths (RFL.SEARCH.CAT.2, `planDiscovery` in scout.ts). `searches.category` is a known Places type (`isPlaceType`: lower-case type shape and in `KNOWN_PLACE_TYPES`, packages/shared/src/place-types.ts) → **nearby**: per tile, one Places Nearby Search (New) with `includedTypes: [type]`. Anything else → **text**: per tile, one Places Text Search (New) with `textQuery` = the phrase as typed (trimmed, at most 80 characters) and a `locationRestriction.rectangle` that is the tile circle's bounding box (Text Search accepts a rectangle only; the haversine radius filter below trims the overhang). Why two paths: Nearby is precise but only knows Table A type codes, which is how "HVAC" once ran as plumber; Text Search takes any phrase but is a relevance search, so a known type still uses Nearby. Both: max 20 results per call, the same fields: id, displayName, formattedAddress, location, rating, userRatingCount, businessStatus, nationalPhoneNumber, websiteUri, primaryType. The search log line names the path (`path=nearby` / `path=text`) and `agent_runs.output.path` records it.
   - De-duplicate by place id, drop anything outside the real radius (haversine distance), sort nearest first, keep 100 (`MAX_RESULTS_PER_SEARCH`).
   - Place Details for any record missing a website or phone. This uses the full details mask, which adds types, priceLevel, editorialSummary, regularOpeningHours, photos and reviews.
   - `website_kind`: `none` (no URL) · `social_only` (social host) · `real` · `unknown` (unparseable URL).
@@ -236,18 +236,19 @@ The "measured" cost figures below come from earlier live runs recorded in docs/A
 - **Inputs → outputs:**
   - Reads `searches.category`, `mode`, `params`.
   - Writes `businesses` (all columns listed in the table above), `search_results`, `searches.results_count`, `searches.status`.
-  - Logs one `usage_events` `places_call` per Places call (geocode 3¢, nearby 3¢, details 4¢).
-  - `agent_runs.output`: `business_ids`, `count`, `tiles`, `places_calls`, `tiles_truncated`.
+  - Logs one `usage_events` `places_call` per Places call (geocode 3¢, nearby 3¢, text 3¢, details 4¢; `metadata.endpoint` names which).
+  - `agent_runs.output`: `business_ids`, `count`, `tiles`, `places_calls`, `tiles_truncated`, `path` (`nearby` or `text`).
   - Events: `agent.started` / `agent.progress` / `agent.completed` (no target).
 - **Who reads it downstream:** the orchestrator (fan-out); Filter (`website_kind`, gates); Presence, Reputation, Design Brief and Builder Brief (`places_details`); every screen.
 - **Typical cost per lead:**
   - $0 AI.
-  - Places: per search, 3¢ geocode (zip mode only) + 3¢ per tile, shared across the results.
+  - Places: per search, 3¢ geocode (zip mode only) + 3¢ per tile (Nearby or Text Search, same Pro SKU price), shared across the results.
   - Plus 4¢ for each business that arrived without a website or phone.
 - **Known gaps:**
   - `plans.max_results_per_search` / `max_radius_miles` are never read: 100 is hard-coded and the 25-mile limit comes from the request schema.
   - Scout's details call uses the full Enterprise-tier mask. A business missing a phone or website pays 4¢ here even if Filter later skips it. filter.ts's comment that skips "never pay for the Enterprise SKU" holds only for Filter's own fetch.
   - Tile-cap truncation is only logged.
+  - `business.category` is the Places `primaryType` when Google returns one, else the search text — so a text-path business may carry a type (`hvac_contractor`) while its search row says `hvac`. SEO's `CATEGORY_STEMS` are keyed by Places type and have no entry for free phrases.
 
 ### 2. Filter
 - **Job:** decide each business's route before anything is spent: skip, hot lead, cache hit, dead, blocked, or full audit.
