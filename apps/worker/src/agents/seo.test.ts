@@ -174,14 +174,15 @@ describe("deterministic extraction (PRD 6.10)", () => {
       ["car_wash", "Express Wash"], ["real_estate_agency", "Real Estate Group"], ["lawyer", "Smith Law"],
       ["veterinary_care", "Animal Hospital"], ["florist", "Flower Shop"], ["hvac_contractor", "Heating & Cooling"],
       ["landscaper", "Landscaping"], ["tanning_studio", "Spray Tan"], ["cosmetics_store", "Skincare"],
-      ["educational_institution", "Beauty Academy"],
+      ["educational_institution", "Beauty Academy"], ["tire_shop", "Discount Tires"],
+      ["chiropractor", "Chiropractic Care"], ["skin_care_clinic", "Aesthetics & Dermatology"],
     ];
     for (const [type, text] of named) {
       expect(categoryPattern(type).test(text), `${type} ~ "${text}"`).toBe(true);
     }
     const lookalikes: Array<[string, string]> = [
       ["lawyer", "Lawn Care"], ["florist", "Florida Ave"], ["tanning_studio", "Tankless Water Heaters"],
-      ["spa", "Spanish Spoken"], ["veterinary_care", "Vetted Pros"],
+      ["spa", "Spanish Spoken"], ["veterinary_care", "Vetted Pros"], ["tire_shop", "Retirement Planning"],
     ];
     for (const [type, text] of lookalikes) {
       expect(categoryPattern(type).test(text), `${type} !~ "${text}"`).toBe(false);
