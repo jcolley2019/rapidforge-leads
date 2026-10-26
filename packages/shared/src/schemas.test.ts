@@ -73,6 +73,19 @@ describe("CreateSearchRequestSchema (discriminated union)", () => {
     }
   });
 
+  it("category is a type code or a free phrase of at most 80 characters (RFL.SEARCH.CAT.2)", () => {
+    const request = (category: string) =>
+      CreateSearchRequestSchema.safeParse({
+        mode: "zip_radius",
+        category,
+        params: { zip: "83704", radius_miles: 10 },
+      });
+    expect(request("hvac repair").success).toBe(true);
+    expect(request("x".repeat(80)).success).toBe(true);
+    expect(request("x".repeat(81)).success).toBe(false);
+    expect(request("").success).toBe(false);
+  });
+
   it("rejects keyword mode (v1.5)", () => {
     const result = CreateSearchRequestSchema.safeParse({
       mode: "keyword",

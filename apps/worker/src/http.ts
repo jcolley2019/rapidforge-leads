@@ -266,7 +266,17 @@ export function createApp(
       res.status(401).json({ error: "Unauthenticated" });
       return;
     }
-    const parsed = CreateSearchRequestSchema.safeParse(req.body);
+    // The category is a type code or a free phrase (RFL.SEARCH.CAT.2):
+    // trim and collapse whitespace before validation so "  HVAC  repair "
+    // is stored as "HVAC repair" and whitespace alone fails min(1).
+    const body: unknown =
+      req.body && typeof req.body === "object" && typeof (req.body as { category?: unknown }).category === "string"
+        ? {
+            ...(req.body as Record<string, unknown>),
+            category: ((req.body as { category: string }).category).trim().replace(/\s+/g, " "),
+          }
+        : req.body;
+    const parsed = CreateSearchRequestSchema.safeParse(body);
     if (!parsed.success) {
       res.status(400).json({
         error: "Invalid search request",

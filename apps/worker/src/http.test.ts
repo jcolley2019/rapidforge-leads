@@ -153,6 +153,33 @@ describe("POST /api/searches (map_draw)", () => {
     expect(search?.params).toMatchObject({ lat: 43.6135, radius_miles: 8 });
   });
 
+  it("stores a free phrase trimmed with whitespace collapsed (RFL.SEARCH.CAT.2)", async () => {
+    const res = await api("POST", "/api/searches", {
+      mode: "zip_radius",
+      category: "  HVAC  repair ",
+      params: { zip: "83686", radius_miles: 5 },
+    });
+    expect(res.status).toBe(202);
+    const search = await store.getSearch(res.json.search_id);
+    expect(search?.category).toBe("HVAC repair");
+  });
+
+  it("rejects a category over 80 characters or made of whitespace", async () => {
+    const long = await api("POST", "/api/searches", {
+      mode: "zip_radius",
+      category: "x".repeat(81),
+      params: { zip: "83686", radius_miles: 5 },
+    });
+    expect(long.status).toBe(400);
+    expect(long.json.details.join(" ")).toMatch(/category/);
+    const blank = await api("POST", "/api/searches", {
+      mode: "map_draw",
+      category: "   ",
+      params: { lat: 43.6, lng: -116.2, radius_miles: 5 },
+    });
+    expect(blank.status).toBe(400);
+  });
+
   it("rejects keyword mode with details", async () => {
     const res = await api("POST", "/api/searches", {
       mode: "keyword",

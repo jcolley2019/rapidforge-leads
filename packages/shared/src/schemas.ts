@@ -6,6 +6,7 @@
  * DDL: columns without NOT NULL are nullable here.
  */
 import { z } from "zod";
+import { CATEGORY_MAX_CHARS } from "./place-types";
 
 // ---------------------------------------------------------------------------
 // Shared enums / fragments
@@ -80,17 +81,24 @@ export const MapDrawParamsSchema = z.object({
 });
 export type MapDrawParams = z.infer<typeof MapDrawParamsSchema>;
 
+/**
+ * What kind of business to find (RFL.SEARCH.CAT.2): either a Places (New)
+ * type code ('plumber' → Nearby Search) or a free phrase as the user typed
+ * it ('hvac repair' → Text Search). The worker trims and collapses
+ * whitespace before storing; the column stays `searches.category`.
+ */
+const SearchCategorySchema = z.string().min(1).max(CATEGORY_MAX_CHARS);
+
 /** POST /api/searches body (PRD Section 8). keyword mode lands v1.5. */
 export const CreateSearchRequestSchema = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("zip_radius"),
-    /** Places (New) included type, e.g. 'plumber'. */
-    category: z.string().min(1),
+    category: SearchCategorySchema,
     params: ZipRadiusParamsSchema,
   }),
   z.object({
     mode: z.literal("map_draw"),
-    category: z.string().min(1),
+    category: SearchCategorySchema,
     params: MapDrawParamsSchema,
   }),
 ]);
