@@ -24,6 +24,7 @@ import {
   type PlacesCallListener,
   type PlacesClient,
   type PlacesEndpoint,
+  type TextSearchParams,
 } from "./types";
 
 /** 1×1 transparent PNG — what the fixture photo proxy serves. */
@@ -41,6 +42,7 @@ export class FixturePlacesClient implements PlacesClient {
   readonly mode = "fixture" as const;
   private listeners: PlacesCallListener[] = [];
   private warnedCategory = false;
+  private warnedQuery = false;
 
   onCall(listener: PlacesCallListener): () => void {
     this.listeners.push(listener);
@@ -69,15 +71,29 @@ export class FixturePlacesClient implements PlacesClient {
         `[places] fixture mode: category '${params.categoryType}' ignored — returning fixture dataset regardless`,
       );
     }
+    return this.withinRadius(params.center, params.radiusMeters);
+  }
+
+  /** Same divergence as nearbySearch: the phrase is ignored (RFL.SEARCH.CAT.2). */
+  async textSearch(params: TextSearchParams): Promise<PlaceRecord[]> {
+    this.emit("text");
+    if (!this.warnedQuery) {
+      this.warnedQuery = true;
+      console.log(
+        `[places] fixture mode: text query '${params.textQuery}' ignored — returning fixture dataset regardless`,
+      );
+    }
+    return this.withinRadius(params.center, params.radiusMeters);
+  }
+
+  private withinRadius(center: LatLng, radiusMeters: number): PlaceRecord[] {
     return FIXTURE_BUSINESSES.filter(
-      (b) =>
-        haversineMeters(params.center, { lat: b.lat, lng: b.lng }) <=
-        params.radiusMeters,
+      (b) => haversineMeters(center, { lat: b.lat, lng: b.lng }) <= radiusMeters,
     )
       .sort(
         (a, b) =>
-          haversineMeters(params.center, { lat: a.lat, lng: a.lng }) -
-          haversineMeters(params.center, { lat: b.lat, lng: b.lng }),
+          haversineMeters(center, { lat: a.lat, lng: a.lng }) -
+          haversineMeters(center, { lat: b.lat, lng: b.lng }),
       )
       .slice(0, NEARBY_RESULT_CAP);
   }

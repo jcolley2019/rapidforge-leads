@@ -3,8 +3,10 @@
  * Selected automatically when GOOGLE_PLACES_API_KEY is set.
  *
  * Endpoints:
- *   - places:searchText   → zip geocoding (one call per search)
- *   - places:searchNearby → business discovery (≤20 results per call;
+ *   - places:searchText   → zip geocoding (one call per search), and
+ *                           free-phrase discovery (RFL.SEARCH.CAT.2:
+ *                           textSearch, rectangle-restricted per tile)
+ *   - places:searchNearby → type-code discovery (≤20 results per call;
  *                           Scout grid-tiles + dedupes above that)
  *   - places/{id}         → Place Details enrichment
  *
@@ -17,7 +19,7 @@
  * PlacesApiError, which Scout records as the job's failure reason instead
  * of hanging the job in 'running'.
  */
-import type { LatLng } from "../geo";
+import { offsetMeters, type LatLng } from "../geo";
 import {
   PLACE_PHOTO_MAX_WIDTH_PX,
   PLACE_PHOTO_NAME_RE,
@@ -29,6 +31,7 @@ import {
   type PlacesCallListener,
   type PlacesClient,
   type PlacesEndpoint,
+  type TextSearchParams,
 } from "./types";
 
 const BASE = "https://places.googleapis.com/v1";
@@ -102,6 +105,27 @@ export const DETAILS_FIELD_MASK = [
 
 /** Raw Places (New) place resource — the fields we request. */
 type GooglePlace = Omit<PlaceDetails, "fetchedAt">;
+
+/**
+ * Text Search's locationRestriction takes a rectangle only, so a tile
+ * circle becomes its bounding box: low = south-west, high = north-east.
+ * The corners overhang the circle; Scout's haversine radius filter trims
+ * the overhang exactly as it does for Nearby tiles.
+ */
+export function circleToRectangle(
+  center: LatLng,
+  radiusMeters: number,
+): {
+  low: { latitude: number; longitude: number };
+  high: { latitude: number; longitude: number };
+} {
+  const sw = offsetMeters(center, -radiusMeters, -radiusMeters);
+  const ne = offsetMeters(center, radiusMeters, radiusMeters);
+  return {
+    low: { latitude: sw.lat, longitude: sw.lng },
+    high: { latitude: ne.lat, longitude: ne.lng },
+  };
+}
 
 function toPlaceRecord(p: GooglePlace, details?: PlaceDetails): PlaceRecord | null {
   if (!p.id || !p.displayName?.text) return null;
@@ -255,6 +279,30 @@ export class GooglePlacesClient implements PlacesClient {
               // API max is 50,000 m
               radius: Math.min(params.radiusMeters, 50_000),
             },
+          },
+        }),
+      },
+    );
+    const data = (await res.json()) as { places?: GooglePlace[] };
+    return (data.places ?? [])
+      .map((p) => toPlaceRecord(p))
+      .filter((p): p is PlaceRecord => p !== null);
+  }
+
+  async textSearch(params: TextSearchParams): Promise<PlaceRecord[]> {
+    this.emit("text");
+    const res = await this.request(
+      "text",
+      "Places searchText",
+      `${BASE}/places:searchText`,
+      {
+        method: "POST",
+        headers: this.headers(NEARBY_FIELD_MASK),
+        body: JSON.stringify({
+          textQuery: params.textQuery,
+          maxResultCount: 20,
+          locationRestriction: {
+            rectangle: circleToRectangle(params.center, params.radiusMeters),
           },
         }),
       },

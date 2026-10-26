@@ -8,11 +8,13 @@ import { runScout } from "../../agents/scout";
 import { MemoryStore } from "../../store/memory";
 import { DEV_USER_ID, DEV_WORKSPACE_ID } from "../../store/types";
 import {
+  circleToRectangle,
   DETAILS_FIELD_MASK,
   GooglePlacesClient,
   PLACES_RETRY_BACKOFF_MS,
   PlacesApiError,
 } from "./google-client";
+import { PLACES_COST_CENTS } from "./types";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -143,6 +145,110 @@ describe("GooglePlacesClient timeout + retry", () => {
 
     expect(result.status).toBe("failed");
     expect(result.error).toMatch(/^Places searchText 500 \(after 1 retry\): /);
+  });
+});
+
+describe("textSearch — free-phrase discovery (RFL.SEARCH.CAT.2)", () => {
+  const center = { lat: 43.6, lng: -116.4 };
+  const TEXT_OK = {
+    places: [
+      {
+        id: "p1",
+        displayName: { text: "Valley Heating & Air" },
+        location: { latitude: 43.61, longitude: -116.41 },
+        primaryType: "hvac_contractor",
+      },
+      { id: "", displayName: { text: "dropped: no id" } },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("circleToRectangle: bounding box of the circle, low = SW, high = NE", () => {
+    const rect = circleToRectangle(center, 1000);
+    expect(rect.low.latitude).toBeLessThan(center.lat);
+    expect(rect.low.longitude).toBeLessThan(center.lng);
+    expect(rect.high.latitude).toBeGreaterThan(center.lat);
+    expect(rect.high.longitude).toBeGreaterThan(center.lng);
+    // 1 km ≈ 0.009° of latitude either side.
+    expect(rect.high.latitude - rect.low.latitude).toBeCloseTo(2 * 1000 / 111_320, 5);
+  });
+
+  it("POSTs places:searchText with the phrase, a 20 cap, a rectangle and the nearby field mask", async () => {
+    const fetchMock = vi.fn(async () => json(TEXT_OK));
+    const { client } = makeClient(fetchMock as unknown as typeof fetch);
+    const calls: Array<{ endpoint: string; costCents: number }> = [];
+    client.onCall((info) => calls.push(info));
+
+    const records = await client.textSearch({
+      center,
+      radiusMeters: 2000,
+      textQuery: "hvac repair",
+    });
+
+    const [url, init] = (fetchMock.mock.calls[0] as unknown[]) as [string, RequestInit];
+    expect(url).toBe("https://places.googleapis.com/v1/places:searchText");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
+      [
+        "places.id",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.location",
+        "places.rating",
+        "places.userRatingCount",
+        "places.businessStatus",
+        "places.nationalPhoneNumber",
+        "places.websiteUri",
+        "places.primaryType",
+      ].join(","),
+    );
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body).toEqual({
+      textQuery: "hvac repair",
+      maxResultCount: 20,
+      locationRestriction: { rectangle: circleToRectangle(center, 2000) },
+    });
+    expect(body).not.toHaveProperty("includedTypes");
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      placeId: "p1",
+      name: "Valley Heating & Air",
+      primaryType: "hvac_contractor",
+    });
+    expect(calls).toEqual([{ endpoint: "text", costCents: PLACES_COST_CENTS.text }]);
+    expect(PLACES_COST_CENTS.text).toBe(PLACES_COST_CENTS.nearby);
+  });
+
+  it("retries once after a 2s backoff on 429, then succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ error: "RESOURCE_EXHAUSTED" }, 429))
+      .mockResolvedValueOnce(json(TEXT_OK));
+    const { client, sleep } = makeClient(fetchMock as unknown as typeof fetch);
+
+    const records = await client.textSearch({ center, radiusMeters: 1000, textQuery: "hvac" });
+
+    expect(records.map((r) => r.placeId)).toEqual(["p1"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(PLACES_RETRY_BACKOFF_MS);
+  });
+
+  it("throws a typed http error naming the text endpoint when the retry fails too", async () => {
+    const fetchMock = vi.fn(async () => json({ error: "UNAVAILABLE" }, 503));
+    const { client } = makeClient(fetchMock as unknown as typeof fetch);
+    const err = await client
+      .textSearch({ center, radiusMeters: 1000, textQuery: "hvac" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PlacesApiError);
+    expect(err).toMatchObject({ endpoint: "text", kind: "http", status: 503 });
+    expect((err as Error).message).toMatch(/^Places searchText 503 \(after 1 retry\): /);
   });
 });
 

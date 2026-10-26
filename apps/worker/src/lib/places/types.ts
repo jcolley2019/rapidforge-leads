@@ -99,8 +99,20 @@ export interface NearbySearchParams {
   categoryType: string;
 }
 
+/**
+ * Free-text discovery (RFL.SEARCH.CAT.2): places:searchText with a
+ * rectangle locationRestriction (Text Search accepts rectangle only —
+ * the client derives it as the bounding box of this circle).
+ */
+export interface TextSearchParams {
+  center: LatLng;
+  radiusMeters: number;
+  /** The user's phrase as typed, e.g. 'hvac repair'. */
+  textQuery: string;
+}
+
 /** Fired once per upstream API call so Scout can log usage_events. */
-export type PlacesEndpoint = "geocode" | "nearby" | "details" | "photo";
+export type PlacesEndpoint = "geocode" | "nearby" | "text" | "details" | "photo";
 
 export type PlacesCallListener = (info: {
   endpoint: PlacesEndpoint;
@@ -113,6 +125,11 @@ export interface PlacesClient {
   geocodeZip(zip: string): Promise<LatLng | null>;
   /** One Nearby Search (New) call — capped at 20 results by the API. */
   nearbySearch(params: NearbySearchParams): Promise<PlaceRecord[]>;
+  /**
+   * One Text Search (New) call for a free phrase inside the circle's
+   * bounding box — same 20-result cap and field mask as nearbySearch.
+   */
+  textSearch(params: TextSearchParams): Promise<PlaceRecord[]>;
   /**
    * Place Details enrichment; null when the place id is unknown. The
    * returned record carries the raw `details` (RFL-06 field mask: hours,
@@ -138,6 +155,8 @@ export const PLACES_COST_CENTS = {
   geocode: 3,
   /** Nearby Search Pro fields — $0.032/call. */
   nearby: 3,
+  /** Text Search Pro fields (free-phrase discovery) — $0.032/call, same SKU tier as nearby. */
+  text: 3,
   /**
    * Place Details with the RFL-06 mask (hours/photos = Enterprise,
    * reviews/editorialSummary = Enterprise + Atmosphere) — ~$0.035/call.
