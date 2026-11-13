@@ -35,11 +35,14 @@ import { FixtureSiteFetcher, type FetchedSite, type SiteFetcher } from "./lib/si
 import {
   analystEligible,
   handleJob,
+  JobWorkspaceMismatchError,
+  settleSearchIfDone,
   STAGE_BUDGET_MS,
   type OrchestratorDeps,
 } from "./orchestrator";
 import { DEV_USER_ID, DEV_WORKSPACE_ID } from "./store/types";
 import { MemoryStore } from "./store/memory";
+import { startQueuePoller } from "./queue";
 
 const FIXTURE_PARAMS = {
   zip: "83642",
@@ -1005,5 +1008,118 @@ describe("Place Details enrichment through the pipeline (RFL-06)", () => {
         .listUsageEvents()
         .filter((e) => e.metadata?.endpoint === "details"),
     ).toHaveLength(1);
+  });
+});
+
+describe("jobs must match their workspace (RFL.SEC.1)", () => {
+  const OTHER_WORKSPACE = "99999999-9999-4999-8999-999999999999";
+
+  /** Enqueue + claim a job in `workspaceId` with the given payload. */
+  async function claim(
+    workspaceId: string,
+    job_type: "scout" | "audit_business",
+    payload: Record<string, unknown>,
+  ): Promise<Job> {
+    await harness.store.enqueueJob({ workspace_id: workspaceId, job_type, payload });
+    const job = await harness.store.claimNextQueuedJob();
+    if (!job) throw new Error("no job to claim");
+    return job;
+  }
+
+  it("audit job: another workspace's search is refused before any agent runs", async () => {
+    const business = await harness.store.upsertBusiness({
+      workspace_id: OTHER_WORKSPACE,
+      google_place_id: "fx-mine",
+      name: "Mine Plumbing",
+      website_url: "https://snakeriverplumbing.com",
+    } as Parameters<MemoryStore["upsertBusiness"]>[0]);
+    // The job and business are the attacker's; the search is DEV's.
+    const job = await claim(OTHER_WORKSPACE, "audit_business", {
+      search_id: harness.search.id,
+      business_id: business.id,
+    });
+    await expect(handleJob(job, harness.deps)).rejects.toThrow(JobWorkspaceMismatchError);
+    await expect(handleJob(job, harness.deps)).rejects.toThrow(
+      /its search .* belongs to another workspace/,
+    );
+    expect(harness.store.listAgentRuns()).toHaveLength(0);
+    expect(harness.store.listUsageEvents()).toHaveLength(0);
+    expect(await harness.store.listAuditsForBusiness(business.id)).toHaveLength(0);
+  });
+
+  it("audit job: another workspace's business is refused before any agent runs", async () => {
+    const victim = await seedBusiness(harness, {
+      google_place_id: "fx-victim",
+      name: "Victim Plumbing",
+      website_url: "https://snakeriverplumbing.com",
+    });
+    const attackerSearch = await harness.store.createSearch({
+      workspace_id: OTHER_WORKSPACE,
+      created_by: DEV_USER_ID,
+      mode: "zip_radius",
+      params: FIXTURE_PARAMS,
+      category: "plumber",
+    });
+    const job = await claim(OTHER_WORKSPACE, "audit_business", {
+      search_id: attackerSearch.id,
+      business_id: victim.id,
+    });
+    await expect(handleJob(job, harness.deps)).rejects.toThrow(
+      /its business .* belongs to another workspace/,
+    );
+    expect(harness.store.listAgentRuns()).toHaveLength(0);
+    expect(await harness.store.listAuditsForBusiness(victim.id)).toHaveLength(0);
+  });
+
+  it("scout job: another workspace's search is refused, untouched and unbilled", async () => {
+    const job = await claim(OTHER_WORKSPACE, "scout", { search_id: harness.search.id });
+    await expect(handleJob(job, harness.deps)).rejects.toThrow(JobWorkspaceMismatchError);
+    expect((await harness.store.getSearch(harness.search.id))?.status).toBe("pending");
+    expect(harness.store.listAgentRuns()).toHaveLength(0);
+    expect(harness.store.listUsageEvents()).toHaveLength(0);
+  });
+
+  it("a matching job still runs (same workspace on job, search and business)", async () => {
+    const business = await seedBusiness(harness, {
+      google_place_id: "fx-ok",
+      name: "Fine Plumbing",
+      website_url: null,
+      website_kind: "none",
+    });
+    await expect(runAuditJob(harness, business.id)).resolves.toBeDefined();
+    expect(harness.store.listAgentRuns().length).toBeGreaterThan(0);
+  });
+
+  it("the queue fails a forged scout job once, without retry, and leaves the foreign search alone", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await harness.store.enqueueJob({
+      workspace_id: OTHER_WORKSPACE,
+      job_type: "scout",
+      payload: { search_id: harness.search.id },
+    });
+    const poller = startQueuePoller(harness.deps);
+    try {
+      await poller.tick();
+      await vi.waitFor(() => expect(poller.inFlight()).toBe(0));
+      await vi.waitFor(() =>
+        expect(errors).toHaveBeenCalledWith(expect.stringContaining("failed terminally")),
+      );
+    } finally {
+      poller.stop();
+    }
+    // Not requeued, and the victim's search is neither failed nor completed.
+    expect(await harness.store.claimNextQueuedJob()).toBeNull();
+    expect((await harness.store.getSearch(harness.search.id))?.status).toBe("pending");
+    errors.mockRestore();
+  });
+
+  it("settleSearchIfDone ignores a job from another workspace", async () => {
+    const job = await claim(OTHER_WORKSPACE, "audit_business", {
+      search_id: harness.search.id,
+      business_id: "x",
+    });
+    await harness.store.finishJob(job.id, { status: "failed", error: "x" });
+    await settleSearchIfDone(job, harness.deps);
+    expect((await harness.store.getSearch(harness.search.id))?.status).toBe("pending");
   });
 });

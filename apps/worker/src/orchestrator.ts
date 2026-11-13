@@ -152,6 +152,31 @@ export function payloadOf(job: Job): JobPayload {
   return job.payload as JobPayload;
 }
 
+/**
+ * RFL.SEC.1: a job row names its workspace, and its payload names a search
+ * and a business by id. The worker reads with the service-role key (no RLS),
+ * so a job whose rows belong to another workspace must fail before anything
+ * is read further, written or spent. Never retried (queue.ts).
+ */
+export class JobWorkspaceMismatchError extends Error {
+  override readonly name = "JobWorkspaceMismatchError";
+  constructor(job: Job, kind: "search" | "business", rowId: string) {
+    super(
+      `job ${job.id} (${job.job_type}) belongs to workspace ${job.workspace_id} but its ${kind} ${rowId} belongs to another workspace — refused`,
+    );
+  }
+}
+
+function assertJobWorkspace(
+  job: Job,
+  kind: "search" | "business",
+  row: { id: string; workspace_id: string },
+): void {
+  if (row.workspace_id !== job.workspace_id) {
+    throw new JobWorkspaceMismatchError(job, kind, row.id);
+  }
+}
+
 /** Dispatch a claimed job. Throws on failure — the queue owns retries. */
 export async function handleJob(
   job: Job,
@@ -182,6 +207,7 @@ async function handleScoutJob(job: Job, deps: OrchestratorDeps): Promise<void> {
   if (!searchId) throw new Error("scout job payload missing search_id");
   const search = await store.getSearch(searchId);
   if (!search) throw new Error(`search ${searchId} not found`);
+  assertJobWorkspace(job, "search", search);
 
   await store.updateSearch(search.id, { status: "scouting" });
 
@@ -241,6 +267,8 @@ async function handleAuditBusinessJob(
   ]);
   if (!search) throw new Error(`search ${searchId} not found`);
   if (!business) throw new Error(`business ${businessId} not found`);
+  assertJobWorkspace(job, "search", search);
+  assertJobWorkspace(job, "business", business);
 
   // Latest completed audit serves two masters: the 30-day cache (PRD 5.5,
   // ignored when force=true — Sprint 5 re-audit) and the Reputation agent's
@@ -815,6 +843,8 @@ export async function settleSearchIfDone(
   if (!search || search.status === "completed" || search.status === "failed") {
     return;
   }
+  // RFL.SEC.1: a job never settles another workspace's search.
+  if (search.workspace_id !== job.workspace_id) return;
   await deps.store.updateSearch(searchId, {
     status: "completed",
     completed_at: new Date().toISOString(),

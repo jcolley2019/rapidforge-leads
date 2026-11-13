@@ -18,6 +18,7 @@ import {
   AUDIT_CEILING_MS,
   AUDIT_CONCURRENCY_CAP,
   handleJob,
+  JobWorkspaceMismatchError,
   settleSearchIfDone,
   type HandleJobOptions,
   type OrchestratorDeps,
@@ -338,7 +339,8 @@ async function processJob(
     if (signal.aborted) return; // the abandon path owns the bookkeeping
     const message = err instanceof Error ? err.message : String(err);
     const attempts = job.attempts ?? 1;
-    if (attempts < MAX_JOB_ATTEMPTS) {
+    // RFL.SEC.1: a job naming another workspace's rows is never retried.
+    if (attempts < MAX_JOB_ATTEMPTS && !(err instanceof JobWorkspaceMismatchError)) {
       console.warn(
         `[queue] job ${job.id} (${job.job_type}) failed, retrying: ${message}`,
       );
@@ -363,6 +365,9 @@ async function markSearchFailedIfScout(
   if (job.job_type !== "scout") return;
   const searchId = (job.payload as { search_id?: string }).search_id;
   if (!searchId) return;
+  // RFL.SEC.1: a scout job never fails another workspace's search.
+  const search = await deps.store.getSearch(searchId);
+  if (!search || search.workspace_id !== job.workspace_id) return;
   await deps.store.updateSearch(searchId, {
     status: "failed",
     completed_at: new Date().toISOString(),
