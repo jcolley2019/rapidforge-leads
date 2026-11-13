@@ -30,8 +30,9 @@
  */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { withPage } from "./browser";
+import { guardPageRequests, withPage } from "./browser";
 import { forceFixtures, screenshotsEnabled } from "./env";
+import type { HostResolver } from "./public-url";
 
 export const DESKTOP_VIEWPORT = { width: 1440, height: 900 } as const;
 export const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
@@ -106,22 +107,37 @@ const MOBILE_USER_AGENT =
 export class PuppeteerScreenshotCapturer implements ScreenshotCapturer {
   readonly mode = "real" as const;
 
+  /** The DNS resolver is injectable for tests only (RFL.SEC.1). */
+  constructor(private readonly resolver?: HostResolver) {}
+
   /**
    * RFL.QUEUE.8: pages come from the process-wide shared browser (lazy
    * launch, 2 page slots); each shot runs under the 30s screenshot budget.
    * RFL.QUEUE.8a: no browser / timeout / page error → throws (the
    * orchestrator logs it and records the internal reason); the browser
    * module already logged a launch failure once, so nothing is logged here.
+   * RFL.SEC.1: the page only reaches public addresses (guardPageRequests);
+   * a refused homepage throws BlockedUrlError, which reads like any other
+   * capture failure — no screenshots, the audit continues.
    */
   async capture(url: string): Promise<ScreenshotSet> {
     const shoot = (viewport: { width: number; height: number }, mobile: boolean) =>
       withPage(`screenshot-${mobile ? "mobile" : "desktop"}`, SCREENSHOT_NAV_TIMEOUT_MS, async (page) => {
         await page.setViewport({ ...viewport, isMobile: mobile, hasTouch: mobile });
         if (mobile) await page.setUserAgent(MOBILE_USER_AGENT);
-        await page.goto(url, {
-          waitUntil: "networkidle2",
-          timeout: SCREENSHOT_NAV_TIMEOUT_MS,
-        });
+        const guard = await guardPageRequests(page, this.resolver);
+        try {
+          await page.goto(url, {
+            waitUntil: "networkidle2",
+            timeout: SCREENSHOT_NAV_TIMEOUT_MS,
+          });
+        } catch (err) {
+          // Chrome reports an aborted navigation as ERR_BLOCKED_BY_CLIENT.
+          throw guard.mainFrameBlocked() ?? err;
+        }
+        // A client-side redirect to a refused address lands here without a throw.
+        const blocked = guard.mainFrameBlocked();
+        if (blocked) throw blocked;
         // Let late webfonts/hero images settle before the shot.
         await new Promise((r) => setTimeout(r, 500));
         const data = await page.screenshot({

@@ -15,6 +15,8 @@ function respond(status: number, body: string, headers: Record<string, string> =
 }
 
 const URL_UNDER_TEST = "https://example-plumbing.com/";
+/** Offline DNS: every host is a public address (RFL.SEC.1). */
+const resolver = async () => ["93.184.216.34"];
 
 describe("RealWebProbe", () => {
   afterEach(() => {
@@ -27,7 +29,7 @@ describe("RealWebProbe", () => {
       "<!DOCTYPE html><html><head><title>Just a moment...</title></head><body></body></html>",
       { server: "cloudflare" },
     );
-    const result = await new RealWebProbe({ fetch: fetchMock }).probe(URL_UNDER_TEST);
+    const result = await new RealWebProbe({ resolver, fetch: fetchMock }).probe(URL_UNDER_TEST);
     expect(result).toMatchObject({
       alive: "unknown",
       httpStatus: 403,
@@ -38,6 +40,7 @@ describe("RealWebProbe", () => {
 
   it("plain 503 → unknown (http-503), not dead", async () => {
     const result = await new RealWebProbe({
+      resolver,
       fetch: respond(503, "Service Unavailable"),
     }).probe(URL_UNDER_TEST);
     expect(result).toMatchObject({
@@ -49,6 +52,7 @@ describe("RealWebProbe", () => {
 
   it("429 → unknown (http-429)", async () => {
     const result = await new RealWebProbe({
+      resolver,
       fetch: respond(429, "Too Many Requests"),
     }).probe(URL_UNDER_TEST);
     expect(result).toMatchObject({ alive: "unknown", blockedBy: "http-429" });
@@ -56,6 +60,7 @@ describe("RealWebProbe", () => {
 
   it("200 with a challenge body → unknown", async () => {
     const result = await new RealWebProbe({
+      resolver,
       fetch: respond(
         200,
         "<html><body><div id=\"px-captcha\"></div>Press &amp; Hold to confirm you are a human</body></html>",
@@ -70,6 +75,7 @@ describe("RealWebProbe", () => {
 
   it("502 → no (genuinely broken)", async () => {
     const result = await new RealWebProbe({
+      resolver,
       fetch: respond(502, "<h1>502 Bad Gateway</h1>"),
     }).probe(URL_UNDER_TEST);
     expect(result).toMatchObject({
@@ -84,7 +90,7 @@ describe("RealWebProbe", () => {
     const fetchMock = vi.fn(async () => {
       throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
     });
-    const result = await new RealWebProbe({ fetch: fetchMock }).probe(URL_UNDER_TEST);
+    const result = await new RealWebProbe({ resolver, fetch: fetchMock }).probe(URL_UNDER_TEST);
     expect(result).toMatchObject({ alive: "no", httpStatus: null, blockedBy: null });
     expect(result.note).toMatch(/^Unreachable: .*timeout/);
   });
@@ -104,13 +110,13 @@ describe("RealWebProbe", () => {
       });
       return new Response(body, { status: 200 });
     });
-    const result = await new RealWebProbe({ fetch: fetchMock }).probe(URL_UNDER_TEST);
+    const result = await new RealWebProbe({ resolver, fetch: fetchMock }).probe(URL_UNDER_TEST);
     expect(result).toMatchObject({ alive: "yes", httpStatus: 200, blockedBy: null });
   });
 
   it("200 real page → yes, via one GET with browser headers", async () => {
     const fetchMock = respond(200, "<html><head><title>Example Plumbing</title></head></html>");
-    const result = await new RealWebProbe({ fetch: fetchMock }).probe(URL_UNDER_TEST);
+    const result = await new RealWebProbe({ resolver, fetch: fetchMock }).probe(URL_UNDER_TEST);
     expect(result).toMatchObject({ alive: "yes", httpStatus: 200, blockedBy: null });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -127,7 +133,7 @@ describe("RealWebProbe", () => {
   it("RAPIDFORGE_LEGACY_UA=true restores the old audit UA for debugging", async () => {
     process.env.RAPIDFORGE_LEGACY_UA = "true";
     const fetchMock = respond(200, "<html></html>");
-    await new RealWebProbe({ fetch: fetchMock }).probe(URL_UNDER_TEST);
+    await new RealWebProbe({ resolver, fetch: fetchMock }).probe(URL_UNDER_TEST);
     const init = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
     expect((init.headers as Record<string, string>)["User-Agent"]).toBe(
       LEGACY_AUDIT_USER_AGENT,

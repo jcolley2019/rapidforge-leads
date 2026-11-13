@@ -11,6 +11,7 @@
  */
 import { siteRequestHeaders } from "./browser-headers";
 import { forceFixtures } from "./env";
+import { fetchPublic, type FetchPublicOptions } from "./public-url";
 import { fallbackSiteFixture, SITE_FIXTURES } from "./site-fixtures";
 
 export interface FetchedSite {
@@ -45,15 +46,21 @@ export const MAX_HTML_BYTES = 500_000;
 export class RealSiteFetcher implements SiteFetcher {
   readonly mode = "real" as const;
 
+  /**
+   * RFL.SEC.1: every request goes through fetchPublic — the URL and each
+   * redirect hop must resolve to a public address. fetch and the resolver
+   * are injectable for tests only.
+   */
+  constructor(private readonly options: FetchPublicOptions = {}) {}
+
   async fetchHomepage(url: string): Promise<FetchedSite | null> {
     const started = Date.now();
     try {
-      const res = await fetch(url, {
+      const res = await fetchPublic(url, {
         method: "GET",
-        redirect: "follow",
         signal: AbortSignal.timeout(SITE_FETCH_TIMEOUT_MS),
         headers: siteRequestHeaders(),
-      });
+      }, this.options);
       const responseMs = Date.now() - started;
       const html = (await res.text()).slice(0, MAX_HTML_BYTES);
       const headers: Record<string, string> = {};
@@ -85,12 +92,11 @@ export class RealSiteFetcher implements SiteFetcher {
     }
     try {
       // GET, not HEAD — some hosts (builders especially) reject HEAD.
-      const res = await fetch(target, {
+      const res = await fetchPublic(target, {
         method: "GET",
-        redirect: "follow",
         signal: AbortSignal.timeout(SITE_FETCH_TIMEOUT_MS),
         headers: siteRequestHeaders(),
-      });
+      }, this.options);
       // Drain nothing — status is the answer; cancel the body politely.
       await res.body?.cancel().catch(() => {});
       return res.status >= 200 && res.status < 400;

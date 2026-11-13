@@ -23,6 +23,7 @@ import {
 import { siteRequestHeaders } from "./browser-headers";
 import { forceFixtures } from "./env";
 import { DEAD_FIXTURE_HOSTS } from "./places/fixtures";
+import { fetchPublic, type FetchPublicOptions } from "./public-url";
 
 export type ProbeAlive = "yes" | "no" | "unknown";
 
@@ -48,24 +49,24 @@ export const PROBE_TIMEOUT_MS = 10_000;
 
 export class RealWebProbe implements WebProbe {
   readonly mode = "real" as const;
-  private readonly fetchImpl: typeof fetch;
-
-  /** fetch is injectable for tests only. */
-  constructor(options: { fetch?: typeof fetch } = {}) {
-    this.fetchImpl = options.fetch ?? fetch;
-  }
+  /**
+   * RFL.SEC.1: the request goes through fetchPublic — the URL and each
+   * redirect hop must resolve to a public address; a blocked one reads as
+   * unreachable ("Unreachable: blocked: ..."). fetch and the resolver are
+   * injectable for tests only.
+   */
+  constructor(private readonly options: FetchPublicOptions = {}) {}
 
   async probe(url: string): Promise<ProbeResult> {
     const started = Date.now();
     const isHttps = url.startsWith("https://");
     try {
       // GET, not HEAD: challenge pages are only recognisable by their body.
-      const res = await this.fetchImpl(url, {
+      const res = await fetchPublic(url, {
         method: "GET",
-        redirect: "follow",
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         headers: siteRequestHeaders(),
-      });
+      }, this.options);
       const body = await readBodyPrefix(res, BOT_CHECK_BODY_BYTES);
       const responseMs = Date.now() - started;
       const blocked = detectBotProtection({

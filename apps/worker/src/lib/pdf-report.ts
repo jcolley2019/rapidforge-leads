@@ -15,7 +15,7 @@
  * and the route answers 503 "screenshots disabled" (never a hang).
  */
 import type { Audit, Business } from "@rapidforge/shared";
-import { BrowserUnavailableError, withPage } from "./browser";
+import { BrowserUnavailableError, guardPageRequests, withPage } from "./browser";
 import { forceFixtures, screenshotsEnabled } from "./env";
 import { screenshotSlug } from "./screenshots";
 
@@ -230,6 +230,8 @@ export class PuppeteerReportRenderer implements ReportRenderer {
       pdf = await withPage("report-pdf", REPORT_RENDER_TIMEOUT_MS, async (page) => {
         // setContent's typed waitUntil is load|domcontentloaded; "load" waits
         // for the self-contained doc's images (absolute URLs) before printing.
+        // RFL.SEC.1: the document's images load only from public addresses.
+        await guardPageRequests(page);
         await page.setContent(html, { waitUntil: "load" });
         return page.pdf({ format: "A4", printBackground: true });
       });

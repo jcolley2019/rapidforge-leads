@@ -30,6 +30,7 @@ import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 import { StageTimeoutError, withBudget } from "./budget";
 import { screenshotsEnabled } from "./env";
+import { assertPublicUrl, BlockedUrlError, systemResolver, type HostResolver } from "./public-url";
 
 type Puppeteer = typeof import("puppeteer-core");
 type Browser = Awaited<ReturnType<Puppeteer["launch"]>>;
@@ -502,4 +503,80 @@ export async function withPage<T>(
       release();
     }
   });
+}
+
+// -- request guard (RFL.SEC.1) ---------------------------------------------------
+
+/** The slice of a Puppeteer request the guard needs (fakeable in tests). */
+export interface GuardableRequest {
+  url(): string;
+  isNavigationRequest(): boolean;
+  frame(): unknown;
+  continue(): Promise<void>;
+  abort(errorCode?: "blockedbyclient"): Promise<void>;
+}
+
+/** The slice of a Puppeteer page the guard needs (fakeable in tests). */
+export interface GuardablePage {
+  setRequestInterception(value: boolean): Promise<void>;
+  on(event: "request", handler: (request: GuardableRequest) => void): unknown;
+  mainFrame(): unknown;
+}
+
+export interface PageRequestGuard {
+  /** Set once the main frame was refused a navigation (first hop or a redirect). */
+  mainFrameBlocked(): BlockedUrlError | null;
+}
+
+/**
+ * Chrome only talks to public addresses: every http(s) request the page
+ * makes — the main-frame navigation, each redirect hop, and subresources
+ * (an iframe or image pointed at an internal address would end up in the
+ * screenshot) — is checked with assertPublicUrl and aborted when refused.
+ * Other schemes (data:, blob:, about:) never leave the process and pass.
+ * Verdicts are cached per host for the life of the page.
+ */
+export async function guardPageRequests(
+  page: GuardablePage,
+  resolver: HostResolver = systemResolver,
+): Promise<PageRequestGuard> {
+  const verdicts = new Map<string, Promise<BlockedUrlError | null>>();
+  let mainBlocked: BlockedUrlError | null = null;
+  const check = (url: string): Promise<BlockedUrlError | null> => {
+    let key: string;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return Promise.resolve(null);
+      }
+      key = `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      return Promise.resolve(new BlockedUrlError("not a valid URL"));
+    }
+    let verdict = verdicts.get(key);
+    if (!verdict) {
+      verdict = assertPublicUrl(url, resolver).then(
+        () => null,
+        // A name that does not resolve cannot be fetched by Chrome either.
+        (err: unknown) =>
+          err instanceof BlockedUrlError ? err : new BlockedUrlError(firstLine(err)),
+      );
+      verdicts.set(key, verdict);
+    }
+    return verdict;
+  };
+  await page.setRequestInterception(true);
+  page.on("request", (request) => {
+    void check(request.url())
+      .then((blocked) => {
+        if (!blocked) return request.continue();
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+          mainBlocked ??= blocked;
+        }
+        return request.abort("blockedbyclient");
+      })
+      // The page closed under us (budget fired): nothing left to answer.
+      .catch(() => undefined);
+  });
+  return { mainFrameBlocked: () => mainBlocked };
 }
