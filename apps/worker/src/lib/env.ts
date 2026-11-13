@@ -52,3 +52,16 @@ export function webOrigins(env: NodeJS.ProcessEnv = process.env): string[] {
     .filter(Boolean);
   return [...new Set([LOCAL_WEB_ORIGIN, ...extra])];
 }
+
+/**
+ * RFL.SEC.1: ALLOWED_EMAILS — the accounts the worker serves. Comma-separated;
+ * entries are trimmed and compared case-insensitively. Unset or blank → null
+ * (no allowlist: any Supabase user with a workspace is served).
+ */
+export function allowedEmails(env: NodeJS.ProcessEnv = process.env): Set<string> | null {
+  const list = (env.ALLOWED_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return list.length > 0 ? new Set(list) : null;
+}

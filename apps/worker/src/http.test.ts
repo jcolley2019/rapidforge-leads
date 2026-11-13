@@ -1099,6 +1099,24 @@ describe("POST /api/businesses/:id/design-brief (RFL.BRIEF.7)", () => {
   });
 });
 
+describe("GET /health auth_allowlist (RFL.SEC.1)", () => {
+  it("reports on/off and never the emails", async () => {
+    const saved = process.env.ALLOWED_EMAILS;
+    try {
+      delete process.env.ALLOWED_EMAILS;
+      const off = await fetch(`${base}/health`).then((r) => r.text());
+      expect(JSON.parse(off).auth_allowlist).toBe("off");
+      process.env.ALLOWED_EMAILS = "owner@example.com";
+      const on = await fetch(`${base}/health`).then((r) => r.text());
+      expect(JSON.parse(on).auth_allowlist).toBe("on");
+      expect(on).not.toContain("owner@example.com");
+    } finally {
+      if (saved === undefined) delete process.env.ALLOWED_EMAILS;
+      else process.env.ALLOWED_EMAILS = saved;
+    }
+  });
+});
+
 describe("GET /health queue readings (RFL.QUEUE.8 / finding 14)", () => {
   it("reports jobs_in_flight, jobs_running_over_10m and oldest_queued_age_s", async () => {
     // The store is shared across this file's tests, so compare deltas.

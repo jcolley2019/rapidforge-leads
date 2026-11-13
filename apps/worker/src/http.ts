@@ -29,7 +29,7 @@ import { AnalystOutputSchema } from "./agents/prompts/analyst";
 import { BRIEF_SECTIONS, type CompetitorSummary } from "./agents/prompts/builder-brief";
 import { DEMO_SUB_RE, DemoRunner, type DemoRunnerOptions } from "./demo";
 import { aiSummaryMode } from "./lib/ai";
-import { webOrigins } from "./lib/env";
+import { allowedEmails, webOrigins } from "./lib/env";
 import {
   PLACE_PHOTO_MAX_WIDTH_PX,
   PLACE_PHOTO_NAME_RE,
@@ -287,6 +287,8 @@ export function createApp(
       psi_mode: deps.psi.mode,
       site_mode: deps.site.mode,
       ai_mode: aiSummaryMode(),
+      // RFL.SEC.1: whether ALLOWED_EMAILS is in force — never the emails.
+      auth_allowlist: allowedEmails() ? "on" : "off",
       screenshot_capture_mode: deps.screenshotCapturer.mode,
       screenshot_storage_mode: deps.screenshotStorage.mode,
     });

@@ -32,6 +32,7 @@ Locally nothing changes: `npm run dev` still runs both, and Vite proxies `/api` 
 | `ANTHROPIC_API_KEY` | Recommended | Without it the summaries, Analyst, Builder Brief and Sales Script are deterministic templates |
 | `YELP_API_KEY` | Optional | Reputation agent's Yelp lookup |
 | `WEB_ORIGINS` | **Required once the web is on Vercel** | Comma-separated browser origins allowed by CORS. Set to exactly `https://app.rapidforgeai.com,https://rapidforge-leads.vercel.app,http://localhost:5173`. `http://localhost:5173` is always allowed, listed or not |
+| `ALLOWED_EMAILS` | **Required hosted** | Comma-separated emails the worker serves (spaces and letter case ignored). A signed-in user whose email is not listed gets 403 "This account is not allowed" on every `/api` route. Unset = no allowlist. `/health` reports `auth_allowlist: "on"` or `"off"`, never the emails |
 | `SCREENSHOTS_ENABLED` | Optional (`true`) | Turns on Chromium screenshots (Sonnet vision Design pass, ~2¢/audit) and the real PDF report |
 | `PSI_DESKTOP` | Optional (`true`) | Second PageSpeed strategy (one more PSI call per audit) |
 | `PSI_MOBILE_RUNS` | Optional (`1`–`3`, default `2`) | Parallel mobile PageSpeed runs averaged per metric to cut run-to-run noise. `1` = a single run |
@@ -65,6 +66,15 @@ The Maps Browser Key is public by design: it ships in the bundle, so Google enfo
 ### Supabase Auth redirect URLs
 
 Sign-in is a **magic link** or **Google OAuth** (`apps/web/src/features/auth/AuthPage.tsx`), and both redirect back to `window.location.origin`. Every origin the app is served from must be in Supabase → Authentication → URL Configuration, or the link and the Google round-trip land on the Site URL or are rejected. Current settings: Site URL `https://app.rapidforgeai.com`; Redirect URLs `https://app.rapidforgeai.com/**`, `https://rapidforge-leads.vercel.app/**`, `http://localhost:5173/**`.
+
+### Who can sign in (RFL.SEC.1)
+
+Two locks, both needed:
+
+- **Supabase sign-up is off** (Authentication → Sign In / Providers → "Allow new users to sign up" off, since 2026-11-13). A stranger's magic link or Google sign-in no longer creates an account.
+- **`ALLOWED_EMAILS` on the worker.** Even with a valid Supabase session, the worker answers 403 unless the email is listed.
+
+To add a user: Supabase → Authentication → Users → **Add user** (their email), then add the same email to `ALLOWED_EMAILS` on Railway and let it redeploy. To remove one, take the email off the list (and delete the user in Supabase).
 
 ## Order of operations
 
