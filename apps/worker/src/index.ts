@@ -26,6 +26,17 @@ import type { OrchestratorDeps } from "./orchestrator";
 import { startQueuePoller } from "./queue";
 import { createDataStore } from "./store";
 
+// RFL.SEC.1: a stray rejection is logged and the worker keeps serving. An
+// uncaught exception leaves the process in an unknown state, so it is logged
+// and the process exits for the host to restart (Node's default, made loud).
+process.on("unhandledRejection", (reason) => {
+  console.error("[worker] UNHANDLED REJECTION (process continues):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[worker] UNCAUGHT EXCEPTION (exiting):", err);
+  process.exit(1);
+});
+
 // RFL.HOST.6: the host (Railway) injects PORT; local .env keeps WORKER_PORT.
 const port = Number(process.env.PORT ?? process.env.WORKER_PORT ?? 8788);
 const startedAt = Date.now();

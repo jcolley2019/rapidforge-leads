@@ -6,7 +6,7 @@
  * (foreign rows 404, never 403 — no existence leaks).
  */
 import cors from "cors";
-import express, { type Express } from "express";
+import express, { type Express, type RequestHandler } from "express";
 import { z } from "zod";
 import {
   CreateSearchRequestSchema,
@@ -173,6 +173,41 @@ export interface AppOptions {
   demo?: Partial<Omit<DemoRunnerOptions, "store">>;
 }
 
+/**
+ * RFL.SEC.1: Express 4 does not catch a rejected async handler — the
+ * rejection would reach the process. This answers 500 (when nothing was sent
+ * yet) and logs it, whether the handler threw or rejected.
+ */
+export function guardHandler(handler: RequestHandler): RequestHandler {
+  // Error middleware (four arguments) keeps its own signature.
+  if (handler.length >= 4) return handler;
+  return (req, res, next) => {
+    const fail = (err: unknown) => {
+      console.error(`[api] ${req.method} ${req.path} handler crashed:`, err);
+      if (res.headersSent) return;
+      res.status(500).json({ error: "Internal error" });
+    };
+    try {
+      Promise.resolve(handler(req, res, next)).catch(fail);
+    } catch (err) {
+      fail(err);
+    }
+  };
+}
+
+/** Wrap every route handler registered on `app` from here on in guardHandler. */
+function guardRoutes(app: Express): void {
+  for (const method of ["get", "post", "put", "delete"] as const) {
+    const register = app[method].bind(app) as (...args: unknown[]) => unknown;
+    (app as unknown as Record<string, unknown>)[method] = (...args: unknown[]) =>
+      register(
+        ...args.map((arg) =>
+          typeof arg === "function" ? guardHandler(arg as RequestHandler) : arg,
+        ),
+      );
+  }
+}
+
 function defaultConfig(workspaceId: string): WorkspaceConfig {
   return {
     workspace_id: workspaceId,
@@ -194,6 +229,7 @@ export function createApp(
   options: AppOptions = {},
 ): Express {
   const app = express();
+  guardRoutes(app);
   // RFL.HOST.6: the hosted web app (WEB_ORIGINS) calls the worker
   // cross-origin with a Bearer JWT — no cookies, so no credentials. An
   // unlisted Origin gets no Allow-Origin header; preflights end here (204),
@@ -571,7 +607,14 @@ export function createApp(
       res.status(401).json({ error: "Unauthenticated" });
       return;
     }
-    const ref = decodeURIComponent(req.params.ref);
+    // RFL.SEC.1: a malformed escape ("%25" arrives here as "%") throws.
+    let ref: string;
+    try {
+      ref = decodeURIComponent(req.params.ref);
+    } catch {
+      res.status(400).json({ error: "Invalid photo reference" });
+      return;
+    }
     if (!PLACE_PHOTO_NAME_RE.test(ref)) {
       res.status(400).json({ error: "Invalid photo reference" });
       return;

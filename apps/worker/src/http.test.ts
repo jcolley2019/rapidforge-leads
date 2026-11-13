@@ -7,7 +7,8 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Business, SearchResult, WorkspaceConfig } from "@rapidforge/shared";
-import { createApp } from "./http";
+import express from "express";
+import { createApp, guardHandler } from "./http";
 import { TimeoutError, type CompletionRequest } from "@rapidforge/ai-core";
 import { MODEL_HAIKU, MODEL_SONNET, setAiProviderForTests } from "./lib/ai";
 import { coreModeEnv, fakeProvider, jsonReply, truncatedReply } from "./lib/ai.testkit";
@@ -992,6 +993,56 @@ describe("GET /api/places/photo/:ref (RFL-06)", () => {
     expect(bad.status).toBe(400);
     const anon = await api("GET", `/api/places/photo/${ref}`, undefined, "");
     expect(anon.status).toBe(401);
+  });
+
+  it("400s a malformed percent-escape and the server answers the next request (RFL.SEC.1)", async () => {
+    for (const bad of ["%25", "%2525E0%25A4%25A", "%25zz"]) {
+      const res = await api("GET", `/api/places/photo/${bad}`);
+      expect(res.status).toBe(400);
+    }
+    const next = await api("GET", "/api/leads");
+    expect(next.status).toBe(200);
+  });
+});
+
+describe("guardHandler (RFL.SEC.1)", () => {
+  it("a handler that rejects or throws answers 500 and the server keeps serving", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    const app = express();
+    app.get("/rejects", guardHandler(async () => {
+      throw new Error("boom (async)");
+    }));
+    app.get("/throws", guardHandler(() => {
+      throw new Error("boom (sync)");
+    }));
+    app.get("/late", guardHandler(async (_req, res) => {
+      res.json({ ok: true });
+      throw new Error("boom (after send)");
+    }));
+    app.get("/ok", guardHandler((_req, res) => {
+      res.json({ ok: true });
+    }));
+    const srv = app.listen(0);
+    const origin = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+    try {
+      for (const path of ["/rejects", "/throws"]) {
+        const res = await fetch(`${origin}${path}`);
+        expect(res.status).toBe(500);
+        expect(await res.json()).toEqual({ error: "Internal error" });
+      }
+      expect((await fetch(`${origin}/late`)).status).toBe(200);
+      expect((await fetch(`${origin}/ok`)).status).toBe(200);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+      expect(errors).toHaveBeenCalledTimes(3);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      srv.close();
+      errors.mockRestore();
+    }
   });
 });
 
